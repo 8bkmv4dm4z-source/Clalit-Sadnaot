@@ -1,13 +1,13 @@
 /**
- * EditProfile.jsx
- * Fetch one user by ID (GET /api/users/:id)
- * Update all user fields (PUT /api/users/:id)
+ * EditProfile.jsx — Tailwind Admin Edition
+ * ----------------------------------------
+ * Fetch one user (GET /api/users/:id)
+ * Edit and update all fields (PUT /api/users/:id)
  */
 
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
-// Legacy CSS removed; styling is now provided by Tailwind classes via index.css
 
 export default function EditProfile() {
   const { id } = useParams();
@@ -69,75 +69,143 @@ export default function EditProfile() {
     }
   };
 
-  if (loading) return <p>⏳ טוען נתונים...</p>;
-  if (error) return <p>❌ {error}</p>;
-  if (!form) return <p>❌ לא נמצא משתמש לעריכה.</p>;
+  if (loading)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500 animate-pulse">
+        ⏳ טוען נתונים...
+      </div>
+    );
+  if (error)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-red-500 font-medium">
+        ❌ {error}
+      </div>
+    );
+  if (!form)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-600">
+        ❌ לא נמצא משתמש לעריכה.
+      </div>
+    );
 
+  /* ==================== UI ==================== */
   return (
-    <div className="profile-page">
-      <div className="profile-card">
-        <h2>עריכת פרופיל</h2>
+    <div
+      dir="rtl"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 py-10 px-4"
+    >
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-8 animate-subtle-fade">
+        {/* --- Title --- */}
+        <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center font-[Poppins]">
+          עריכת פרופיל
+        </h2>
 
-        <label>
-          שם מלא:
-          <input value={form.name || ""} onChange={(e) => handleChange("name", e.target.value)} />
-        </label>
+        {/* --- Form --- */}
+        <div className="space-y-4">
+          <label className="block">
+            <span className="text-gray-700 font-medium">שם מלא:</span>
+            <input
+              value={form.name || ""}
+              onChange={(e) => handleChange("name", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        <label>
-          אימייל:
-          <input type="email" value={form.email || ""} onChange={(e) => handleChange("email", e.target.value)} />
-        </label>
+          <label className="block">
+            <span className="text-gray-700 font-medium">אימייל:</span>
+            <input
+              type="email"
+              value={form.email || ""}
+              onChange={(e) => handleChange("email", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        <label>
-          סיסמה חדשה:
-          <input
-            type="password"
-            placeholder="השאר ריק אם לא מעדכן"
-            onChange={(e) => handleChange("password", e.target.value)}
-          />
-        </label>
+          <label className="block">
+            <span className="text-gray-700 font-medium">סיסמה חדשה:</span>
+            <input
+              type="password"
+              placeholder="השאר ריק אם לא מעדכן"
+              onChange={(e) => handleChange("password", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        <label>
-          תאריך לידה:
-          <input type="date" value={form.birthDate || ""} onChange={(e) => handleChange("birthDate", e.target.value)} />
-        </label>
+          <label className="block">
+            <span className="text-gray-700 font-medium">תאריך לידה:</span>
+            <input
+              type="date"
+              value={form.birthDate || ""}
+              onChange={(e) => handleChange("birthDate", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        <label>
-          עיר:
-          <input value={form.city || ""} onChange={(e) => handleChange("city", e.target.value)} />
-        </label>
+          <label className="block">
+            <span className="text-gray-700 font-medium">עיר:</span>
+            <input
+              value={form.city || ""}
+              onChange={(e) => handleChange("city", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        <label>
-          טלפון:
-          <input value={form.phone || ""} onChange={(e) => handleChange("phone", e.target.value)} />
-        </label>
+          <label className="block">
+            <span className="text-gray-700 font-medium">טלפון:</span>
+            <input
+              value={form.phone || ""}
+              onChange={(e) => handleChange("phone", e.target.value)}
+              className="input mt-1"
+            />
+          </label>
 
-        {isAdmin && (
-          <>
-            <label className="checkbox-line">
-              הרשאה לגבייה:
-              <input
-                type="checkbox"
-                checked={!!form.canCharge}
-                onChange={(e) => handleChange("canCharge", e.target.checked)}
-              />
-            </label>
+          {isAdmin && (
+            <>
+              <label className="flex items-center gap-3 text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={!!form.canCharge}
+                  onChange={(e) =>
+                    handleChange("canCharge", e.target.checked)
+                  }
+                  className="w-5 h-5 accent-indigo-600"
+                />
+                הרשאה לגבייה
+              </label>
 
-            <label>
-              תפקיד:
-              <select value={form.role || "user"} onChange={(e) => handleChange("role", e.target.value)}>
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
-            </label>
-          </>
-        )}
+              <label className="block">
+                <span className="text-gray-700 font-medium">תפקיד:</span>
+                <select
+                  value={form.role || "user"}
+                  onChange={(e) => handleChange("role", e.target.value)}
+                  className="input mt-1"
+                >
+                  <option value="user">משתמש</option>
+                  <option value="admin">מנהל</option>
+                </select>
+              </label>
+            </>
+          )}
+        </div>
 
-        <div className="profile-actions">
-          <button onClick={handleSave} disabled={saving}>
+        {/* --- Buttons --- */}
+        <div className="flex justify-between mt-8">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={`btn btn-primary px-6 py-2 ${
+              saving ? "opacity-70 cursor-not-allowed" : ""
+            }`}
+          >
             {saving ? "שומר..." : "💾 שמור"}
           </button>
-          <button onClick={() => navigate("/profiles")}>ביטול</button>
+
+          <button
+            onClick={() => navigate("/profiles")}
+            className="btn btn-secondary px-6 py-2"
+          >
+            ביטול
+          </button>
         </div>
       </div>
     </div>

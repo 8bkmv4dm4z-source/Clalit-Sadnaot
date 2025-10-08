@@ -3,32 +3,45 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 /**
- * 🔒 protect — verifies JWT and attaches user to req.user
+ * 🔒 Middleware: Authenticate user via JWT
  */
-exports.protect = async (req, res, next) => {
+const authenticate = async (req, res, next) => {
   try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ message: "No token" });
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : null;
+
+    if (!token) {
+      return res.status(401).json({ message: "No token provided" });
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).select(
       "-otpCode -otpExpires -otpAttempts"
     );
-    if (!user) return res.status(401).json({ message: "Invalid token" });
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
 
     req.user = user;
     next();
   } catch (err) {
-    console.error("❌ protect middleware error:", err);
-    res.status(401).json({ message: "Unauthorized", error: err.message });
+    console.error("❌ Authentication error:", err.message);
+    return res.status(401).json({ message: "Unauthorized", error: err.message });
   }
 };
 
 /**
- * 🛡️ isAdmin — allows access only for admin users
+ * 🔑 Middleware: Authorize only admins
  */
-exports.isAdmin = (req, res, next) => {
-  if (req.user?.role === "admin") return next();
-  return res.status(403).json({ message: "Admin only" });
+const authorizeAdmin = (req, res, next) => {
+  if (req.user && req.user.role === "admin") {
+    return next();
+  }
+  return res.status(403).json({ message: "Admin access only" });
 };
+
+// ✅ Correct export
+module.exports = { authenticate, authorizeAdmin };

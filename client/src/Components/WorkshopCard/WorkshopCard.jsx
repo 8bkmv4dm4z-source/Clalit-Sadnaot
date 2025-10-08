@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { useAuth } from "../../layouts/AuthLayout";
+import { useWorkshops } from "../../layouts/WorkshopContext";
 
 export default function WorkshopCard({
   _id,
@@ -25,9 +27,13 @@ export default function WorkshopCard({
   searchQuery = "",
 }) {
   const [showFullDesc, setShowFullDesc] = useState(false);
-  const [count, setCount] = useState(participantsCount); // ✅ local live counter
+  const [count, setCount] = useState(participantsCount);
+  const [showFamilyList, setShowFamilyList] = useState(false);
 
-  // עדכון אוטומטי אם נשלף נתון חדש מהשרת
+  const { user } = useAuth();
+  const { registerFamilyMember, fetchWorkshops } = useWorkshops();
+
+  /** 🔄 Sync participants count */
   useEffect(() => {
     setCount(participantsCount);
   }, [participantsCount]);
@@ -35,14 +41,13 @@ export default function WorkshopCard({
   const isFull = maxParticipants > 0 && count >= maxParticipants;
   const canRegister = available && !isFull;
 
-  /** 🔍 Highlight search query inside text */
+  /** 🧩 Highlight helper */
   const highlight = (text = "") => {
     if (!searchQuery.trim()) return text;
     const regex = new RegExp(`(${searchQuery})`, "gi");
-    const parts = text.split(regex);
-    return parts.map((part, i) =>
-      regex.test(part) ? (
-        <mark key={i} className="bg-yellow-200 font-semibold rounded px-1">
+    return text.split(regex).map((part, i) =>
+      part.toLowerCase().startsWith(searchQuery.toLowerCase()) ? (
+        <mark key={i} className="bg-yellow-200 text-black rounded px-1">
           {part}
         </mark>
       ) : (
@@ -51,35 +56,53 @@ export default function WorkshopCard({
     );
   };
 
-  /** ✅ Registration handlers */
+  /** 🔹 Register / Unregister */
   const handleRegister = async () => {
     if (!canRegister) return;
-    try {
-      await onRegister?.(_id);
-      setCount((prev) => prev + 1); // מיידית בצד לקוח
-    } catch (err) {
-      console.error("❌ Register failed:", err);
-    }
+    await onRegister?.(_id);
+    await fetchWorkshops();
   };
 
   const handleUnregister = async () => {
+    await onUnregister?.(_id);
+    await fetchWorkshops();
+  };
+
+  /** 👨‍👩‍👧 Family Register */
+  const handleFamilyRegister = async (familyId) => {
+    console.log("👨‍👩‍👧 [Card] Registering family:", familyId);
     try {
-      await onUnregister?.(_id);
-      setCount((prev) => Math.max(prev - 1, 0)); // הגנה שלא ירד מתחת ל־0
+      await registerFamilyMember(_id, familyId);
+      await fetchWorkshops();
     } catch (err) {
-      console.error("❌ Unregister failed:", err);
+      console.error("❌ [Card] Family register failed:", err);
+    } finally {
+      setTimeout(() => setShowFamilyList(false), 300);
     }
   };
 
+  /** 🧭 Toggle Family List */
+  const toggleFamilyList = () => {
+    console.log("📂 [Card] Toggle family dropdown:", !showFamilyList);
+    setShowFamilyList(!showFamilyList);
+  };
+
+  /** 🧩 Helper — האם בן משפחה כבר רשום */
+  const isFamilyRegistered = (familyId) => {
+    const reg = user?.registeredFamilyWorkshops?.[familyId] || [];
+    return reg.includes(_id);
+  };
+
+  // ------------------ JSX ------------------
   return (
-    <div className="flex flex-col justify-between rounded-2xl border border-gray-200 shadow-lg bg-white overflow-hidden hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">
-      {/* === Image === */}
-      <div className="h-52 relative overflow-hidden">
+    <div className="flex flex-col justify-between rounded-2xl bg-gradient-to-b from-blue-50 to-white border border-blue-100 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden">
+      {/* Image */}
+      <div className="relative h-48 w-full overflow-hidden">
         {image ? (
           <img
             src={image}
             alt={title}
-            className="w-full h-full object-cover transform transition-transform duration-700 hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
           />
         ) : (
           <div className="flex items-center justify-center h-full bg-gray-100 text-gray-400 text-sm">
@@ -87,38 +110,56 @@ export default function WorkshopCard({
           </div>
         )}
         {!available && (
-          <div className="absolute inset-0 bg-gray-800/60 flex items-center justify-center text-white text-lg font-bold">
+          <div className="absolute inset-0 bg-gray-800/70 flex items-center justify-center text-white text-lg font-semibold">
             לא זמינה
           </div>
         )}
       </div>
 
-      {/* === Content === */}
-      <div className="p-5 flex flex-col gap-3">
-        <h3 className="text-xl font-bold text-gray-900 text-center font-[Poppins] leading-tight">
+      {/* Content */}
+      <div className="p-5 flex flex-col gap-4">
+        <h3 className="text-xl font-bold text-blue-800 text-center border-b border-blue-200 pb-2">
           {highlight(title)}
         </h3>
 
-        <div className="text-sm text-gray-700 space-y-1 border-t border-gray-100 pt-3">
-          <p><strong>עיר:</strong> {highlight(city)}</p>
-          <p><strong>יום:</strong> {day}</p>
-          <p><strong>שעה:</strong> {hour}</p>
-          {studio && <p><strong>סטודיו:</strong> {highlight(studio)}</p>}
-          <p><strong>מאמן:</strong> {highlight(coach)}</p>
-          <p>
-            <strong>משתתפים:</strong>{" "}
-            <span className="font-semibold">
-              {count}/{maxParticipants}
-            </span>
-          </p>
-          <p>
-            <strong>מחיר:</strong>{" "}
-            <span className="text-indigo-700 font-semibold">{price} ₪</span>
-          </p>
+        {/* Info */}
+        <div className="space-y-2">
+          {[
+            { label: "עיר", value: city },
+            { label: "יום", value: day },
+            { label: "שעה", value: hour },
+            studio && { label: "סטודיו", value: studio },
+            { label: "מאמן", value: coach },
+            {
+              label: "משתתפים",
+              value: `${count}/${maxParticipants || "∞"}`,
+              color: isFull ? "text-red-500" : "text-blue-700",
+            },
+            {
+              label: "מחיר",
+              value: `${price} ₪`,
+              color: "text-blue-700 font-semibold",
+            },
+          ]
+            .filter(Boolean)
+            .map(({ label, value, color }, i) => (
+              <div
+                key={i}
+                className="flex justify-between items-center bg-blue-50/40 border border-blue-100 rounded-lg px-3 py-2"
+              >
+                <span className="font-medium text-gray-700">{label}:</span>
+                <span
+                  className={`text-sm font-medium ${color || "text-gray-700"}`}
+                >
+                  {highlight(value)}
+                </span>
+              </div>
+            ))}
         </div>
 
+        {/* Description */}
         {description && (
-          <div className="text-sm text-gray-600 mt-3">
+          <div className="flex text-sm text-gray-900 mt-2 border-t border-blue-200 pt-3 leading-relaxed">
             <p className={showFullDesc ? "" : "line-clamp-3"}>
               {highlight(description)}
             </p>
@@ -133,14 +174,14 @@ export default function WorkshopCard({
           </div>
         )}
 
-        {/* === Buttons === */}
+        {/* Actions */}
         <div className="mt-4 flex flex-col gap-2">
           {isLoggedIn && (
             <>
               {isRegistered ? (
                 <button
                   onClick={handleUnregister}
-                  className="w-full py-2 rounded-xl bg-yellow-400 text-gray-900 font-semibold hover:bg-yellow-500 transition"
+                  className="w-full py-2 rounded-lg bg-yellow-400 text-gray-900 font-semibold shadow hover:bg-yellow-500 transition-all"
                 >
                   בטל הרשמה
                 </button>
@@ -148,35 +189,80 @@ export default function WorkshopCard({
                 <button
                   onClick={handleRegister}
                   disabled={!canRegister}
-                  className={`w-full py-2 rounded-xl font-semibold text-white transition ${
+                  className={`w-full py-2 rounded-lg font-semibold text-white shadow transition-all ${
                     canRegister
-                      ? "bg-green-600 hover:bg-green-700"
+                      ? "bg-blue-600 hover:bg-blue-700"
                       : "bg-gray-300 cursor-not-allowed"
                   }`}
                 >
                   {canRegister ? "הירשם" : "מלאה"}
                 </button>
               )}
+
+              {/* Family registration toggle */}
+              {user?.familyMembers?.length > 0 && (
+                <div className="relative w-full">
+                  <button
+                    onClick={toggleFamilyList}
+                    className={`w-full mt-2 py-2 rounded-lg font-medium transition ${
+                      showFamilyList
+                        ? "bg-red-100 hover:bg-red-200 text-red-700"
+                        : "bg-indigo-100 hover:bg-indigo-200 text-indigo-700"
+                    }`}
+                  >
+                    {showFamilyList
+                      ? "❌ סגור רשימת משפחה"
+                      : "👨‍👩‍👧 הירשם בן משפחה"}
+                  </button>
+
+                  {showFamilyList && (
+                    <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-xl shadow-md mt-2 overflow-hidden animate-fadeIn">
+                      {user.familyMembers.map((m) => (
+                        <div
+                          key={m._id}
+                          onClick={() =>
+                            !isFamilyRegistered(m._id) &&
+                            handleFamilyRegister(m._id)
+                          }
+                          className={`px-4 py-2 text-right cursor-pointer text-sm flex justify-between items-center ${
+                            isFamilyRegistered(m._id)
+                              ? "bg-green-50 text-green-600 cursor-not-allowed"
+                              : "hover:bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          <span>
+                            {m.name} ({m.relation})
+                          </span>
+                          {isFamilyRegistered(m._id) && (
+                            <span className="text-xs">✅ רשום</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
+          {/* Admin controls */}
           {isAdmin && (
-            <div className="flex flex-wrap justify-center gap-2 border-t border-gray-100 pt-2">
+            <div className="flex flex-wrap justify-center gap-2 border-t border-gray-100 pt-3 mt-2">
               <button
                 onClick={() => onEditWorkshop?.(_id)}
-                className="flex-1 py-2 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                className="flex-1 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-all"
               >
                 ערוך
               </button>
               <button
                 onClick={() => onManageParticipants?.(_id)}
-                className="flex-1 py-2 rounded-xl bg-orange-400 text-white font-medium hover:bg-orange-500"
+                className="flex-1 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-all"
               >
                 משתתפים
               </button>
               <button
                 onClick={() => onDeleteWorkshop?.(_id)}
-                className="flex-1 py-2 rounded-xl bg-red-600 text-white font-medium hover:bg-red-700"
+                className="flex-1 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-all"
               >
                 מחק
               </button>

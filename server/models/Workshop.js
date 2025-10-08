@@ -1,4 +1,4 @@
-// models/Workshop.js
+// server/models/Workshop.js
 const mongoose = require("mongoose");
 
 /**
@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
  * ----------------------------------
  * - Tracks participants and max capacity
  * - Automatically updates participantsCount on save
+ * - Includes familyRegistrations with full details snapshot
  */
 const WorkshopSchema = new mongoose.Schema(
   {
@@ -23,7 +24,23 @@ const WorkshopSchema = new mongoose.Schema(
     image: { type: String, default: "" },
 
     /** ✅ Participants management */
+    // Users who are registered directly as participants
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    // ✅ Family member registrations — full snapshot for reports/UI
+    familyRegistrations: [
+      {
+        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        name: { type: String, required: true },
+        relation: { type: String, default: "" },
+        idNumber: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        birthDate: { type: String, default: "" },
+      },
+    ],
+
+    // Total count of participants including family members.
     participantsCount: { type: Number, default: 0 },
 
     /** ✅ Capacity control */
@@ -36,7 +53,13 @@ const WorkshopSchema = new mongoose.Schema(
    ✅ Middleware — Auto update participantsCount on save
    ============================================================ */
 WorkshopSchema.pre("save", function (next) {
-  this.participantsCount = this.participants.length;
+  const familyCount = Array.isArray(this.familyRegistrations)
+    ? this.familyRegistrations.length
+    : 0;
+  const directCount = Array.isArray(this.participants)
+    ? this.participants.length
+    : 0;
+  this.participantsCount = directCount + familyCount;
   next();
 });
 
@@ -44,8 +67,10 @@ WorkshopSchema.pre("save", function (next) {
    ✅ Helper method — Check capacity before adding
    ============================================================ */
 WorkshopSchema.methods.canAddParticipant = function () {
-  if (this.maxParticipants === 0) return true; // unlimited
-  return this.participants.length < this.maxParticipants;
+  if (this.maxParticipants === 0) return true; // unlimited capacity
+  const current =
+    (this.participants?.length || 0) + (this.familyRegistrations?.length || 0);
+  return current < this.maxParticipants;
 };
 
 module.exports = mongoose.model("Workshop", WorkshopSchema);

@@ -1,19 +1,5 @@
-/**
- * Header.jsx — Two Separate Buttons (All / My Workshops)
- * -------------------------------------------------------
- * - Displays two distinct buttons: "כל הסדנאות" and "הסדנאות שלי".
- * - Each updates viewMode separately and refreshes displayed workshops.
- * - Fully styled with Tailwind.
- * - Admin button "צור סדנה חדשה" opens EditWorkshop in create mode.
- */
-
 import React, { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import MyWorkshopsIcon from "../Icons/MyWorkshopsIcon.jsx";
-import ProfileIcon from "../Icons/ProfileIcon.jsx";
-import LogoutIcon from "../Icons/LogoutIcon.jsx";
-import WorkshopsIcon from "../Icons/WorkshopsIcon.jsx";
-import UsersIcon from "../Icons/UsersIcon.jsx";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 
@@ -24,22 +10,14 @@ export default function Header() {
   const { isAdmin, setIsAdmin, setIsLoggedIn } = useAuth();
   const { viewMode, setViewMode } = useWorkshops();
 
-  // --- Scroll shadow effect ---
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 4);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // --- Classes ---
-  const linkBase =
-    "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all hover:scale-105";
-  const linkActive = "text-indigo-700 bg-indigo-50";
-  const linkIdle = "text-gray-700 hover:bg-gray-50";
-
   const isActive = (to) => location.pathname.startsWith(to);
 
-  // --- Logout handler ---
   const handleLogout = () => {
     localStorage.removeItem("token");
     setIsLoggedIn(false);
@@ -47,25 +25,30 @@ export default function Header() {
     navigate("/login");
   };
 
-  // --- Render ---
+  const linkBase =
+    "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200";
+  const linkActive =
+    "bg-white/90 text-blue-800 shadow-sm";
+  const linkIdle =
+    "text-white/90 hover:bg-white/20 hover:text-white";
+
   return (
     <header
-      className={`${
-        isScrolled ? "backdrop-blur bg-white/85 shadow-sm" : "bg-white"
-      } sticky top-0 z-40 border-b border-gray-200`}
+      className={`sticky top-0 z-40 transition-all duration-300 ${
+        isScrolled
+          ? "backdrop-blur bg-gradient-to-r from-blue-500/90 via-blue-600/90 to-blue-500/90 shadow-md"
+          : "bg-gradient-to-r from-blue-500 via-blue-600 to-blue-500"
+      } text-white`}
     >
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        {/* Left side: Brand / Logo */}
+      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <button
           onClick={() => navigate("/")}
-          className="text-base font-heading font-semibold text-gray-900 hover:text-indigo-700 transition"
+          className="text-xl font-bold tracking-tight text-white drop-shadow-sm hover:scale-[1.03] transition-transform"
         >
-          Clalit Workshops
+          כללית סדנאות
         </button>
 
-        {/* Right side: navigation links */}
-        <div className="flex items-center gap-2">
-          {/* All Workshops */}
+        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               setViewMode("all");
@@ -78,11 +61,9 @@ export default function Header() {
                 : linkIdle
             }`}
           >
-            <WorkshopsIcon />
             <span>כל הסדנאות</span>
           </button>
 
-          {/* My Workshops */}
           <button
             onClick={() => {
               setViewMode("mine");
@@ -95,53 +76,44 @@ export default function Header() {
                 : linkIdle
             }`}
           >
-            <MyWorkshopsIcon />
             <span>הסדנאות שלי</span>
           </button>
 
-          {/* Profile */}
           <NavLink
             to="/profile"
             className={`${linkBase} ${
               isActive("/profile") ? linkActive : linkIdle
             }`}
           >
-            <ProfileIcon />
             <span>פרופיל</span>
           </NavLink>
 
-          {/* Admin links */}
           {isAdmin && (
             <>
               <NavLink
-                to="/admin/users"
+                to="profiles"
                 className={`${linkBase} ${
                   isActive("/admin") ? linkActive : linkIdle
                 }`}
               >
-                <UsersIcon />
                 <span>ניהול משתמשים</span>
               </NavLink>
-
-              {/* Create New Workshop (always new mode) */}
               <button
                 onClick={() => {
-                  localStorage.removeItem("editingWorkshopId"); // Clean previous edit state if any
-                  navigate("/editworkshop"); // Opens create mode
+                  localStorage.removeItem("editingWorkshopId");
+                  navigate("/editworkshop");
                 }}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-indigo-700 hover:scale-105"
+                className="btn btn-primary text-sm px-4 py-2 shadow-sm hover:scale-[1.03]"
               >
                 ➕ צור סדנה חדשה
               </button>
             </>
           )}
 
-          {/* Logout */}
           <button
             onClick={handleLogout}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all"
+            className="btn btn-outline px-4 py-2 ml-1"
           >
-            <LogoutIcon />
             <span>התנתקות</span>
           </button>
         </div>

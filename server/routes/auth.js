@@ -11,7 +11,20 @@ const {
   recoverPassword,
   resetPassword,
 } = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddleware");
+
+console.log("🧩 AUTH CONTROLLER:", {
+  registerUser,
+  loginUser,
+  sendOtp,
+  verifyOtp,
+  getUserProfile,
+  updatePassword,
+  recoverPassword,
+  resetPassword,
+});
+
+const { authenticate } = require("../middleware/authMiddleware");
+console.log("🧩 AUTH MIDDLEWARE:", { authenticate });
 
 // Registration & login
 router.post("/register", registerUser);
@@ -26,9 +39,9 @@ router.post("/recover", recoverPassword);
 router.post("/reset", resetPassword);
 
 // Profile
-router.get("/me", protect, getUserProfile);
+router.get("/me", authenticate, getUserProfile);
 
 // Password update (requires login)
-router.put("/password", protect, updatePassword);
+router.put("/password", authenticate, updatePassword);
 
 module.exports = router;

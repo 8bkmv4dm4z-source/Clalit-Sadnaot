@@ -53,7 +53,7 @@ export default function Register() {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-rose-50 to-orange-50 p-8 flex items-center justify-center"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 p-8"
       dir="rtl"
     >
       <form

@@ -1,58 +1,38 @@
-/**
- * Home.jsx
- * Path: src/pages/Home/Home.jsx
- * Role: Page route (screen) component.
- *
- * Component: Home
- * Summary:
- * - Provides the main responsibilities of this module.
- * - Comments are written in English only.
- * - Logic is unchanged; documentation and structure notes were added.
- * Sections:
- * - Imports
- * - State & Context
- * - Derived data (memoized computations)
- * - Event handlers (navigation, form, filters)
- * - Render (JSX structure)
- * Data flow:
- * - Props -> local hooks -> derived values -> UI.
- * - Context (if used) is read-only here unless setter functions are invoked.
- * Props:
- * (No explicit props or destructured props detected.)
- */
-
 import React from "react";
 import { NavLink } from "react-router-dom";
-// Legacy CSS removed; styling is now provided by Tailwind classes via index.css
 
-// --- State, context & derived data below ---
-
-function Home() {
-  // --- Render ---
-return (
-    <aside className="home-sidebar">
-      <h2>כללית סדנאות</h2>
-      <nav>
-        <ul>
-          <li>
-            <NavLink to="/workshops" className="nav-link">
-              כל הסדנאות
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/login" className="nav-link">
-              התחברות
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/register" className="nav-link">
-              הרשמה
-            </NavLink>
-          </li>
+export default function Home() {
+  return (
+    <aside
+      dir="rtl"
+      className="fixed top-0 right-0 h-screen w-64 bg-gradient-to-b from-blue-600 to-blue-400 text-white flex flex-col shadow-lg"
+    >
+      <div className="px-6 py-8 border-b border-blue-500 text-center">
+        <h2 className="text-2xl font-bold tracking-wide">כללית סדנאות</h2>
+      </div>
+      <nav className="flex-1 px-4 py-6">
+        <ul className="space-y-3">
+          {['/workshops','/login','/register'].map((to, idx) => (
+            <li key={to}>
+              <NavLink
+                to={to}
+                className={({ isActive }) =>
+                  `block rounded-lg px-4 py-2 text-white font-medium transition-all duration-200 ${
+                    isActive
+                      ? "bg-white text-blue-700 font-semibold shadow-sm ring-2 ring-white/60"
+                      : "hover:bg-blue-300 hover:text-blue-900"
+                  }`
+                }
+              >
+                {idx===0 ? "כל הסדנאות" : idx===1 ? "התחברות" : "הרשמה"}
+              </NavLink>
+            </li>
+          ))}
         </ul>
       </nav>
+      <footer className="px-6 py-4 border-t border-blue-500 text-sm text-blue-100 text-center">
+        © {new Date().getFullYear()} כללית סדנאות
+      </footer>
     </aside>
   );
 }
-
-export default Home;

@@ -1,87 +1,100 @@
-/**
- * Workshops.jsx — Unified All/Mine Display (Enhanced)
- * ---------------------------------------------------
- * - Supports auto detection of user's registered workshops from backend.
- * - Correctly updates "הרשם / בטל הרשמה" buttons.
- * - Controlled via viewMode in WorkshopsContext.
- */
-
 import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import WorkshopCard from "../../Components/WorkshopCard";
-import WorkshopParticipantsModal from "../../Components/WorkshopParticipantsModal";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import WorkshopCard from "../../Components/WorkshopCard";
+import WorkshopParticipantsModal from "../../Components/WorkshopParticipantsModal";
+
+/**
+ * Workshops.jsx — Unified Logic + Debug Logs
+ * -----------------------------------------
+ * Added detailed console logs for debugging:
+ * - Fetching data
+ * - Register/unregister flows
+ * - Modal behavior
+ * - Search & filter logic
+ */
 
 export default function Workshops() {
   const navigate = useNavigate();
-  const [selectedWorkshop, setSelectedWorkshop] = useState(null);
 
+  /** 🧩 Local UI States */
+  const [searchBy, setSearchBy] = useState("all");
+  const [selectedWorkshop, setSelectedWorkshop] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+
+  /** 🧠 Global Contexts */
   const { isLoggedIn, isAdmin, user, searchQuery, setSearchQuery } = useAuth();
   const {
     displayedWorkshops,
     registeredWorkshopIds,
     setRegisteredWorkshopIds,
-    setWorkshops,
     fetchWorkshops,
     loading,
     error,
     viewMode,
   } = useWorkshops();
 
-  const [searchBy, setSearchBy] = useState("all");
-
-  // === Fetch workshops (only in "all" mode) ===
+  /** 🔹 Fetch workshops once (and whenever mode changes) */
   useEffect(() => {
-    const load = async () => {
-      if (viewMode === "mine") return;
-      const params = { q: searchQuery, field: searchBy };
-      await fetchWorkshops(params);
-    };
-    load();
-  }, [searchQuery, searchBy, viewMode]);
+    console.log("🔄 [Workshops] Fetching workshops for mode:", viewMode);
+    fetchWorkshops();
+  }, [viewMode]);
 
-  // ✅ Fetch user registered workshops once logged in
+  /** 🔹 Load registered workshops for logged-in users */
   useEffect(() => {
     const fetchRegistered = async () => {
+      console.log("👤 [Workshops] Checking registered workshops. Logged in?", isLoggedIn);
       if (!isLoggedIn) {
-        setRegisteredWorkshopIds([]);
-        return;
+        console.log("⚠️ [Workshops] Not logged in → clearing registeredWorkshopIds");
+        return setRegisteredWorkshopIds([]);
       }
       try {
         const token = localStorage.getItem("token");
+        console.log("🔑 [Workshops] Using token:", !!token);
         const res = await fetch("/api/workshops/registered", {
           headers: { Authorization: `Bearer ${token}` },
         });
+        console.log("📡 [Workshops] /api/workshops/registered status:", res.status);
         const data = await res.json();
+        console.log("📦 [Workshops] Registered workshops response:", data);
         if (!res.ok) throw new Error(data.message || "Failed to load registrations");
         setRegisteredWorkshopIds(Array.isArray(data) ? data : []);
+        console.log("✅ [Workshops] Registered workshop IDs set:", data);
       } catch (err) {
-        console.error("❌ Error fetching registered workshops:", err);
+        console.error("❌ [Workshops] Error fetching registered workshops:", err);
       }
     };
     fetchRegistered();
   }, [isLoggedIn]);
 
-  // === Handle search input ===
-  const handleSearch = (e) => setSearchQuery(e.target.value);
+  /** 🔍 Search input handler */
+  const handleSearch = (e) => {
+    console.log("🔍 [Workshops] Search changed:", e.target.value);
+    setSearchQuery(e.target.value);
+  };
 
-  // === Filter logic ===
+  /** 🔹 Filter logic (local only) */
   const filteredWorkshops = useMemo(() => {
+    console.log("🧮 [Workshops] Filtering workshops...");
     if (!displayedWorkshops) return [];
 
-    // Case: "mine" view — show only user's workshops
+    // When viewing "mine", only show registered workshops
     if (viewMode === "mine" && user?._id) {
-      return displayedWorkshops.filter((w) =>
-        registeredWorkshopIds.includes(w._id)
-      );
+      console.log("🧾 [Workshops] Showing only registered workshops");
+      return displayedWorkshops.filter((w) => registeredWorkshopIds.includes(w._id));
     }
 
-    // Case: "all" view — apply search
-    if (!searchQuery.trim()) return displayedWorkshops;
-    const query = searchQuery.trim().toLowerCase();
+    // No search => show all
+    if (!searchQuery.trim()) {
+      console.log("✨ [Workshops] No search query → showing all workshops");
+      return displayedWorkshops;
+    }
 
-    return displayedWorkshops.filter((w) => {
+    const q = searchQuery.trim().toLowerCase();
+    console.log("🔎 [Workshops] Filtering by query:", q, "and field:", searchBy);
+
+    const filtered = displayedWorkshops.filter((w) => {
       const fields =
         searchBy === "all"
           ? [
@@ -100,12 +113,16 @@ export default function Workshops() {
       return fields
         .filter(Boolean)
         .map((s) => s.toString().toLowerCase())
-        .some((f) => f.startsWith(query));
+        .some((f) => f.startsWith(q));
     });
+
+    console.log("✅ [Workshops] Filtered workshops count:", filtered.length);
+    return filtered;
   }, [displayedWorkshops, searchQuery, searchBy, viewMode, registeredWorkshopIds]);
 
-  // === Actions ===
+  /** 🔹 Registration Handlers */
   const handleRegister = async (id) => {
+    console.log("📝 [Workshops] Register clicked for workshop ID:", id);
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`/api/workshops/${id}/register`, {
@@ -115,17 +132,24 @@ export default function Workshops() {
           Authorization: `Bearer ${token}`,
         },
       });
+      console.log("📡 [Workshops] POST /register status:", res.status);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Registration error");
+      console.log("📦 [Workshops] Register response:", data);
+      if (!res.ok) throw new Error(data.message || "Registration failed");
       setRegisteredWorkshopIds((prev) => [...prev, id]);
-      alert("✅ נרשמת בהצלחה לסדנה!");
+      await fetchWorkshops();
+      console.log("✅ [Workshops] Registration complete, workshops refetched");
+      setFeedback("✅ נרשמת בהצלחה לסדנה!");
     } catch (err) {
-      console.error("❌ Register error:", err);
-      alert("❌ שגיאה בהרשמה לסדנה");
+      console.error("❌ [Workshops] Register error:", err);
+      setFeedback("❌ שגיאה בהרשמה לסדנה");
+    } finally {
+      setTimeout(() => setFeedback(null), 2500);
     }
   };
 
   const handleUnregister = async (id) => {
+    console.log("🚫 [Workshops] Unregister clicked for workshop ID:", id);
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`/api/workshops/${id}/unregister`, {
@@ -135,45 +159,56 @@ export default function Workshops() {
           Authorization: `Bearer ${token}`,
         },
       });
+      console.log("📡 [Workshops] POST /unregister status:", res.status);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Unregister error");
+      console.log("📦 [Workshops] Unregister response:", data);
+      if (!res.ok) throw new Error(data.message || "Unregister failed");
       setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
-      alert("✅ ההרשמה בוטלה בהצלחה");
+      await fetchWorkshops();
+      console.log("✅ [Workshops] Unregister complete, workshops refetched");
+      setFeedback("✅ ההרשמה בוטלה בהצלחה");
     } catch (err) {
-      console.error("❌ Unregister error:", err);
-      alert("❌ שגיאה בביטול ההרשמה");
+      console.error("❌ [Workshops] Unregister error:", err);
+      setFeedback("❌ שגיאה בביטול ההרשמה");
+    } finally {
+      setTimeout(() => setFeedback(null), 2500);
     }
   };
 
-  const handleDeleteWorkshop = async (id) => {
-    if (!window.confirm("למחוק את הסדנה לצמיתות?")) return;
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/workshops/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Delete error");
-      setWorkshops((prev) => prev.filter((w) => w._id !== id));
-    } catch (err) {
-      console.error("❌ Delete error:", err);
-      alert("❌ שגיאה במחיקת הסדנה");
-    }
-  };
-
+  /** 👥 Admin: open participants modal */
   const handleManageParticipants = (id) => {
+    console.log("👥 [Workshops] Opening participants modal for:", id);
     const found = displayedWorkshops.find((w) => w._id === id);
-    if (found) setSelectedWorkshop(found);
+    if (found) {
+      console.log("✅ [Workshops] Found workshop:", found.title);
+      setSelectedWorkshop(found);
+    } else {
+      console.warn("⚠️ [Workshops] Workshop not found for modal");
+    }
   };
 
-  const handleEditWorkshop = (id) => navigate(`/editworkshop/${id}`);
+  /** 🧭 Admin: navigate to edit */
+  const handleEditWorkshop = (id) => {
+    console.log("✏️ [Workshops] Navigating to edit:", id);
+    navigate(`/editworkshop/${id}`);
+  };
 
-  // === Render ===
+  /** 🧹 Close modal safely */
+  const handleModalClose = async () => {
+    console.log("❎ [Workshops] Closing modal");
+    setSelectedWorkshop(null);
+    await fetchWorkshops();
+    console.log("🔁 [Workshops] Workshops refreshed after modal close");
+  };
+
+  // -------------------- JSX --------------------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 to-orange-50 p-6 md:p-10" dir="rtl">
-      {/* Header */}
+    <div
+      className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 p-6 md:p-10"
+      dir="rtl"
+    >
       <div className="max-w-6xl mx-auto mb-6 text-center">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-2 font-[Poppins]">
+        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
           {viewMode === "mine" ? "הסדנאות שלי" : "כלל הסדנאות"}
         </h2>
         <p className="text-gray-600 text-sm md:text-base">
@@ -183,12 +218,15 @@ export default function Workshops() {
         </p>
       </div>
 
-      {/* Search Bar (only in all mode) */}
+      {/* 🔍 Filters */}
       {viewMode === "all" && (
         <div className="max-w-6xl mx-auto bg-white/90 backdrop-blur border border-gray-200 shadow-md rounded-2xl p-5 flex flex-wrap justify-center items-center gap-3">
           <select
             value={searchBy}
-            onChange={(e) => setSearchBy(e.target.value)}
+            onChange={(e) => {
+              console.log("📂 [Workshops] Search field changed:", e.target.value);
+              setSearchBy(e.target.value);
+            }}
             className="px-3 py-2 rounded-xl border border-gray-300 bg-white text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500"
           >
             <option value="all">חפש בכל</option>
@@ -210,20 +248,43 @@ export default function Workshops() {
               onChange={handleSearch}
               className="w-64 pl-10 pr-4 py-2 rounded-xl border border-gray-300 bg-gray-50 text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
             />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
+              🔍
+            </span>
           </div>
         </div>
       )}
 
-      {/* Workshops Grid */}
+      {/* Feedback message */}
+      {feedback && (
+        <div className="max-w-6xl mx-auto text-center mt-4">
+          <p
+            className={`inline-block px-4 py-2 rounded-xl text-sm ${
+              feedback.startsWith("✅")
+                ? "bg-green-100 text-green-700"
+                : "bg-red-100 text-red-700"
+            }`}
+          >
+            {feedback}
+          </p>
+        </div>
+      )}
+
+      {/* 🔹 Workshops Grid */}
       <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto mt-10">
         {loading ? (
-          <p className="text-center text-gray-500 mt-10 animate-pulse">⏳ טוען סדנאות...</p>
+          <p className="text-center text-gray-500 mt-10 animate-pulse">
+            ⏳ טוען סדנאות...
+          </p>
         ) : error ? (
-          <p className="text-center text-red-500 font-medium mt-10">❌ {error}</p>
+          <p className="text-center text-red-500 font-medium mt-10">
+            ❌ {error}
+          </p>
         ) : filteredWorkshops.length === 0 ? (
           <p className="text-center text-gray-600 mt-10">
-            {viewMode === "mine" ? "לא נמצאו סדנאות רשומות." : "לא נמצאו סדנאות תואמות."}
+            {viewMode === "mine"
+              ? "לא נמצאו סדנאות רשומות."
+              : "לא נמצאו סדנאות תואמות."}
           </p>
         ) : (
           filteredWorkshops.map((w, idx) => (
@@ -239,7 +300,6 @@ export default function Workshops() {
                 isRegistered={registeredWorkshopIds.includes(w._id)}
                 onRegister={() => handleRegister(w._id)}
                 onUnregister={() => handleUnregister(w._id)}
-                onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
                 onManageParticipants={() => handleManageParticipants(w._id)}
                 onEditWorkshop={() => handleEditWorkshop(w._id)}
                 searchQuery={searchQuery}
@@ -249,12 +309,11 @@ export default function Workshops() {
         )}
       </div>
 
-      {/* Participants Modal */}
+      {/* 👥 Participants Modal */}
       {selectedWorkshop && (
         <WorkshopParticipantsModal
           workshop={selectedWorkshop}
-          onClose={() => setSelectedWorkshop(null)}
-          onEditWorkshop={() => handleEditWorkshop(selectedWorkshop._id)}
+          onClose={handleModalClose}
         />
       )}
     </div>

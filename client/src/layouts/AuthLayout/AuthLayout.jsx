@@ -34,39 +34,38 @@ export const AuthProvider = ({ children }) => {
    * ✅ מביא את פרטי המשתמש דרך /api/auth/me
    * ======================================================= */
   const fetchMe = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-      return;
-    }
+  const token = localStorage.getItem("token");
+  if (!token) {
+    setUser(null);
+    setIsLoggedIn(false);
+    setIsAdmin(false);
+    return;
+  }
 
-    try {
-      const res = await fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+  try {
+    const res = await fetch("/api/users/me", { // ✅ שונה מ־auth ל־users
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-      if (res.ok) {
-        const userData = await res.json();
-        setUser(userData); // ✅ נשמר ה-user המלא
-        setIsAdmin(userData?.role === "admin");
-        setIsLoggedIn(true);
-      } else {
-        localStorage.removeItem("token");
-        setUser(null);
-        setIsLoggedIn(false);
-        setIsAdmin(false);
-      }
-    } catch (err) {
-      console.error("❌ Error verifying user:", err);
+    if (res.ok) {
+      const userData = await res.json();
+      setUser(userData); // ✅ שומר את כל פרטי המשתמש
+      setIsAdmin(userData?.role === "admin");
+      setIsLoggedIn(true);
+    } else {
       localStorage.removeItem("token");
       setUser(null);
       setIsLoggedIn(false);
       setIsAdmin(false);
     }
-  };
-
+  } catch (err) {
+    console.error("❌ Error verifying user:", err);
+    localStorage.removeItem("token");
+    setUser(null);
+    setIsLoggedIn(false);
+    setIsAdmin(false);
+  }
+};
   /* =======================================================
    * ✅ נטען פעם אחת בתחילת האפליקציה
    * ======================================================= */
@@ -162,6 +161,49 @@ export const AuthProvider = ({ children }) => {
     if (token) localStorage.setItem("token", token);
     await fetchMe(); // ✅ יביא שוב את פרטי המשתמש המלאים
   };
+    /* =======================================================
+   * ✅ עדכון פרופיל משתמש מחובר
+   * ======================================================= */
+  const updateProfile = async (updates) => {
+  try {
+    const token = localStorage.getItem("token");
+    if (!token) throw new Error("Missing token");
+
+    const bodyData = {
+      ...updates,
+      familyMembers: updates.familyMembers || [],
+    };
+
+    const res = await fetch("/api/profile/edit", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(bodyData),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Profile update failed");
+
+    // 🟢 נבדוק אם הנתונים מגיעים כ- {user: {...}}
+    const updatedUser = data.user || data;
+
+    setUser((prev) => ({
+      ...prev,
+      ...updatedUser,
+      familyMembers: updatedUser.familyMembers || prev.familyMembers || [],
+    }));
+
+    return { success: true, data: updatedUser };
+  } catch (err) {
+    console.error("❌ updateProfile error:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+
+
 
   /* =======================================================
    * 🔹 חשיפת הקונטקסט לכל האפליקציה
@@ -185,6 +227,7 @@ export const AuthProvider = ({ children }) => {
         registerUser,
         sendOtp,
         verifyOtp,
+        updateProfile, // ✅ חדש
       }}
     >
       {children}

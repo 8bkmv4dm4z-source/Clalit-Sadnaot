@@ -1,4 +1,5 @@
 const Workshop = require("../models/Workshop");
+const User = require("../models/User");
 
 /**
  * ============================================================
@@ -204,7 +205,15 @@ exports.getRegisteredWorkshopIds = async (req, res) => {
     const userId = req.user._id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    const workshops = await Workshop.find({ participants: userId }).select("_id");
+    // Find workshops where the user is either a direct participant or has
+    // registered a family member.  We need to search both the
+    // `participants` array and the `familyRegistrations.parentUser` field.
+    const workshops = await Workshop.find({
+      $or: [
+        { participants: userId },
+        { "familyRegistrations.parentUser": userId },
+      ],
+    }).select("_id");
     const ids = workshops.map((w) => w._id.toString());
     res.json(ids);
   } catch (err) {
@@ -397,6 +406,160 @@ exports.updateParticipantsArray = async (req, res) => {
   }
 };
 
+/* ============================================================
+   👨‍👩‍👧‍👦 Family Registrations
+   ============================================================ */
+
+/**
+ * POST /api/workshops/:id/family/:familyId
+ *
+ * Registers a specific family member for a workshop.  The `familyId`
+ * corresponds to the ObjectId of the family member in the parent user
+ * document.  The authenticated user must own the family member (unless
+ * an admin is making the request).  This method updates the
+ * `familyRegistrations` array on the workshop and recalculates the
+ * participantsCount.
+ */
+// בתוך workshopController.js
+
+exports.addFamilyMemberToWorkshop = async (req, res) => {
+  try {
+    const { id, familyId } = req.params;
+
+    console.log("👨‍👩‍👧 addFamilyMemberToWorkshop called with:", { id, familyId });
+
+    const workshop = await Workshop.findById(id);
+    if (!workshop) {
+      console.warn("⚠️ Workshop not found:", id);
+      return res.status(404).json({ message: "Workshop not found" });
+    }
+
+    // מציאת ההורה (המשתמש המחובר)
+    const parent = await User.findById(req.user._id);
+    if (!parent) {
+      console.warn("⚠️ Parent user not found:", req.user._id);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // מאפשר לאדמין להוסיף בן משפחה של משתמש אחר (אם נשלח parentUserId)
+    const targetParentId = req.body.parentUserId || parent._id.toString();
+    let targetParent = parent;
+
+    if (req.body.parentUserId && req.user.role === "admin") {
+      targetParent = await User.findById(req.body.parentUserId);
+      if (!targetParent) {
+        console.warn("⚠️ Parent user not found for admin:", req.body.parentUserId);
+        return res.status(404).json({ message: "Parent user not found" });
+      }
+    }
+
+    // מציאת בן המשפחה לפי ה־familyId
+    const famMember = targetParent.familyMembers.id(familyId);
+    if (!famMember) {
+      console.warn("⚠️ Family member not found:", familyId);
+      return res.status(404).json({ message: "Family member not found" });
+    }
+
+    // מניעת כפילות
+    const exists = workshop.familyRegistrations.some(
+      (fr) => fr.familyMemberId.toString() === familyId.toString()
+    );
+    if (exists) {
+      console.warn("⚠️ Family member already registered:", familyId);
+      return res
+        .status(400)
+        .json({ message: "Family member already registered" });
+    }
+
+    // בדיקת מקום
+    if (
+      workshop.maxParticipants > 0 &&
+      workshop.participants.length + workshop.familyRegistrations.length >=
+        workshop.maxParticipants
+    ) {
+      console.warn("🚫 Workshop is full");
+      return res.status(400).json({ message: "Workshop is full" });
+    }
+
+    // ✅ שמירת בן המשפחה עם כל הנתונים הרלוונטיים (snapshot)
+    const snapshot = {
+      parentUser: targetParent._id,
+      familyMemberId: famMember._id,
+      name: famMember.name,
+      relation: famMember.relation,
+      phone: famMember.phone || "",
+      birthDate: famMember.birthDate || "",
+      idNumber: famMember.idNumber || "",
+    };
+
+    workshop.familyRegistrations.push(snapshot);
+
+    // עדכון מונה משתתפים כולל בני משפחה
+    workshop.participantsCount =
+      workshop.participants.length + workshop.familyRegistrations.length;
+
+    await workshop.save();
+
+    const updated = await Workshop.findById(id)
+      .populate("participants", "name email")
+      .populate("familyRegistrations.parentUser", "name email");
+
+    console.log("✅ Family member added:", snapshot);
+
+    res.status(201).json({
+      message: "Family member added to workshop",
+      workshop: updated,
+    });
+  } catch (err) {
+    console.error("❌ addFamilyMemberToWorkshop error:", err);
+    res
+      .status(500)
+      .json({ message: "Failed to add family member to workshop" });
+  }
+};
+
+
+
+
+/**
+ * DELETE /api/workshops/:id/family/:familyId
+ *
+ * Removes a family member registration from a workshop.  The caller
+ * must either be an admin or the owner (parent) of the family member.
+ */
+exports.removeFamilyMemberFromWorkshop = async (req, res) => {
+  try {
+    const { id, familyId } = req.params;
+    const workshop = await Workshop.findById(id);
+    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
+
+    // Check authorization: only admins or the parent user can remove
+    const familyReg = workshop.familyRegistrations.find(
+      (fr) => fr.familyMemberId.toString() === familyId.toString()
+    );
+    if (!familyReg) {
+      return res.status(404).json({ message: "Family registration not found" });
+    }
+    if (req.user.role !== "admin" && familyReg.parentUser.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to remove this family member" });
+    }
+
+    // Remove the entry
+    workshop.familyRegistrations = workshop.familyRegistrations.filter(
+      (fr) => fr.familyMemberId.toString() !== familyId.toString()
+    );
+
+    await workshop.save();
+    const updated = await Workshop.findById(id)
+      .populate("participants", "name email")
+      .populate("familyRegistrations.parentUser", "name email");
+    res.json({ message: "Family member removed from workshop", workshop: updated });
+  } catch (err) {
+    console.error("❌ removeFamilyMemberFromWorkshop error:", err);
+    res.status(500).json({ message: "Failed to remove family member from workshop" });
+  }
+};
+
 
 /**
  * GET /api/workshops/:id/participants
@@ -408,19 +571,51 @@ exports.updateParticipantsArray = async (req, res) => {
  * check is performed in the route layer; admins can view any workshop's
  * participants, while regular users will typically only request their own.
  */
+/**
+ * GET /api/workshops/:id/participants
+ *
+ * Returns detailed participant information for the specified workshop.
+ *
+ * This handler was updated to include family registrations alongside
+ * direct participants.  Each family registration entry includes the
+ * stored name, relation, and a reference to the family member ID.
+ */
 exports.getWorkshopParticipants = async (req, res) => {
   try {
-    const workshop = await Workshop.findById(req.params.id).populate(
-      "participants",
-      "name email"
-    );
-    if (!workshop) {
-      return res.status(404).json({ message: "Workshop not found" });
-    }
-    // Return only the participants array for convenience on the client
-    res.json(workshop.participants);
+    const w = await Workshop.findById(req.params.id)
+      .populate("participants", "name email phone city birthDate canCharge")
+      .populate("familyRegistrations.familyMember", "name email phone city birthDate canCharge relation");
+
+    if (!w) return res.status(404).json({ message: "Workshop not found" });
+
+    const participants = (w.participants || []).map(u => ({
+      _id: u._id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone,
+      city: u.city,
+      birthDate: u.birthDate,
+      canCharge: u.canCharge
+    }));
+
+    const familyRegistrations = (w.familyRegistrations || []).map(f => ({
+      _id: f.familyMember?._id,
+      familyMemberId: f.familyMember?._id,
+      name: f.familyMember?.name,
+      email: f.familyMember?.email,
+      phone: f.familyMember?.phone,
+      city: f.familyMember?.city,
+      birthDate: f.familyMember?.birthDate,
+      canCharge: f.familyMember?.canCharge,
+      relation: f.familyMember?.relation,
+      isFamily: true
+    }));
+
+    res.json({ participants, familyRegistrations });
   } catch (err) {
-    console.error("❌ Error fetching participants:", err);
+    console.error("❌ getWorkshopParticipants error:", err);
     res.status(500).json({ message: "Server error fetching participants" });
   }
 };
+
+

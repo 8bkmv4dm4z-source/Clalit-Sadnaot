@@ -54,7 +54,7 @@ export default function Login() {
   /* ==================== UI ==================== */
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-rose-50 p-6"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 p-8"
       dir="rtl"
     >
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 animate-fade-in">

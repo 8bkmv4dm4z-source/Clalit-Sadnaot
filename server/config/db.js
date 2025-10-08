@@ -1,33 +1,43 @@
 /**
- * MongoDB connection helper using Mongoose.
- *
- * Loads the connection URI from the environment variable MONGODB_URI.
- * Example local connection string:
- *   MONGODB_URI=mongodb://localhost:27017/galil-workshops
- *
- * On success, logs the connected host name.
- * On failure, logs the error and exits the process.
+ * MongoDB Connection Helper (Stable + Safe)
+ * -----------------------------------------
+ * - Loads connection string from .env (MONGODB_URI)
+ * - Handles reconnect attempts and logs connection events
+ * - Exits process only on fatal errors (initial connection)
  */
 
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const connectDB = async () => {
   try {
-    // Try connecting to MongoDB using the URI defined in .env
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,     // Use the new MongoDB URL parser
-      useUnifiedTopology: true,  // Use the new unified server discovery engine
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+      throw new Error("Missing MONGODB_URI in .env file");
+    }
+
+    // Connect to MongoDB
+    const conn = await mongoose.connect(uri, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 10000, // wait max 10s
     });
 
-    // Log success message with the connected host (useful for debugging)
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
 
+    // Handle runtime disconnects
+    mongoose.connection.on("disconnected", () => {
+      console.warn("⚠️ MongoDB disconnected. Attempting to reconnect...");
+    });
+
+    mongoose.connection.on("reconnected", () => {
+      console.log("🔁 MongoDB reconnected successfully.");
+    });
+
   } catch (error) {
-    // If connection fails, log the error and stop the server
-    console.error('❌ Error connecting to MongoDB:', error.message);
-    process.exit(1); // Exit process with failure
+    console.error("❌ Error connecting to MongoDB:", error.message);
+    process.exit(1);
   }
 };
 
-// Export function to be used in server.js
 module.exports = connectDB;

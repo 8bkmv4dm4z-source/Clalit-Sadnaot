@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const { authenticate, authorizeAdmin } = require("../middleware/authMiddleware");
+console.log("🧩 MIDDLEWARE:", { authenticate, authorizeAdmin });
+
 const ctrl = require("../controllers/workshopController");
+console.log("✅ workshopController import:", ctrl);
 
 // --- Health check ---
 router.get("/health", (_req, res) => res.json({ ok: true }));
@@ -36,5 +39,13 @@ router.delete("/:id/user_array/:userId", authenticate, ctrl.removeUserFromWorksh
 router.delete("/:id/remove/:userId", authenticate, authorizeAdmin, ctrl.removeUserFromWorkshop);
 router.put("/:id/users_array", authenticate, authorizeAdmin, ctrl.updateParticipantsArray);
 router.put("/:id/capacity", authenticate, authorizeAdmin, ctrl.updateWorkshopCapacity);
+
+/* ---------- Family Registration Routes ---------- */
+// Register a family member to a workshop.  The authenticated user must own
+// the family member (unless admin, who can specify parentUserId in body).
+router.post("/:id/family/:familyId", authenticate, ctrl.addFamilyMemberToWorkshop);
+// Remove a family member from a workshop.  Only admins or the owning parent
+// can perform this action.
+router.delete("/:id/family/:familyId", authenticate, ctrl.removeFamilyMemberFromWorkshop);
 
 module.exports = router;
