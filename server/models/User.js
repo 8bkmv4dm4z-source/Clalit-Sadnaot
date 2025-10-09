@@ -17,7 +17,7 @@ const FamilyMemberSchema = new mongoose.Schema(
     idNumber: { type: String, default: "" },
     phone: { type: String, default: "" },
     birthDate: { type: String, default: "" },
-    
+
   },
   {
     // By default `_id` is true, so each sub-document gets its own ObjectId

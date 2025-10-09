@@ -1,131 +1,145 @@
-   /**
-    * ProfileContext.jsx
-    * Path: src/layouts/ProfileContext/ProfileContext.jsx
-    * Role: Application module.
-    *
-    * Component: (default export)
-    * Summary:
-    * - Provides the main responsibilities of this module.
-    * - Comments are written in English only.
-    * - Logic is unchanged; documentation and structure notes were added.
-    * Sections:
-    * - Imports
-    * - State & Context
-    * - Derived data (memoized computations)
-    * - Event handlers (navigation, form, filters)
-    * - Render (JSX structure)
-    * Data flow:
-    * - Props -> local hooks -> derived values -> UI.
-    * - Context (if used) is read-only here unless setter functions are invoked.
-    * Props:
-
-* @param {any} children - See inline comments for how this prop is used.
-    */
-
-// layouts/ProfileContext.jsx
-import React, { createContext, useContext, useState, useEffect } from "react";
-
-// --- State, context & derived data below ---
-
-/*
- * קונטקסט ניהול פרופילים (משתמשים).
- *
- * Context זה מחזיק את רשימת כל המשתמשים באפליקציה ומספק פונקציות לקריאה, הוספה,
- * עדכון ומחיקה של פרופילים. בעתיד ניתן להחליף את פונקציות הטעינה ב־API לשרת
- * על מנת לקבל ולשלוח נתונים למסד נתונים אמיתי.
+/**
+ * ProfileContext.jsx — Full Server-Connected Version
+ * --------------------------------------------------
+ * - Loads all users (with familyMembers)
+ * - Provides CRUD operations (fetch, add, update, delete)
+ * - Unified data model for users and family members
+ * - Used by AllProfiles, EditProfile, and admin components
  */
+
+import React, { createContext, useContext, useEffect, useState } from "react";
+
 const ProfileContext = createContext({
   profiles: [],
   setProfiles: () => {},
   selectedProfile: null,
   setSelectedProfile: () => {},
+  fetchProfiles: () => {},
   addProfile: () => {},
   updateProfile: () => {},
   deleteProfile: () => {},
 });
 
 export const ProfileProvider = ({ children }) => {
-  // נתוני ברירת מחדל. בעתיד יוחלף בקריאה ל־API
-  const initialProfiles = [
-    {
-      id: 1,
-      name: "ניר יטח",
-      email: "nir@example.com",
-      city: "תל אביב",
-      phone: "050-1234567",
-      role: "user",
-      canCharge: false,
-    },
-    {
-      id: 2,
-      name: "דנה כהן",
-      email: "dana@example.com",
-      city: "חיפה",
-      phone: "052-7654321",
-      role: "admin",
-      canCharge: true,
-    },
-    {
-      id: 3,
-      name: "ערן לוי",
-      email: "eran@example.com",
-      city: "ירושלים",
-      phone: "054-9876543",
-      role: "admin",
-      canCharge: true,
-    },
-  ];
+  const [profiles, setProfiles] = useState([]);
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
+  /** 🔹 Fetch all profiles (users + familyMembers) */
   const fetchProfiles = async () => {
-    // מחזיר הבטחה המדמה קריאה לשרת. ניתן להחליף זאת ב־fetch אמיתי.
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(initialProfiles), 500);
-    });
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      const res = await fetch("/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to load profiles");
+
+      // 🧩 Flatten all family members into unified list
+      const unified = data.flatMap((user) => {
+        const userRow = { ...user, isFamily: false, parentName: null };
+        const familyRows = (user.familyMembers || []).map((f) => ({
+          ...f,
+          isFamily: true,
+          parentId: user._id,
+          parentName: user.name,
+          parentEmail: user.email,
+        }));
+        return [userRow, ...familyRows];
+      });
+
+      setProfiles(unified);
+      setError("");
+    } catch (err) {
+      console.error("❌ Error fetching profiles:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Local state hook
-const [profiles, setProfiles] = useState([]);
-  // Local state hook
-const [selectedProfile, setSelectedProfile] = useState(null);
+  /** 🔹 Add new user */
+  const addProfile = async (profile) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(profile),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to create profile");
+      await fetchProfiles();
+      return { success: true };
+    } catch (err) {
+      console.error("❌ addProfile error:", err);
+      return { success: false, message: err.message };
+    }
+  };
 
-  // טעינת פרופילים פעם אחת בעת טעינת הקונטקסט
+  /** 🔹 Update existing user or family member */
+  const updateProfile = async (updated) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`/api/users/${updated._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updated),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to update profile");
+      await fetchProfiles();
+      return { success: true };
+    } catch (err) {
+      console.error("❌ updateProfile error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  /** 🔹 Delete user */
+  const deleteProfile = async (id) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`/api/users/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to delete profile");
+      setProfiles((prev) => prev.filter((p) => p._id !== id));
+      return { success: true };
+    } catch (err) {
+      console.error("❌ deleteProfile error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  /** 🔁 Initial fetch on mount */
   useEffect(() => {
-    (async () => {
-      const data = await fetchProfiles();
-      setProfiles(data);
-    })();
+    fetchProfiles();
   }, []);
 
-  /**
-   * addProfile – הוספת משתמש חדש לרשימת המשתמשים.
-   */
-  const addProfile = (profile) => {
-    setProfiles((prev) => [...prev, profile]);
-  };
-  /**
-   * updateProfile – עדכון פרופיל קיים. מחפש לפי id ומחליף את הערך.
-   */
-  const updateProfile = (updated) => {
-    setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-  };
-  /**
-   * deleteProfile – מחיקת פרופיל לפי מזהה.
-   */
-  const deleteProfile = (id) => {
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  // --- Render ---
-return (
+  return (
     <ProfileContext.Provider
       value={{
         profiles,
         setProfiles,
         selectedProfile,
         setSelectedProfile,
+        fetchProfiles,
         addProfile,
         updateProfile,
         deleteProfile,
+        loading,
+        error,
       }}
     >
       {children}

@@ -24,23 +24,29 @@ const WorkshopSchema = new mongoose.Schema(
     image: { type: String, default: "" },
 
     /** ✅ Participants management */
-    // Users who are registered directly as participants
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
-    // ✅ Family member registrations — full snapshot for reports/UI
+    /** ✅ Family member registrations — full snapshot for reports/UI */
     familyRegistrations: [
-      {
-        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
-        name: { type: String, required: true },
-        relation: { type: String, default: "" },
-        idNumber: { type: String, default: "" },
-        phone: { type: String, default: "" },
-        birthDate: { type: String, default: "" },
-      },
-    ],
+  {
+    parentUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    familyMemberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true, // 🔥 לא לשים ref כאן
+    },
+    name: { type: String, required: true },
+    relation: { type: String, default: "" },
+    idNumber: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    birthDate: { type: String, default: "" },
+  },
+],
 
-    // Total count of participants including family members.
+
     participantsCount: { type: Number, default: 0 },
 
     /** ✅ Capacity control */

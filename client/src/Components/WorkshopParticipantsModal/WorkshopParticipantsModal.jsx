@@ -2,16 +2,20 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 
 /**
- * WorkshopParticipantsModal.jsx — Debug Edition
- * ---------------------------------------------
- * Same logic, only added console logs for every important step:
- * - Fetch participants
- * - Edit / save / add / remove family
- * - Close modal & refetch behavior
+ * WorkshopParticipantsModal.jsx — Unified Logic Edition
+ * ----------------------------------------------------
+ * Uses the same unified functions as WorkshopCard:
+ * - registerEntityToWorkshop
+ * - unregisterEntityFromWorkshop
+ * for both users and family members.
  */
 
 export default function WorkshopParticipantsModal({ workshop, onClose }) {
-  const { registerFamilyMember, unregisterFamilyMember, fetchWorkshops } = useWorkshops();
+  const {
+    registerEntityToWorkshop,
+    unregisterEntityFromWorkshop,
+    fetchWorkshops,
+  } = useWorkshops();
 
   const [participants, setParticipants] = useState([]);
   const [familyMembers, setFamilyMembers] = useState([]);
@@ -24,16 +28,11 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 
   /** 🔹 Fetch all modal data */
   const fetchAll = useCallback(async () => {
-    console.log("🔄 [Modal] Fetching all data for workshop:", workshop?._id, workshop?.title);
-    if (!workshop?._id) {
-      console.warn("⚠️ [Modal] No workshop ID provided — skipping fetch");
-      return;
-    }
+    if (!workshop?._id) return;
     setLoading(true);
     setMessage(null);
     try {
       const token = localStorage.getItem("token");
-      console.log("🔑 [Modal] Token exists:", !!token);
 
       const [participantsRes, familyRes] = await Promise.all([
         fetch(`/api/workshops/${workshop._id}/participants`, {
@@ -44,38 +43,25 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         }),
       ]);
 
-      console.log("📡 [Modal] Participants status:", participantsRes.status, "Family status:", familyRes.status);
-
       const [participantsData, familyData] = await Promise.all([
         participantsRes.json(),
         familyRes.json(),
       ]);
-
-      console.log("📦 [Modal] Participants data:", participantsData);
-      console.log("📦 [Modal] Family data:", familyData);
 
       if (!participantsRes.ok)
         throw new Error(participantsData.message || "שגיאה בטעינת משתתפים");
       if (!familyRes.ok)
         throw new Error(familyData.message || "שגיאה בטעינת בני משפחה");
 
-      let merged = [];
-
-// אם זה כבר מערך ישיר
-if (Array.isArray(participantsData)) {
-  merged = participantsData;
-} else {
-  merged = [
-    ...(participantsData.participants || []),
-    ...(participantsData.familyRegistrations || []).map((f) => ({
-      ...f,
-      isFamily: true,
-    })),
-  ];
-}
-
-console.log("✅ [Modal] Merged participants count:", merged.length);
-console.log("👀 [Modal] Merged data:", merged);
+      let merged = Array.isArray(participantsData)
+        ? participantsData
+        : [
+            ...(participantsData.participants || []),
+            ...(participantsData.familyRegistrations || []).map((f) => ({
+              ...f,
+              isFamily: true,
+            })),
+          ];
 
       setParticipants(merged);
       setFamilyMembers(familyData.familyMembers || []);
@@ -87,34 +73,26 @@ console.log("👀 [Modal] Merged data:", merged);
     }
   }, [workshop?._id]);
 
-  /** 🔁 Load once + after changes */
   useEffect(() => {
-    console.log("🧭 [Modal] useEffect triggered for fetchAll()");
     fetchAll();
   }, [fetchAll]);
 
-  /** 🔹 Edit toggle & change handlers */
+  /** 🔹 Save edits (unchanged) */
   const handleEditToggle = (user) => {
-    console.log("✏️ [Modal] Toggle edit mode for user:", user.name, user._id);
     if (editingUserId === user._id) {
-      console.log("↩️ [Modal] Closing edit mode");
       setEditingUserId(null);
       setEditForm({});
     } else {
-      console.log("📝 [Modal] Opening edit mode");
       setEditingUserId(user._id);
       setEditForm({ ...user });
     }
   };
 
   const handleChange = (key, value) => {
-    console.log("⌨️ [Modal] Edit field changed:", key, "=", value);
     setEditForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  /** 🔹 Save user edits */
   const handleSaveUser = async () => {
-    console.log("💾 [Modal] Saving edited user:", editingUserId, editForm);
     try {
       setSaving(true);
       const token = localStorage.getItem("token");
@@ -126,9 +104,7 @@ console.log("👀 [Modal] Merged data:", merged);
         },
         body: JSON.stringify(editForm),
       });
-      console.log("📡 [Modal] PUT /users status:", res.status);
       const data = await res.json();
-      console.log("📦 [Modal] Save response:", data);
       if (!res.ok) throw new Error(data.message || "שגיאה בעדכון המשתמש");
 
       setMessage("✅ המשתמש עודכן בהצלחה");
@@ -136,49 +112,54 @@ console.log("👀 [Modal] Merged data:", merged);
       setEditForm({});
       await fetchAll();
     } catch (err) {
-      console.error("❌ [Modal] Save user error:", err);
       setMessage(`❌ ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  /** 🔹 Add family member */
+  /** 🔹 Add / Remove family (Unified) */
   const handleAddFamily = async () => {
-    console.log("➕ [Modal] Add family clicked. Selected:", selectedFamilyId);
-    if (!selectedFamilyId) {
-      console.warn("⚠️ [Modal] No family selected");
-      return setMessage("⚠️ בחר בן משפחה להוספה");
-    }
+    if (!selectedFamilyId) return setMessage("⚠️ בחר בן משפחה להוספה");
     try {
-      await registerFamilyMember(workshop._id, selectedFamilyId);
-      console.log("✅ [Modal] Family member added successfully!");
-      setMessage("✅ בן המשפחה נרשם בהצלחה!");
-      setSelectedFamilyId("");
-      await fetchAll();
-      await fetchWorkshops();
+      const result = await registerEntityToWorkshop(
+        workshop._id,
+        selectedFamilyId
+      );
+      if (result.success) {
+        setMessage("✅ בן המשפחה נרשם בהצלחה!");
+        setSelectedFamilyId("");
+        await fetchAll();
+        await fetchWorkshops();
+      } else {
+        setMessage(result.message || "❌ שגיאה בהרשמת בן משפחה");
+      }
     } catch (err) {
-      console.error("❌ [Modal] Error adding family:", err);
+      console.error("❌ handleAddFamily error:", err);
       setMessage("❌ שגיאה בהרשמת בן משפחה");
     }
   };
 
-  /** 🔹 Remove family */
   const handleRemoveFamily = async (familyId) => {
-    console.log("🚫 [Modal] Remove family clicked:", familyId);
     try {
-      await unregisterFamilyMember(workshop._id, familyId);
-      console.log("✅ [Modal] Family member removed successfully");
-      setMessage("🚫 בן המשפחה הוסר בהצלחה");
-      await fetchAll();
-      await fetchWorkshops();
+      const result = await unregisterEntityFromWorkshop(
+        workshop._id,
+        familyId
+      );
+      if (result.success) {
+        setMessage("🚫 בן המשפחה הוסר בהצלחה");
+        await fetchAll();
+        await fetchWorkshops();
+      } else {
+        setMessage(result.message || "❌ שגיאה בהסרת בן משפחה");
+      }
     } catch (err) {
-      console.error("❌ [Modal] Error removing family:", err);
+      console.error("❌ handleRemoveFamily error:", err);
       setMessage("❌ שגיאה בהסרת בן משפחה");
     }
   };
 
-  // ---------- Sub-render: Edit Form ----------
+  // ---------- Sub-render ----------
   const renderEditForm = (p) => (
     <div key={p._id} className="border border-gray-200 rounded-xl p-4 bg-gray-50 shadow-sm">
       <h4 className="text-lg font-semibold text-gray-800 mb-2">עריכת {p.name}</h4>
@@ -189,7 +170,6 @@ console.log("👀 [Modal] Merged data:", merged);
             className="border rounded-lg px-2 py-1 text-sm"
             value={editForm[field] || ""}
             onChange={(e) => handleChange(field, e.target.value)}
-            placeholder={field === "name" ? "שם מלא" : field}
           />
         ))}
         <input
@@ -211,14 +191,12 @@ console.log("👀 [Modal] Merged data:", merged);
       <div className="flex justify-end gap-2 mt-4">
         <button
           onClick={() => handleEditToggle(p)}
-          disabled={saving}
           className="px-4 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-100"
         >
           ביטול
         </button>
         <button
           onClick={handleSaveUser}
-          disabled={saving}
           className="px-4 py-1.5 rounded-lg text-sm bg-green-600 text-white hover:bg-green-700"
         >
           {saving ? "שומר..." : "שמור"}
@@ -227,7 +205,6 @@ console.log("👀 [Modal] Merged data:", merged);
     </div>
   );
 
-  // ---------- Sub-render: Participant Card ----------
   const renderParticipant = (p) => (
     <div
       key={p._id || p.familyMemberId}
@@ -243,6 +220,9 @@ console.log("👀 [Modal] Merged data:", merged);
       </h4>
       <p className="text-sm text-gray-600">{p.email}</p>
       <div className="text-xs text-gray-500 mt-1">
+        
+        <p>תעודת זהות: {p.idNumber || "-"}</p>
+
         <p>טלפון: {p.phone || "-"}</p>
         <p>עיר: {p.city || "-"}</p>
         <p>
@@ -267,58 +247,53 @@ console.log("👀 [Modal] Merged data:", merged);
         >
           ערוך
         </button>
-        {p.isFamily && (
-          <button
-            onClick={() => handleRemoveFamily(p.familyMemberId || p._id)}
-            className="text-red-600 hover:underline text-xs"
-          >
-            הסר בן משפחה
-          </button>
-        )}
+        {p.isFamily ? (
+  <button
+    onClick={() => handleRemoveFamily(p.familyMemberId || p._id)}
+    className="text-red-600 hover:underline text-xs"
+  >
+    הסר בן משפחה
+  </button>
+) : (
+  <button
+    onClick={() => handleRemoveFamily(null)}
+    className="text-red-600 hover:underline text-xs"
+  >
+    בטל הרשמה
+  </button>
+)}
       </div>
     </div>
   );
 
-  // ---------- JSX ----------
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => {
-        console.log("❎ [Modal] Clicked outside — closing modal");
-        onClose();
-      }}
+      onClick={onClose}
     >
       <div
         className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl p-6 animate-[fadeIn_.15s_ease]"
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-xl font-bold text-gray-800 font-[Poppins]">
+          <h3 className="text-xl font-bold text-gray-800">
             משתתפים בסדנה:{" "}
             <span className="text-indigo-600">{workshop.title}</span>
           </h3>
           <button
-            onClick={() => {
-              console.log("❎ [Modal] Close button clicked");
-              onClose();
-            }}
+            onClick={onClose}
             className="rounded-lg px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
           >
             ✕ סגור
           </button>
         </div>
 
-        {/* Family dropdown */}
         {familyMembers.length > 0 && (
           <div className="mb-6 flex gap-3 items-center">
             <select
               value={selectedFamilyId}
-              onChange={(e) => {
-                console.log("👨‍👩‍👧 [Modal] Selected family ID:", e.target.value);
-                setSelectedFamilyId(e.target.value);
-              }}
+              onChange={(e) => setSelectedFamilyId(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
             >
               <option value="">בחר בן משפחה להוספה...</option>
@@ -344,7 +319,6 @@ console.log("👀 [Modal] Merged data:", merged);
           </div>
         )}
 
-        {/* Feedback */}
         {message && (
           <p
             className={`mb-3 text-sm font-medium ${
@@ -359,7 +333,6 @@ console.log("👀 [Modal] Merged data:", merged);
           </p>
         )}
 
-        {/* Content */}
         {loading ? (
           <p className="text-sm text-gray-600">⏳ טוען משתתפים...</p>
         ) : participants.length > 0 ? (

@@ -1,9 +1,9 @@
 /**
- * AllProfiles.jsx — Tailwind Admin View
- * -------------------------------------
- * Fetches all users (admin only)
- * - GET /api/users
- * - Search, table display, and edit navigation
+ * AllProfiles.jsx — Unified Admin View (Users + Family)
+ * -----------------------------------------------------
+ * - Displays all users and their family members as unified rows
+ * - Each family member marked with "בן משפחה של X"
+ * - Same edit flow for both
  */
 
 import React, { useEffect, useState } from "react";
@@ -18,7 +18,7 @@ export default function AllProfiles() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  // ✅ Fetch profiles from backend
+  /* ==================== Fetch profiles ==================== */
   useEffect(() => {
     const fetchProfiles = async () => {
       try {
@@ -28,7 +28,20 @@ export default function AllProfiles() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Failed to load users");
-        setProfiles(data);
+
+        // 🧩 Flatten users + familyMembers into unified list
+        const unified = data.flatMap((user) => {
+          const userRow = { ...user, isFamily: false, parentName: null };
+          const familyRows = (user.familyMembers || []).map((f) => ({
+            ...f,
+            isFamily: true,
+            parentName: user.name,
+            parentEmail: user.email,
+          }));
+          return [userRow, ...familyRows];
+        });
+
+        setProfiles(unified);
       } catch (err) {
         console.error("❌ Error fetching profiles:", err);
         setError(err.message);
@@ -39,6 +52,7 @@ export default function AllProfiles() {
     fetchProfiles();
   }, []);
 
+  /* ==================== Guards ==================== */
   if (!isAdmin)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-600 text-lg">
@@ -60,7 +74,7 @@ export default function AllProfiles() {
       </div>
     );
 
-  // 🔍 Filter
+  /* ==================== Search Filter ==================== */
   const filtered = profiles.filter((p) =>
     Object.values(p)
       .join(" ")
@@ -80,7 +94,7 @@ export default function AllProfiles() {
         {/* --- Header --- */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-3">
           <h2 className="text-3xl font-bold text-gray-900 font-[Poppins] text-center md:text-right">
-            כלל המשתמשים
+            כלל המשתמשים ובני המשפחה
           </h2>
           <input
             type="text"
@@ -101,15 +115,17 @@ export default function AllProfiles() {
                 <th className="p-3 text-right font-semibold">עיר</th>
                 <th className="p-3 text-right font-semibold">טלפון</th>
                 <th className="p-3 text-right font-semibold">תפקיד</th>
+                <th className="p-3 text-right font-semibold">קשר משפחתי</th>
                 <th className="p-3 text-center font-semibold">גבייה</th>
                 <th className="p-3 text-center font-semibold">פעולות</th>
               </tr>
             </thead>
+
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="8"
                     className="text-center text-gray-500 py-6 font-medium"
                   >
                     לא נמצאו תוצאות מתאימות
@@ -119,15 +135,33 @@ export default function AllProfiles() {
                 filtered.map((p, i) => (
                   <tr
                     key={p._id}
-                    className={`text-sm text-gray-700 ${
-                      i % 2 === 0 ? "bg-white" : "bg-gray-50"
-                    } hover:bg-indigo-50 transition`}
+                    className={`text-sm ${
+                      p.isFamily
+                        ? "bg-green-50 hover:bg-green-100"
+                        : i % 2 === 0
+                        ? "bg-white"
+                        : "bg-gray-50"
+                    } transition`}
                   >
-                    <td className="p-3">{p.name}</td>
-                    <td className="p-3">{p.email}</td>
-                    <td className="p-3">{p.city || "-"}</td>
-                    <td className="p-3">{p.phone || "-"}</td>
-                    <td className="p-3 capitalize">{p.role}</td>
+                    <td className="p-3 font-medium text-gray-800 flex items-center gap-2">
+                      {p.name}
+                      {p.isFamily && (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                          בן משפחה של {p.parentName}
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-gray-700">
+                      {p.isFamily ? p.parentEmail : p.email}
+                    </td>
+                    <td className="p-3 text-gray-700">{p.city || "-"}</td>
+                    <td className="p-3 text-gray-700">{p.phone || "-"}</td>
+                    <td className="p-3 capitalize text-gray-700">
+                      {p.isFamily ? "family" : p.role}
+                    </td>
+                    <td className="p-3 text-gray-700">
+                      {p.isFamily ? p.relation || "-" : "-"}
+                    </td>
                     <td className="p-3 text-center">
                       {p.canCharge ? "✅" : "❌"}
                     </td>

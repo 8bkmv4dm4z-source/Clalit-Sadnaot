@@ -1,5 +1,83 @@
 const User = require("../models/User");
 
+
+
+exports.updateFamilyMember = async (req, res) => {
+  try {
+    const memberId = req.params.memberId;
+    if (!memberId) {
+      return res.status(400).json({ message: "Missing family member id" });
+    }
+
+    const targetUserId =
+      req.user?.role === "admin" && req.body?.parentUserId
+        ? req.body.parentUserId
+        : req.user?._id;
+
+    if (!targetUserId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const member = user.familyMembers.id(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Family member not found" });
+    }
+
+    if (
+      req.user.role !== "admin" &&
+      String(user._id) !== String(req.user._id)
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to edit this family member" });
+    }
+
+    const allowed = ["name", "relation", "idNumber", "phone", "birthDate"];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        member[key] = req.body[key];
+      }
+    }
+
+    await user.save();
+
+    // 🔁 Sync updated family member data into all workshops containing this member
+    const updatedMember = user.familyMembers.id(memberId);
+    await Workshop.updateMany(
+      { "familyRegistrations.familyMemberId": memberId },
+      {
+        $set: {
+          "familyRegistrations.$.name": updatedMember.name,
+          "familyRegistrations.$.relation": updatedMember.relation,
+          "familyRegistrations.$.idNumber": updatedMember.idNumber,
+          "familyRegistrations.$.phone": updatedMember.phone,
+          "familyRegistrations.$.birthDate": updatedMember.birthDate,
+        },
+      }
+    );
+
+    const cleanUser = user.toObject();
+    delete cleanUser.passwordHash;
+    delete cleanUser.otpCode;
+    delete cleanUser.otpAttempts;
+
+    return res.json({
+      message: "Family member updated successfully (synced to workshops)",
+      user: cleanUser,
+    });
+  } catch (err) {
+    console.error("❌ updateFamilyMember error:", err);
+    return res.status(500).json({
+      message: "Server error updating family member",
+      error: err.message,
+    });
+  }
+};
 /** 🟢 Get current logged-in user (NEW: /api/users/me) */
 exports.getMe = async (req, res) => {
   try {
@@ -65,6 +143,20 @@ exports.createUser = async (req, res) => {
     const user = new User({ name, email, role, city, phone, birthDate, canCharge });
     if (password) await user.setPassword(password);
     await user.save();
+    // 🔁 Sync updated family member data into all workshops containing this member
+const updatedMember = user.familyMembers.id(memberId);
+await Workshop.updateMany(
+  { "familyRegistrations.familyMemberId": memberId },
+  {
+    $set: {
+      "familyRegistrations.$.name": updatedMember.name,
+      "familyRegistrations.$.relation": updatedMember.relation,
+      "familyRegistrations.$.idNumber": updatedMember.idNumber,
+      "familyRegistrations.$.phone": updatedMember.phone,
+      "familyRegistrations.$.birthDate": updatedMember.birthDate,
+    },
+  }
+);
 
     res.status(201).json({ message: "User created successfully", user });
   } catch (err) {
@@ -190,5 +282,78 @@ exports.deleteUser = async (req, res) => {
   } catch (err) {
     console.error("❌ Error deleting user:", err);
     res.status(500).json({ message: "Server error deleting user" });
+  }
+};
+
+/* ------------------------------------------------------------
+   🧩 PUT /api/users/family/:memberId
+
+   Update a specific family member subdocument.  The caller must
+   be authenticated.  A regular user can only edit their own
+   family members.  An admin can optionally provide a
+   `parentUserId` in the request body to edit a family member on
+   behalf of another user.  Only the allowed fields are updated.
+------------------------------------------------------------ */
+exports.updateFamilyMember = async (req, res) => {
+  try {
+    const memberId = req.params.memberId;
+    if (!memberId) {
+      return res.status(400).json({ message: "Missing family member id" });
+    }
+
+    // Determine which user to update: admins may specify a
+    // `parentUserId` in the body; regular users default to the
+    // authenticated user.  Fall back to current user.
+    const targetUserId =
+      req.user?.role === "admin" && req.body?.parentUserId
+        ? req.body.parentUserId
+        : req.user?._id;
+
+    if (!targetUserId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Locate the family member subdocument.  Use Mongoose's
+    // subdocument API to find by id.  If not found, 404.
+    const member = user.familyMembers.id(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Family member not found" });
+    }
+
+    // Enforce that a non-admin user can only edit their own family
+    // members.  If the authenticated user is not an admin and
+    // doesn't match the parentUserId, deny.
+    if (
+      req.user.role !== "admin" &&
+      String(user._id) !== String(req.user._id)
+    ) {
+      return res.status(403).json({ message: "Not authorized to edit this family member" });
+    }
+
+    // Allowed fields to update on a family member
+    const allowed = ["name", "relation", "idNumber", "phone", "birthDate"];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        member[key] = req.body[key];
+      }
+    }
+
+    await user.save();
+
+    // Prepare a cleaned response similar to getMe/updateUser
+    const cleanUser = user.toObject();
+    delete cleanUser.passwordHash;
+    delete cleanUser.otpCode;
+    delete cleanUser.otpAttempts;
+
+    return res.json({ message: "Family member updated successfully", user: cleanUser });
+  } catch (err) {
+    console.error("❌ updateFamilyMember error:", err);
+    return res.status(500).json({ message: "Server error updating family member" });
   }
 };

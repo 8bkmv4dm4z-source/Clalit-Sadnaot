@@ -10,23 +10,52 @@ export const WorkshopProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState("all"); // "all" | "mine"
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
+  const [isFamilyMode, setIsFamilyMode] = useState(false);
+  const [selectedFamilyId, setSelectedFamilyId] = useState(null);
 
-  /** 🔹 Fetch all workshops */
+  /** 🧩 Helper to normalize IDs */
+  const toId = (v) =>
+    typeof v === "string"
+      ? v
+      : v?.familyMemberId
+      ? String(v.familyMemberId)
+      : String(v?._id ?? v ?? "");
+
+  /** 🔹 Fetch all workshops (with familyRegistrations populated) */
   const fetchAllWorkshops = async () => {
     console.log("🔄 [Context] Fetching ALL workshops...");
     try {
       setLoading(true);
       setError(null);
 
-      const res = await fetch(`/api/workshops`);
-      console.log("📡 [Context] /api/workshops → status:", res.status);
+      const token = localStorage.getItem("token");
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
+      const res = await fetch(`/api/workshops`, { headers });
+      console.log("📡 [Context] /api/workshops → status:", res.status);
       const data = await res.json();
-      console.log("📦 [Context] Workshops data received:", data);
 
       if (!res.ok) throw new Error(data.message || "Failed to fetch workshops");
 
-      const list = Array.isArray(data) ? data : [];
+      // ✅ Normalize everything to have clean ID lists
+      const list = (Array.isArray(data) ? data : []).map((w) => ({
+        ...w,
+        participants: (w.participants || []).map(toId),
+        familyRegistrations: w.familyRegistrations || [],
+        userFamilyRegistrations: (w.userFamilyRegistrations || []).map(toId),
+        isUserRegistered: !!w.isUserRegistered,
+      }));
+
+      // 🔍 Diagnostic table
+      console.table(
+        list.map((w) => ({
+          _id: w._id,
+          title: w.title,
+          isUserRegistered: w.isUserRegistered,
+          familyIds: (w.userFamilyRegistrations || []).join(", "),
+        }))
+      );
+
       setWorkshops(list);
       setDisplayedWorkshops(list);
       console.log("✅ [Context] Workshops updated:", list.length);
@@ -44,19 +73,13 @@ export const WorkshopProvider = ({ children }) => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      console.log("🔑 [Context] Token found:", !!token);
-
       const res = await fetch(`/api/workshops/registered`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      console.log("📡 [Context] /registered status:", res.status);
-
       const regIds = await res.json();
-      console.log("📦 [Context] Registered workshops data:", regIds);
-
       if (!res.ok) throw new Error(regIds.message || "Failed to load registrations");
 
-      setRegisteredWorkshopIds(Array.isArray(regIds) ? regIds : []);
+      setRegisteredWorkshopIds((Array.isArray(regIds) ? regIds : []).map(toId));
       console.log("✅ [Context] Registered workshops IDs:", regIds);
     } catch (err) {
       setError(err.message);
@@ -73,9 +96,8 @@ export const WorkshopProvider = ({ children }) => {
     else if (viewMode === "mine") fetchRegisteredWorkshops();
   }, [viewMode]);
 
-  /** 🔹 Local updates */
+  /** 🔹 Local update helpers */
   const updateWorkshopLocal = (updated) => {
-    console.log("🛠 [Context] Local update workshop:", updated?._id);
     if (!updated?._id) return;
     setWorkshops((prev) => prev.map((w) => (w._id === updated._id ? updated : w)));
     setDisplayedWorkshops((prev) =>
@@ -84,7 +106,6 @@ export const WorkshopProvider = ({ children }) => {
   };
 
   const deleteWorkshopLocal = (id) => {
-    console.log("🗑 [Context] Delete workshop locally:", id);
     if (!id) return;
     setWorkshops((prev) => prev.filter((w) => w._id !== id));
     setDisplayedWorkshops((prev) => prev.filter((w) => w._id !== id));
@@ -96,79 +117,72 @@ export const WorkshopProvider = ({ children }) => {
   };
 
   /** 👨‍👩‍👧 Family registration logic */
-  async function registerFamilyMember(workshopId, familyId) {
-    console.log("👨‍👩‍👧 [Context] Register family:", { workshopId, familyId });
-    if (!workshopId || !familyId) {
-      console.warn("⚠️ [Context] Missing workshopId/familyId");
-      return;
-    }
+  async function registerEntityToWorkshop(workshopId, familyId = null) {
     try {
       const token = localStorage.getItem("token");
-      console.log("🔑 [Context] Token for family register:", !!token);
-      const res = await fetch(`/api/workshops/${workshopId}/family/${familyId}`, {
+      if (!token) throw new Error("Missing token");
+
+      const res = await fetch(`/api/workshops/${workshopId}/register-entity`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ familyId }),
       });
-      console.log("📡 [Context] POST /family response:", res.status);
+
       const data = await res.json();
-      console.log("📦 [Context] Family register result:", data);
+      if (!res.ok) throw new Error(data.message || "Failed to register");
 
-      if (!res.ok) throw new Error(data.message || "Failed to register family member");
-
-      // Local increment for faster UI
-      setWorkshops((prev) =>
-        prev.map((w) =>
-          w._id === workshopId
-            ? { ...w, participantsCount: (w.participantsCount || 0) + 1 }
-            : w
-        )
-      );
+      updateWorkshopLocal(data.workshop);
       await fetchWorkshops();
+      await fetchRegisteredWorkshops();
+
+      setRegisteredWorkshopIds((prev) =>
+        prev.includes(workshopId) ? prev : [...prev, workshopId]
+      );
+
+      return { success: true, data };
     } catch (err) {
-      console.error("❌ [Context] Family registration error:", err);
+      console.error("❌ registerEntityToWorkshop error:", err);
+      return { success: false, message: err.message };
     }
   }
 
-  async function unregisterFamilyMember(workshopId, familyId) {
-    console.log("👨‍👩‍👧 [Context] Unregister family:", { workshopId, familyId });
-    if (!workshopId || !familyId) {
-      console.warn("⚠️ [Context] Missing workshopId/familyId");
-      return;
-    }
+  async function unregisterEntityFromWorkshop(workshopId, familyId = null) {
     try {
       const token = localStorage.getItem("token");
-      console.log("🔑 [Context] Token for family unregister:", !!token);
-      const res = await fetch(`/api/workshops/${workshopId}/family/${familyId}`, {
+      if (!token) throw new Error("Missing token");
+
+      const res = await fetch(`/api/workshops/${workshopId}/unregister-entity`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ familyId }),
       });
-      console.log("📡 [Context] DELETE /family response:", res.status);
+
       const data = await res.json();
-      console.log("📦 [Context] Family unregister result:", data);
+      if (!res.ok) throw new Error(data.message || "Failed to unregister");
 
-      if (!res.ok) throw new Error(data.message || "Failed to unregister family member");
-
-      // Local decrement for smoother UX
-      setWorkshops((prev) =>
-        prev.map((w) =>
-          w._id === workshopId
-            ? { ...w, participantsCount: Math.max((w.participantsCount || 1) - 1, 0) }
-            : w
-        )
-      );
+      updateWorkshopLocal(data.workshop);
       await fetchWorkshops();
+      await fetchRegisteredWorkshops();
+
+      setRegisteredWorkshopIds((prev) => prev.filter((id) => id !== workshopId));
+      console.log("✅ Unregistered entity:", data);
+      return { success: true, data };
     } catch (err) {
-      console.error("❌ [Context] Family unregister error:", err);
+      console.error("❌ unregisterEntityFromWorkshop error:", err);
+      return { success: false, message: err.message };
     }
   }
 
   /** 👥 Manage participants modal */
   const manageParticipants = (id) => {
-    console.log("👥 [Context] Manage participants called for ID:", id);
     const found = workshops.find((w) => w._id === id);
-    console.log("🔍 [Context] Found workshop:", found);
-    if (found) setSelectedWorkshop(found);
-    else setSelectedWorkshop(null);
+    setSelectedWorkshop(found || null);
   };
 
   return (
@@ -189,8 +203,8 @@ export const WorkshopProvider = ({ children }) => {
         selectedWorkshop,
         setSelectedWorkshop,
         manageParticipants,
-        registerFamilyMember,
-        unregisterFamilyMember,
+        registerEntityToWorkshop,
+        unregisterEntityFromWorkshop,
       }}
     >
       {children}

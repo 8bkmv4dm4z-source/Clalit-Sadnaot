@@ -39,6 +39,16 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     setFamily(family.filter((f) => f._id !== id));
   };
 
+  // Handle edits to existing family members.  When a user edits a
+  // field on an existing member, update that specific member in
+  // the local state.  This allows editing of name, relation,
+  // idNumber, phone and birthDate directly in the modal.
+  const handleEditMember = (id, key, value) => {
+    setFamily((prev) =>
+      prev.map((m) => (m._id === id ? { ...m, [key]: value } : m))
+    );
+  };
+
   const handleSave = () => {
     onSave(family);
     onClose();
@@ -57,22 +67,63 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
             family.map((f) => (
               <div
                 key={f._id}
-                className="p-4 border border-gray-200 rounded-xl bg-gray-50 flex justify-between items-center"
+                className="p-4 border border-gray-200 rounded-xl bg-gray-50"
               >
-                <div>
-                  <p className="font-semibold text-gray-800">{f.name}</p>
-                  <p className="text-gray-600 text-sm">
-                    {f.relation && `${f.relation} • `}
-                    {f.idNumber && `ת"ז: ${f.idNumber} • `}
-                    {f.phone || "—"}
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-600 mb-1">שם</label>
+                    <input
+                      type="text"
+                      value={f.name}
+                      onChange={(e) => handleEditMember(f._id, "name", e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-600 mb-1">יחס</label>
+                    <input
+                      type="text"
+                      value={f.relation || ""}
+                      onChange={(e) => handleEditMember(f._id, "relation", e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                    <div className="flex flex-col">
+                    <label className="text-xs text-gray-600 mb-1">ת"ז</label>
+                    <input
+                      type="text"
+                      value={f.idNumber || ""}
+                      onChange={(e) => handleEditMember(f._id, "idNumber", e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-600 mb-1">טלפון</label>
+                    <input
+                      type="text"
+                      value={f.phone || ""}
+                      onChange={(e) => handleEditMember(f._id, "phone", e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-600 mb-1">תאריך לידה</label>
+                    <input
+                      type="date"
+                      value={f.birthDate || ""}
+                      onChange={(e) => handleEditMember(f._id, "birthDate", e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleRemove(f._id)}
-                  className="text-red-600 hover:text-red-800 text-sm font-medium"
-                >
-                  ❌ הסר
-                </button>
+                <div className="mt-2 text-right">
+                  <button
+                    onClick={() => handleRemove(f._id)}
+                    className="text-red-600 hover:text-red-800 text-sm font-medium"
+                  >
+                    ❌ הסר
+                  </button>
+                </div>
               </div>
             ))
           ) : (

@@ -33,6 +33,8 @@ export default function Workshops() {
     loading,
     error,
     viewMode,
+    registerEntityToWorkshop,
+    unregisterEntityFromWorkshop,
   } = useWorkshops();
 
   /** 🔹 Fetch workshops once (and whenever mode changes) */
@@ -79,10 +81,13 @@ export default function Workshops() {
     console.log("🧮 [Workshops] Filtering workshops...");
     if (!displayedWorkshops) return [];
 
-    // When viewing "mine", only show registered workshops
+    // When viewing "mine", show workshops where the user is
+    // registered directly OR has a family member registered.
     if (viewMode === "mine" && user?._id) {
-      console.log("🧾 [Workshops] Showing only registered workshops");
-      return displayedWorkshops.filter((w) => registeredWorkshopIds.includes(w._id));
+      console.log("🧾 [Workshops] Showing only workshops the user or their family is registered to");
+      return displayedWorkshops.filter(
+        (w) => w.isUserRegistered || (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
+      );
     }
 
     // No search => show all
@@ -121,59 +126,32 @@ export default function Workshops() {
   }, [displayedWorkshops, searchQuery, searchBy, viewMode, registeredWorkshopIds]);
 
   /** 🔹 Registration Handlers */
-  const handleRegister = async (id) => {
-    console.log("📝 [Workshops] Register clicked for workshop ID:", id);
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/workshops/${id}/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      console.log("📡 [Workshops] POST /register status:", res.status);
-      const data = await res.json();
-      console.log("📦 [Workshops] Register response:", data);
-      if (!res.ok) throw new Error(data.message || "Registration failed");
-      setRegisteredWorkshopIds((prev) => [...prev, id]);
-      await fetchWorkshops();
-      console.log("✅ [Workshops] Registration complete, workshops refetched");
-      setFeedback("✅ נרשמת בהצלחה לסדנה!");
-    } catch (err) {
-      console.error("❌ [Workshops] Register error:", err);
-      setFeedback("❌ שגיאה בהרשמה לסדנה");
-    } finally {
-      setTimeout(() => setFeedback(null), 2500);
-    }
-  };
+  /** 🔹 Unified Registration Handler */
+const handleRegister = async (id, familyId = null) => {
+  console.log("📝 [Workshops] Register entity:", { id, familyId });
+  const result = await registerEntityToWorkshop(id, familyId);
+  if (result.success) {
+    setFeedback("✅ נרשמת בהצלחה לסדנה!");
+    setRegisteredWorkshopIds((prev) => [...prev, id]);
+  } else {
+    setFeedback("❌ שגיאה בהרשמה לסדנה");
+  }
+  setTimeout(() => setFeedback(null), 2500);
+};
 
-  const handleUnregister = async (id) => {
-    console.log("🚫 [Workshops] Unregister clicked for workshop ID:", id);
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/workshops/${id}/unregister`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      console.log("📡 [Workshops] POST /unregister status:", res.status);
-      const data = await res.json();
-      console.log("📦 [Workshops] Unregister response:", data);
-      if (!res.ok) throw new Error(data.message || "Unregister failed");
-      setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
-      await fetchWorkshops();
-      console.log("✅ [Workshops] Unregister complete, workshops refetched");
-      setFeedback("✅ ההרשמה בוטלה בהצלחה");
-    } catch (err) {
-      console.error("❌ [Workshops] Unregister error:", err);
-      setFeedback("❌ שגיאה בביטול ההרשמה");
-    } finally {
-      setTimeout(() => setFeedback(null), 2500);
-    }
-  };
+/** 🔹 Unified Unregister Handler */
+const handleUnregister = async (id, familyId = null) => {
+  console.log("🚫 [Workshops] Unregister entity:", { id, familyId });
+  const result = await unregisterEntityFromWorkshop(id, familyId);
+  if (result.success) {
+    setFeedback("✅ ההרשמה בוטלה בהצלחה");
+    setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
+  } else {
+    setFeedback("❌ שגיאה בביטול ההרשמה");
+  }
+  setTimeout(() => setFeedback(null), 2500);
+};
+
 
   /** 👥 Admin: open participants modal */
   const handleManageParticipants = (id) => {
@@ -270,7 +248,7 @@ export default function Workshops() {
         </div>
       )}
 
-      {/* 🔹 Workshops Grid */}
+            {/* 🔹 Workshops Grid */}
       <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto mt-10">
         {loading ? (
           <p className="text-center text-gray-500 mt-10 animate-pulse">
@@ -287,25 +265,35 @@ export default function Workshops() {
               : "לא נמצאו סדנאות תואמות."}
           </p>
         ) : (
-          filteredWorkshops.map((w, idx) => (
-            <div
-              key={w._id}
-              className="animate-[fadeIn_0.6s_ease-in-out_both]"
-              style={{ animationDelay: `${idx * 0.05}s` }}
-            >
-              <WorkshopCard
-                {...w}
-                isLoggedIn={isLoggedIn}
-                isAdmin={isAdmin}
-                isRegistered={registeredWorkshopIds.includes(w._id)}
-                onRegister={() => handleRegister(w._id)}
-                onUnregister={() => handleUnregister(w._id)}
-                onManageParticipants={() => handleManageParticipants(w._id)}
-                onEditWorkshop={() => handleEditWorkshop(w._id)}
-                searchQuery={searchQuery}
-              />
-            </div>
-          ))
+          filteredWorkshops.map((w, idx) => {
+            console.log("🧾 [Workshops → Card Props]", {
+              id: w._id,
+              title: w.title,
+              isUserRegistered: w.isUserRegistered,
+              family: w.userFamilyRegistrations,
+            });
+
+            return (
+              <div
+                key={w._id}
+                className="animate-[fadeIn_0.6s_ease-in-out_both]"
+                style={{ animationDelay: `${idx * 0.05}s` }}
+              >
+                <WorkshopCard
+                  {...w}
+                  isLoggedIn={isLoggedIn}
+                  isAdmin={isAdmin}
+                  isRegistered={w.isUserRegistered}
+                  userFamilyRegistrations={w.userFamilyRegistrations || []}
+                  onRegister={(familyId) => handleRegister(w._id, familyId)}
+                  onUnregister={(familyId) => handleUnregister(w._id, familyId)}
+                  onManageParticipants={() => handleManageParticipants(w._id)}
+                  onEditWorkshop={() => handleEditWorkshop(w._id)}
+                  searchQuery={searchQuery}
+                />
+              </div>
+            );
+          })
         )}
       </div>
 
