@@ -2,18 +2,29 @@
  * EditProfile.jsx — Unified User & Family Editor
  * ----------------------------------------------
  * - Edits both users and family members
- * - Shows family list for main users
- * - Updates via PUT /api/users/:id
+ * - Works with updateEntity() (server-side unified endpoint)
+ * - Admins can edit any user
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 
+const calcAge = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  const t = new Date();
+  let a = t.getFullYear() - d.getFullYear();
+  const m = t.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < d.getDate())) a--;
+  return a;
+};
+
 export default function EditProfile() {
-  const { id } = useParams();
+  const { id } = useParams(); // ID יכול להיות user או family
   const navigate = useNavigate();
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, updateEntity } = useAuth();
 
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,21 +57,44 @@ export default function EditProfile() {
   const handleChange = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  /* 🟢 Save profile */
+  const isFamilyProfile = !!form?.parentId;
+  const age = useMemo(() => calcAge(form?.birthDate), [form?.birthDate]);
+
+  /* 🟢 Save profile via updateEntity */
   const handleSave = async () => {
     try {
       setSaving(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/users/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Update failed");
+
+      const payload = isFamilyProfile
+        ? {
+            // בן משפחה בפני עצמו
+            familyId: form._id,
+            updates: {
+              name: form.name,
+              relation: form.relation || "",
+              idNumber: form.idNumber || "",
+              phone: form.phone || "",
+              email: form.email || form.parentEmail || "", // ✅ fallback to parent
+              birthDate: form.birthDate || "",
+              city: form.city || "",
+            },
+          }
+        : {
+            // משתמש רגיל
+            userId: form._id,
+            updates: {
+              name: form.name,
+              idNumber: form.idNumber || "",
+              phone: form.phone || "",
+              city: form.city || "",
+              birthDate: form.birthDate || "",
+              canCharge: !!form.canCharge,
+              role: form.role || "user",
+            },
+          };
+
+      const result = await updateEntity(payload);
+      if (!result?.success) throw new Error(result?.message || "Update failed");
 
       alert("✅ הנתונים עודכנו בהצלחה!");
       navigate("/profiles");
@@ -71,39 +105,47 @@ export default function EditProfile() {
     }
   };
 
-  /* 🧩 Handle family edits */
+  /* 🧩 Handle family edits locally (before saving full list) */
   const handleFamilyChange = (key, value) =>
     setFamilyForm((prev) => ({ ...prev, [key]: value }));
 
   const saveFamilyMember = async () => {
     try {
       setSaving(true);
+
+      const payload = addingFamily
+        ? {
+            userId: form._id,
+            updates: {
+              familyMembers: [
+                ...(form.familyMembers || []),
+                {
+                  ...familyForm,
+                  email: familyForm.email || form.email || "", // ✅ fallback for new member
+                },
+              ],
+            },
+          }
+        : {
+            familyId: editingFamilyId,
+            parentUserId: form._id,
+            updates: {
+              ...familyForm,
+              email: familyForm.email || form.email || "", // ✅ fallback for edit
+            },
+          };
+
+      const result = await updateEntity(payload);
+      if (!result?.success) throw new Error(result?.message || "Update failed");
+
+      // refresh local form from server (so list reflects persisted fallback)
       const token = localStorage.getItem("token");
-      const updated = { ...form };
-
-      if (addingFamily) {
-        updated.familyMembers = [
-          ...(updated.familyMembers || []),
-          { ...familyForm },
-        ];
-      } else {
-        updated.familyMembers = (updated.familyMembers || []).map((f) =>
-          f._id === editingFamilyId ? { ...f, ...familyForm } : f
-        );
-      }
-
-      const res = await fetch(`/api/users/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(updated),
+      const res = await fetch(`/api/users/${form._id}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      const refreshed = await res.json();
+      setForm(refreshed);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Family update failed");
-      setForm(data.user || updated);
       setEditingFamilyId(null);
       setFamilyForm({});
       setAddingFamily(false);
@@ -128,7 +170,9 @@ export default function EditProfile() {
       relation: "",
       idNumber: "",
       phone: "",
+      email: form?.email || "", // ✅ default to parent email
       birthDate: "",
+      city: "",
     });
     setAddingFamily(true);
   };
@@ -159,8 +203,6 @@ export default function EditProfile() {
       </div>
     );
 
-  const isFamilyProfile = !!form.parentId; // אם זה בן משפחה בפני עצמו
-
   return (
     <div
       dir="rtl"
@@ -171,7 +213,7 @@ export default function EditProfile() {
           {isFamilyProfile ? "עריכת בן משפחה" : "עריכת פרופיל משתמש"}
         </h2>
 
-        {/* --- Main User Fields --- */}
+        {/* --- Main User/Family Fields --- */}
         <div className="space-y-4">
           <label className="block">
             <span className="text-gray-700 font-medium">שם מלא:</span>
@@ -182,37 +224,39 @@ export default function EditProfile() {
             />
           </label>
 
-          {!isFamilyProfile && (
-            <>
-              <label className="block">
-                <span className="text-gray-700 font-medium">אימייל:</span>
-                <input
-                  type="email"
-                  value={form.email || ""}
-                  onChange={(e) => handleChange("email", e.target.value)}
-                  className="input mt-1"
-                />
-              </label>
-              <label className="block">
-                <span className="text-gray-700 font-medium">סיסמה חדשה:</span>
-                <input
-                  type="password"
-                  placeholder="השאר ריק אם לא מעדכן"
-                  onChange={(e) => handleChange("password", e.target.value)}
-                  className="input mt-1"
-                />
-              </label>
-            </>
+          {!isFamilyProfile ? (
+            <label className="block">
+              <span className="text-gray-700 font-medium">אימייל:</span>
+              <input
+                type="email"
+                value={form.email || ""}
+                disabled
+                className="input mt-1 bg-gray-100 cursor-not-allowed"
+              />
+            </label>
+          ) : (
+            <label className="block">
+              <span className="text-gray-700 font-medium">אימייל (לא חובה):</span>
+              <input
+                type="email"
+                value={form.email || ""}
+                onChange={(e) => handleChange("email", e.target.value)}
+                className="input mt-1"
+              />
+            </label>
           )}
 
           <label className="block">
             <span className="text-gray-700 font-medium">תאריך לידה:</span>
-            <input
-              type="date"
-              value={form.birthDate?.split("T")[0] || ""}
-              onChange={(e) => handleChange("birthDate", e.target.value)}
-              className="input mt-1"
-            />
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={form.birthDate?.split("T")[0] || ""}
+                onChange={(e) => handleChange("birthDate", e.target.value)}
+                className="input mt-1"
+              />
+              <span className="text-sm text-gray-600">גיל: {age ?? "-"}</span>
+            </div>
           </label>
 
           <label className="block">
@@ -237,7 +281,7 @@ export default function EditProfile() {
           {isFamilyProfile && (
             <>
               <label className="block">
-                <span className="text-gray-700 font-medium">קשר משפחתי:</span>
+                <span className="text-gray-700 font-medium">קשר משפחתי (לא חובה):</span>
                 <input
                   value={form.relation || ""}
                   onChange={(e) => handleChange("relation", e.target.value)}
@@ -256,15 +300,14 @@ export default function EditProfile() {
             </>
           )}
 
+          {/* Admin-only for main user */}
           {isAdmin && !isFamilyProfile && (
             <>
               <label className="flex items-center gap-3 text-gray-700 font-medium">
                 <input
                   type="checkbox"
                   checked={!!form.canCharge}
-                  onChange={(e) =>
-                    handleChange("canCharge", e.target.checked)
-                  }
+                  onChange={(e) => handleChange("canCharge", e.target.checked)}
                   className="w-5 h-5 accent-indigo-600"
                 />
                 הרשאה לגבייה
@@ -285,7 +328,7 @@ export default function EditProfile() {
           )}
         </div>
 
-        {/* --- Family Section --- */}
+        {/* --- Family Section (for main user) --- */}
         {!isFamilyProfile && (
           <div className="mt-8 border-t pt-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">
@@ -301,10 +344,13 @@ export default function EditProfile() {
                   >
                     <div>
                       <p className="font-medium text-gray-800">
-                        {f.name} ({f.relation})
+                        {f.name} ({f.relation || "—"})
                       </p>
                       <p className="text-xs text-gray-600">
-                        ת.ז {f.idNumber || "-"} | {f.phone || "-"}
+                        ת.ז {f.idNumber || "-"} | {f.phone || "-"} | גיל: {calcAge(f.birthDate) ?? "-"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        אימייל: {f.email || form.email || "-"}
                       </p>
                     </div>
                     <button
@@ -333,20 +379,25 @@ export default function EditProfile() {
                   {addingFamily ? "הוספת בן משפחה" : "עריכת בן משפחה"}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {["name", "relation", "idNumber", "phone", "birthDate"].map(
-                    (key) => (
+                  {[
+                    ["name", "שם מלא"],
+                    ["relation", "קשר משפחתי (לא חובה)"],
+                    ["idNumber", "ת.ז"],
+                    ["phone", "טלפון"],
+                    ["email", "אימייל (לא חובה)"], // ✅ included
+                    ["birthDate", "תאריך לידה"],
+                    ["city", "עיר"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="text-sm">
+                      <span className="text-gray-700">{label}:</span>
                       <input
-                        key={key}
-                        type={key === "birthDate" ? "date" : "text"}
-                        placeholder={key}
+                        type={key === "birthDate" ? "date" : key === "email" ? "email" : "text"}
                         value={familyForm[key] || ""}
-                        onChange={(e) =>
-                          handleFamilyChange(key, e.target.value)
-                        }
-                        className="border rounded-lg px-3 py-2 text-sm"
+                        onChange={(e) => handleFamilyChange(key, e.target.value)}
+                        className="border rounded-lg px-3 py-2 w-full mt-1"
                       />
-                    )
-                  )}
+                    </label>
+                  ))}
                 </div>
                 <div className="flex justify-end gap-2 mt-4">
                   <button

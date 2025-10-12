@@ -9,7 +9,10 @@ const User = require("../models/User");
    JWT helper
    ============================================================ */
 function generateJwtToken(userId) {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
+  // Use a shorter expiry by default for better security.  The duration
+  // can be overridden via the JWT_EXPIRY env variable (e.g. "15m").
+  const expiresIn = process.env.JWT_EXPIRY || '30m';
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn });
 }
 
 /* ============================================================

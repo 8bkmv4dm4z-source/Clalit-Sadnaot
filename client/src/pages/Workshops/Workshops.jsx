@@ -1,3 +1,11 @@
+/**
+ * Workshops.jsx — Full Version (Auth + WorkshopContext only)
+ * ----------------------------------------------------------
+ * - Displays workshops grouped by user and family members.
+ * - Uses Auth (user + familyMembers) and WorkshopContext.
+ * - Header is synced via global viewMode (all / mine).
+ */
+
 import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -5,25 +13,15 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../Components/WorkshopCard";
 import WorkshopParticipantsModal from "../../Components/WorkshopParticipantsModal";
 
-/**
- * Workshops.jsx — Unified Logic + Debug Logs
- * -----------------------------------------
- * Added detailed console logs for debugging:
- * - Fetching data
- * - Register/unregister flows
- * - Modal behavior
- * - Search & filter logic
- */
-
 export default function Workshops() {
   const navigate = useNavigate();
 
-  /** 🧩 Local UI States */
+  // 🔹 Local UI States
   const [searchBy, setSearchBy] = useState("all");
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
-  /** 🧠 Global Contexts */
+  // 🔹 Global Contexts
   const { isLoggedIn, isAdmin, user, searchQuery, setSearchQuery } = useAuth();
   const {
     displayedWorkshops,
@@ -37,69 +35,49 @@ export default function Workshops() {
     unregisterEntityFromWorkshop,
   } = useWorkshops();
 
-  /** 🔹 Fetch workshops once (and whenever mode changes) */
+  // 🔹 Initial Sync
   useEffect(() => {
-    console.log("🔄 [Workshops] Fetching workshops for mode:", viewMode);
     fetchWorkshops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
 
-  /** 🔹 Load registered workshops for logged-in users */
   useEffect(() => {
+    if (!isLoggedIn) return setRegisteredWorkshopIds([]);
     const fetchRegistered = async () => {
-      console.log("👤 [Workshops] Checking registered workshops. Logged in?", isLoggedIn);
-      if (!isLoggedIn) {
-        console.log("⚠️ [Workshops] Not logged in → clearing registeredWorkshopIds");
-        return setRegisteredWorkshopIds([]);
-      }
       try {
         const token = localStorage.getItem("token");
-        console.log("🔑 [Workshops] Using token:", !!token);
         const res = await fetch("/api/workshops/registered", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log("📡 [Workshops] /api/workshops/registered status:", res.status);
         const data = await res.json();
-        console.log("📦 [Workshops] Registered workshops response:", data);
         if (!res.ok) throw new Error(data.message || "Failed to load registrations");
         setRegisteredWorkshopIds(Array.isArray(data) ? data : []);
-        console.log("✅ [Workshops] Registered workshop IDs set:", data);
       } catch (err) {
         console.error("❌ [Workshops] Error fetching registered workshops:", err);
       }
     };
     fetchRegistered();
-  }, [isLoggedIn]);
+  }, [isLoggedIn, setRegisteredWorkshopIds]);
 
-  /** 🔍 Search input handler */
-  const handleSearch = (e) => {
-    console.log("🔍 [Workshops] Search changed:", e.target.value);
-    setSearchQuery(e.target.value);
-  };
+  // 🔍 Search
+  const handleSearch = (e) => setSearchQuery(e.target.value);
 
-  /** 🔹 Filter logic (local only) */
+  // 🔹 Filtering
   const filteredWorkshops = useMemo(() => {
-    console.log("🧮 [Workshops] Filtering workshops...");
     if (!displayedWorkshops) return [];
 
-    // When viewing "mine", show workshops where the user is
-    // registered directly OR has a family member registered.
     if (viewMode === "mine" && user?._id) {
-      console.log("🧾 [Workshops] Showing only workshops the user or their family is registered to");
       return displayedWorkshops.filter(
-        (w) => w.isUserRegistered || (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
+        (w) =>
+          w.isUserRegistered ||
+          (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
       );
     }
 
-    // No search => show all
-    if (!searchQuery.trim()) {
-      console.log("✨ [Workshops] No search query → showing all workshops");
-      return displayedWorkshops;
-    }
+    if (!searchQuery.trim()) return displayedWorkshops;
 
     const q = searchQuery.trim().toLowerCase();
-    console.log("🔎 [Workshops] Filtering by query:", q, "and field:", searchBy);
-
-    const filtered = displayedWorkshops.filter((w) => {
+    return displayedWorkshops.filter((w) => {
       const fields =
         searchBy === "all"
           ? [
@@ -114,97 +92,107 @@ export default function Workshops() {
               String(w.price),
             ]
           : [w[searchBy]];
-
       return fields
         .filter(Boolean)
         .map((s) => s.toString().toLowerCase())
         .some((f) => f.startsWith(q));
     });
+  }, [displayedWorkshops, searchQuery, searchBy, viewMode, registeredWorkshopIds, user?._id]);
 
-    console.log("✅ [Workshops] Filtered workshops count:", filtered.length);
-    return filtered;
-  }, [displayedWorkshops, searchQuery, searchBy, viewMode, registeredWorkshopIds]);
+  // 🧩 Group by user & family members (from Auth.user only)
+  const workshopsByEntity = useMemo(() => {
+    if (!user) return {};
 
-  /** 🔹 Registration Handlers */
-  /** 🔹 Unified Registration Handler */
-const handleRegister = async (id, familyId = null) => {
-  console.log("📝 [Workshops] Register entity:", { id, familyId });
-  const result = await registerEntityToWorkshop(id, familyId);
-  if (result.success) {
-    setFeedback("✅ נרשמת בהצלחה לסדנה!");
-    setRegisteredWorkshopIds((prev) => [...prev, id]);
-  } else {
-    setFeedback("❌ שגיאה בהרשמה לסדנה");
-  }
-  setTimeout(() => setFeedback(null), 2500);
-};
+    const relatedWorkshops = filteredWorkshops.filter(
+      (w) =>
+        w.isUserRegistered ||
+        (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
+    );
 
-/** 🔹 Unified Unregister Handler */
-const handleUnregister = async (id, familyId = null) => {
-  console.log("🚫 [Workshops] Unregister entity:", { id, familyId });
-  const result = await unregisterEntityFromWorkshop(id, familyId);
-  if (result.success) {
-    setFeedback("✅ ההרשמה בוטלה בהצלחה");
-    setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
-  } else {
-    setFeedback("❌ שגיאה בביטול ההרשמה");
-  }
-  setTimeout(() => setFeedback(null), 2500);
-};
+    const map = {};
+    const userId = user._id;
 
+    // Me
+    map[userId] = {
+      name: user.fullName || user.name || "אני",
+      relation: "",
+      workshops: relatedWorkshops.filter((w) => w.isUserRegistered),
+    };
 
-  /** 👥 Admin: open participants modal */
+    // Family members (from user.familyMembers)
+    const familyList = Array.isArray(user.familyMembers) ? user.familyMembers : [];
+
+    familyList.forEach((member) => {
+      const memberWorkshops = relatedWorkshops.filter((w) =>
+        (w.userFamilyRegistrations || []).some((r) => String(r) === String(member._id))
+      );
+      if (memberWorkshops.length > 0) {
+        map[member._id] = {
+          name: member.name,
+          relation: member.relation || "",
+          workshops: memberWorkshops,
+        };
+      }
+    });
+
+    return map;
+  }, [user, filteredWorkshops]);
+
+  // 🔹 Registration Handlers
+  const handleRegister = async (id, familyId = null) => {
+    const result = await registerEntityToWorkshop(id, familyId);
+    if (result.success) {
+      setFeedback("✅ נרשמת בהצלחה לסדנה!");
+      setRegisteredWorkshopIds((prev) => [...prev, id]);
+      await fetchWorkshops();
+    } else setFeedback("❌ שגיאה בהרשמה לסדנה");
+    setTimeout(() => setFeedback(null), 2500);
+  };
+
+  const handleUnregister = async (id, familyId = null) => {
+    const result = await unregisterEntityFromWorkshop(id, familyId);
+    if (result.success) {
+      setFeedback("✅ ההרשמה בוטלה בהצלחה");
+      setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
+      await fetchWorkshops();
+    } else setFeedback("❌ שגיאה בביטול ההרשמה");
+    setTimeout(() => setFeedback(null), 2500);
+  };
+
+  // 👥 Admin modal + Edit
   const handleManageParticipants = (id) => {
-    console.log("👥 [Workshops] Opening participants modal for:", id);
     const found = displayedWorkshops.find((w) => w._id === id);
-    if (found) {
-      console.log("✅ [Workshops] Found workshop:", found.title);
-      setSelectedWorkshop(found);
-    } else {
-      console.warn("⚠️ [Workshops] Workshop not found for modal");
-    }
+    if (found) setSelectedWorkshop(found);
   };
 
-  /** 🧭 Admin: navigate to edit */
-  const handleEditWorkshop = (id) => {
-    console.log("✏️ [Workshops] Navigating to edit:", id);
-    navigate(`/editworkshop/${id}`);
-  };
-
-  /** 🧹 Close modal safely */
+  const handleEditWorkshop = (id) => navigate(`/editworkshop/${id}`);
   const handleModalClose = async () => {
-    console.log("❎ [Workshops] Closing modal");
     setSelectedWorkshop(null);
     await fetchWorkshops();
-    console.log("🔁 [Workshops] Workshops refreshed after modal close");
   };
+
+  // 🧠 Header sync (dynamic title)
+  const titleText = viewMode === "mine" ? "הסדנאות שלי" : "כלל הסדנאות";
+  const subtitleText =
+    viewMode === "mine"
+      ? "צפו בהרשמות שלכם ושל בני המשפחה לפי שם"
+      : "חפש, הירשם או ערוך סדנאות בקלות";
 
   // -------------------- JSX --------------------
   return (
-    <div
-      className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 p-6 md:p-10"
-      dir="rtl"
-    >
-      <div className="max-w-6xl mx-auto mb-6 text-center">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
-          {viewMode === "mine" ? "הסדנאות שלי" : "כלל הסדנאות"}
-        </h2>
-        <p className="text-gray-600 text-sm md:text-base">
-          {viewMode === "mine"
-            ? "צפו ובטלו הרשמות לסדנאות שלכם"
-            : "חפש, הירשם או ערוך סדנאות בקלות"}
-        </p>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 p-6 md:p-10" dir="rtl">
+      {/* Header Section */}
+      <div className="max-w-6xl mx-auto mb-6 text-center transition-all duration-300">
+        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">{titleText}</h2>
+        <p className="text-gray-600 text-sm md:text-base">{subtitleText}</p>
       </div>
 
-      {/* 🔍 Filters */}
+      {/* Filters */}
       {viewMode === "all" && (
         <div className="max-w-6xl mx-auto bg-white/90 backdrop-blur border border-gray-200 shadow-md rounded-2xl p-5 flex flex-wrap justify-center items-center gap-3">
           <select
             value={searchBy}
-            onChange={(e) => {
-              console.log("📂 [Workshops] Search field changed:", e.target.value);
-              setSearchBy(e.target.value);
-            }}
+            onChange={(e) => setSearchBy(e.target.value)}
             className="px-3 py-2 rounded-xl border border-gray-300 bg-white text-sm text-gray-800 focus:ring-2 focus:ring-indigo-500"
           >
             <option value="all">חפש בכל</option>
@@ -226,14 +214,12 @@ const handleUnregister = async (id, familyId = null) => {
               onChange={handleSearch}
               className="w-64 pl-10 pr-4 py-2 rounded-xl border border-gray-300 bg-gray-50 text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
             />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
-              🔍
-            </span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
           </div>
         </div>
       )}
 
-      {/* Feedback message */}
+      {/* Feedback */}
       {feedback && (
         <div className="max-w-6xl mx-auto text-center mt-4">
           <p
@@ -248,56 +234,61 @@ const handleUnregister = async (id, familyId = null) => {
         </div>
       )}
 
-            {/* 🔹 Workshops Grid */}
-      <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto mt-10">
-        {loading ? (
-          <p className="text-center text-gray-500 mt-10 animate-pulse">
-            ⏳ טוען סדנאות...
-          </p>
-        ) : error ? (
-          <p className="text-center text-red-500 font-medium mt-10">
-            ❌ {error}
-          </p>
-        ) : filteredWorkshops.length === 0 ? (
-          <p className="text-center text-gray-600 mt-10">
-            {viewMode === "mine"
-              ? "לא נמצאו סדנאות רשומות."
-              : "לא נמצאו סדנאות תואמות."}
-          </p>
-        ) : (
-          filteredWorkshops.map((w, idx) => {
-            console.log("🧾 [Workshops → Card Props]", {
-              id: w._id,
-              title: w.title,
-              isUserRegistered: w.isUserRegistered,
-              family: w.userFamilyRegistrations,
-            });
-
-            return (
-              <div
-                key={w._id}
-                className="animate-[fadeIn_0.6s_ease-in-out_both]"
-                style={{ animationDelay: `${idx * 0.05}s` }}
-              >
-                <WorkshopCard
-                  {...w}
-                  isLoggedIn={isLoggedIn}
-                  isAdmin={isAdmin}
-                  isRegistered={w.isUserRegistered}
-                  userFamilyRegistrations={w.userFamilyRegistrations || []}
-                  onRegister={(familyId) => handleRegister(w._id, familyId)}
-                  onUnregister={(familyId) => handleUnregister(w._id, familyId)}
-                  onManageParticipants={() => handleManageParticipants(w._id)}
-                  onEditWorkshop={() => handleEditWorkshop(w._id)}
-                  searchQuery={searchQuery}
-                />
+      {/* Workshops Display */}
+      {loading ? (
+        <p className="text-center text-gray-500 mt-10 animate-pulse">⏳ טוען סדנאות...</p>
+      ) : error ? (
+        <p className="text-center text-red-500 font-medium mt-10">❌ {error}</p>
+      ) : viewMode === "mine" ? (
+        Object.keys(workshopsByEntity).length > 0 ? (
+          Object.entries(workshopsByEntity).map(([entityId, info]) => (
+            <div key={entityId} className="mb-10">
+              <h3 className="text-2xl font-bold text-blue-900 text-center mb-3">
+                {info.name} {info.relation ? `(${info.relation})` : ""}
+              </h3>
+              <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+                {info.workshops.map((w) => (
+                  <WorkshopCard
+                    key={w._id}
+                    {...w}
+                    isLoggedIn={isLoggedIn}
+                    isAdmin={isAdmin}
+                    isRegistered={w.isUserRegistered}
+                    userFamilyRegistrations={w.userFamilyRegistrations || []}
+                    onRegister={(familyId) => handleRegister(w._id, familyId)}
+                    onUnregister={(familyId) => handleUnregister(w._id, familyId)}
+                    onManageParticipants={() => handleManageParticipants(w._id)}
+                    onEditWorkshop={() => handleEditWorkshop(w._id)}
+                    searchQuery={searchQuery}
+                  />
+                ))}
               </div>
-            );
-          })
-        )}
-      </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-center text-gray-600 mt-10">לא נמצאו סדנאות רשומות.</p>
+        )
+      ) : (
+        <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto mt-10">
+          {filteredWorkshops.map((w) => (
+            <WorkshopCard
+              key={w._id}
+              {...w}
+              isLoggedIn={isLoggedIn}
+              isAdmin={isAdmin}
+              isRegistered={w.isUserRegistered}
+              userFamilyRegistrations={w.userFamilyRegistrations || []}
+              onRegister={(familyId) => handleRegister(w._id, familyId)}
+              onUnregister={(familyId) => handleUnregister(w._id, familyId)}
+              onManageParticipants={() => handleManageParticipants(w._id)}
+              onEditWorkshop={() => handleEditWorkshop(w._id)}
+              searchQuery={searchQuery}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* 👥 Participants Modal */}
+      {/* Participants Modal */}
       {selectedWorkshop && (
         <WorkshopParticipantsModal
           workshop={selectedWorkshop}

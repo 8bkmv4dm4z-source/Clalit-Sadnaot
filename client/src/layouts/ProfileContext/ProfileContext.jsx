@@ -1,13 +1,9 @@
-/**
- * ProfileContext.jsx — Full Server-Connected Version
- * --------------------------------------------------
- * - Loads all users (with familyMembers)
- * - Provides CRUD operations (fetch, add, update, delete)
- * - Unified data model for users and family members
- * - Used by AllProfiles, EditProfile, and admin components
- */
-
 import React, { createContext, useContext, useEffect, useState } from "react";
+
+const log = (msg, data) => {
+  const now = new Date().toLocaleTimeString("he-IL");
+  console.log(`%c[${now}] [PROFILE] ${msg}`, "color:#1e88e5;font-weight:bold;", data ?? "");
+};
 
 const ProfileContext = createContext({
   profiles: [],
@@ -16,7 +12,7 @@ const ProfileContext = createContext({
   setSelectedProfile: () => {},
   fetchProfiles: () => {},
   addProfile: () => {},
-  updateProfile: () => {},
+  updateEntity: () => {},
   deleteProfile: () => {},
 });
 
@@ -26,18 +22,25 @@ export const ProfileProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  /** 🔹 Fetch all profiles (users + familyMembers) */
   const fetchProfiles = async () => {
+    log("🔄 fetchProfiles() called");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      log("No token → skipping fetchProfiles");
+      setProfiles([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
       const res = await fetch("/api/users", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to load profiles");
 
-      // 🧩 Flatten all family members into unified list
       const unified = data.flatMap((user) => {
         const userRow = { ...user, isFamily: false, parentName: null };
         const familyRows = (user.familyMembers || []).map((f) => ({
@@ -51,17 +54,18 @@ export const ProfileProvider = ({ children }) => {
       });
 
       setProfiles(unified);
+      log(`✅ Profiles loaded (${unified.length})`, unified);
       setError("");
     } catch (err) {
-      console.error("❌ Error fetching profiles:", err);
+      console.error("❌ [PROFILE] fetchProfiles error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /** 🔹 Add new user */
   const addProfile = async (profile) => {
+    log("➕ addProfile()", profile);
     try {
       const token = localStorage.getItem("token");
       const res = await fetch("/api/users", {
@@ -74,38 +78,42 @@ export const ProfileProvider = ({ children }) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to create profile");
+      log("✅ Profile created", data);
       await fetchProfiles();
-      return { success: true };
+      return { success: true, data };
     } catch (err) {
       console.error("❌ addProfile error:", err);
       return { success: false, message: err.message };
     }
   };
 
-  /** 🔹 Update existing user or family member */
-  const updateProfile = async (updated) => {
+  const updateEntity = async (payload) => {
+    log("✏️ updateEntity()", payload);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`/api/users/${updated._id}`, {
+      const res = await fetch("/api/users/update-entity", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(updated),
+        body: JSON.stringify(payload),
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to update profile");
+      if (!res.ok) throw new Error(data.message || "Failed to update entity");
+
+      log("✅ Entity updated successfully", data);
       await fetchProfiles();
-      return { success: true };
+      return { success: true, data };
     } catch (err) {
-      console.error("❌ updateProfile error:", err);
+      console.error("❌ updateEntity error:", err);
       return { success: false, message: err.message };
     }
   };
 
-  /** 🔹 Delete user */
   const deleteProfile = async (id) => {
+    log(`🗑 deleteProfile(${id})`);
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`/api/users/${id}`, {
@@ -115,6 +123,7 @@ export const ProfileProvider = ({ children }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to delete profile");
       setProfiles((prev) => prev.filter((p) => p._id !== id));
+      log("✅ Profile deleted", id);
       return { success: true };
     } catch (err) {
       console.error("❌ deleteProfile error:", err);
@@ -122,10 +131,18 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
-  /** 🔁 Initial fetch on mount */
   useEffect(() => {
+    log("🚀 ProfileProvider mounted — initializing fetch");
     fetchProfiles();
   }, []);
+
+  useEffect(() => {
+    log("📊 State update | profiles count:", profiles.length);
+  }, [profiles]);
+
+  useEffect(() => {
+    if (selectedProfile) log("🎯 Selected profile changed", selectedProfile.name);
+  }, [selectedProfile]);
 
   return (
     <ProfileContext.Provider
@@ -136,7 +153,7 @@ export const ProfileProvider = ({ children }) => {
         setSelectedProfile,
         fetchProfiles,
         addProfile,
-        updateProfile,
+        updateEntity,
         deleteProfile,
         loading,
         error,

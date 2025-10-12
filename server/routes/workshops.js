@@ -1,35 +1,64 @@
 // server/routes/workshops.js
 const express = require("express");
 const router = express.Router();
-const { authenticate, authorizeAdmin } = require("../middleware/authMiddleware");
-const ctrl = require("../controllers/workshopController");
+const {
+  authenticate: protect,
+  authorizeAdmin,
+} = require("../middleware/authMiddleware");
 
-// --- Health check ---
-router.get("/health", (_req, res) => res.json({ ok: true }));
+// 📦 Workshop Controller (הגרסה המלאה שלך)
+const workshopController = require("../controllers/workshopController");
 
-/* ---------- Public Routes ---------- */
-// ✅ רשימת כל הסדנאות עם אפשרות חיפוש/סינון
-router.get("/", ctrl.getAllWorkshops);
+/* ============================================================
+   🟢 PUBLIC / USER ROUTES
+   ============================================================ */
 
-// ✅ רשימת מזהי סדנאות שהמשתמש (או בני המשפחה שלו) רשום אליהן
-router.get("/registered", authenticate, ctrl.getRegisteredWorkshops);
+// ✅ כל הסדנאות (כולל מידע אישי על המשתמש המחובר)
+router.get("/", workshopController.getAllWorkshops);
 
-// ✅ סדנה לפי ID
-router.get("/:id", ctrl.getWorkshopById);
+// ✅ רשימת הסדנאות שהמשתמש או אחד מבני משפחתו רשומים אליהן
+router.get("/registered", protect, workshopController.getRegisteredWorkshops);
 
-// ✅ רשימת משתתפים לסדנה מסוימת
-router.get("/:id/participants", authenticate, ctrl.getWorkshopParticipants);
+// ✅ פרטי סדנה בודדת
+router.get("/:id", workshopController.getWorkshopById);
 
-/* ---------- Admin CRUD Routes ---------- */
-router.post("/", authenticate, authorizeAdmin, ctrl.createWorkshop);
-router.put("/:id", authenticate, authorizeAdmin, ctrl.updateWorkshop);
-router.delete("/:id", authenticate, authorizeAdmin, ctrl.deleteWorkshop);
+// ✅ משתתפים בסדנה (למודאל של האדמין)
+router.get("/:id/participants", protect, workshopController.getWorkshopParticipants);
 
-/* ---------- Unified Registration Routes ---------- */
-// ✅ הרשמה (משתמש או בן משפחה)
-router.post("/:id/register-entity", authenticate, ctrl.registerEntityToWorkshop);
+// ✅ רישום משתמש או בן משפחה לסדנה (משתמש רגיל)
+router.post("/:id/register-entity", protect, workshopController.registerEntityToWorkshop);
 
-// ✅ ביטול הרשמה (משתמש או בן משפחה)
-router.delete("/:id/unregister-entity", authenticate, ctrl.unregisterEntityFromWorkshop);
+// ✅ ביטול רישום לסדנה (משתמש רגיל)
+router.delete("/:id/unregister-entity", protect, workshopController.unregisterEntityFromWorkshop);
 
+
+/* ============================================================
+   🟣 ADMIN ROUTES
+   ============================================================ */
+
+// ✅ יצירת סדנה חדשה
+router.post("/", protect, authorizeAdmin, workshopController.createWorkshop);
+
+// ✅ עדכון סדנה קיימת
+router.put("/:id", protect, authorizeAdmin, workshopController.updateWorkshop);
+
+// ✅ מחיקת סדנה
+router.delete("/:id", protect, authorizeAdmin, workshopController.deleteWorkshop);
+
+// ✅ ייצוא סדנה לאקסל ושליחת מייל למנהל
+router.post("/:id/export", protect, authorizeAdmin, workshopController.exportWorkshopExcel);
+
+// ✅ צפייה ברשימת ההמתנה
+router.get("/:id/waitlist", protect, authorizeAdmin, workshopController.getWaitlist);
+
+// ✅ הוספה ידנית לרשימת ההמתנה
+router.post("/:id/waitlist", protect, authorizeAdmin, workshopController.addToWaitlist);
+
+// ✅ הסרה ידנית מרשימת ההמתנה
+router.delete("/:id/waitlist/:entryId", protect, authorizeAdmin, workshopController.removeFromWaitlist);
+
+
+/* ============================================================
+   🧩 EXPORT ROUTER
+   ============================================================ */
 module.exports = router;

@@ -2,13 +2,23 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import { useProfiles } from "../../layouts/ProfileContext";
+
+/**
+ * Header.jsx — Context-Synced Version
+ * -----------------------------------
+ * ✅ Reflects real-time profile updates (ProfileContext)
+ * ✅ Syncs viewMode across WorkshopContext + UI
+ * ✅ Keeps full design & transitions intact
+ */
 
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
-  const { isAdmin, setIsAdmin, setIsLoggedIn } = useAuth();
+  const { isAdmin, setIsAdmin, setIsLoggedIn, user } = useAuth();
   const { viewMode, setViewMode } = useWorkshops();
+  const { profiles } = useProfiles();
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 4);
@@ -25,12 +35,13 @@ export default function Header() {
     navigate("/login");
   };
 
+  const currentUser =
+    profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
+
   const linkBase =
     "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200";
-  const linkActive =
-    "bg-white/90 text-blue-800 shadow-sm";
-  const linkIdle =
-    "text-white/90 hover:bg-white/20 hover:text-white";
+  const linkActive = "bg-white/90 text-blue-800 shadow-sm";
+  const linkIdle = "text-white/90 hover:bg-white/20 hover:text-white";
 
   return (
     <header
@@ -56,9 +67,7 @@ export default function Header() {
                 navigate("/workshops");
             }}
             className={`${linkBase} ${
-              isActive("/workshops") && viewMode === "all"
-                ? linkActive
-                : linkIdle
+              isActive("/workshops") && viewMode === "all" ? linkActive : linkIdle
             }`}
           >
             <span>כל הסדנאות</span>
@@ -71,9 +80,7 @@ export default function Header() {
                 navigate("/workshops");
             }}
             className={`${linkBase} ${
-              isActive("/workshops") && viewMode === "mine"
-                ? linkActive
-                : linkIdle
+              isActive("/workshops") && viewMode === "mine" ? linkActive : linkIdle
             }`}
           >
             <span>הסדנאות שלי</span>
@@ -85,15 +92,15 @@ export default function Header() {
               isActive("/profile") ? linkActive : linkIdle
             }`}
           >
-            <span>פרופיל</span>
+            <span>{ "הפרופיל שלי"}</span>
           </NavLink>
 
           {isAdmin && (
             <>
               <NavLink
-                to="profiles"
+                to="/profiles"
                 className={`${linkBase} ${
-                  isActive("/admin") ? linkActive : linkIdle
+                  isActive("/profiles") ? linkActive : linkIdle
                 }`}
               >
                 <span>ניהול משתמשים</span>
@@ -103,7 +110,7 @@ export default function Header() {
                   localStorage.removeItem("editingWorkshopId");
                   navigate("/editworkshop");
                 }}
-                className="btn btn-primary text-sm px-4 py-2 shadow-sm hover:scale-[1.03]"
+                className="btn btn-primary text-sm px-4 py-2 shadow-sm hover:scale-[1.03] bg-white/90 text-blue-700 font-medium rounded-xl"
               >
                 ➕ צור סדנה חדשה
               </button>
@@ -112,7 +119,7 @@ export default function Header() {
 
           <button
             onClick={handleLogout}
-            className="btn btn-outline px-4 py-2 ml-1"
+            className="btn btn-outline px-4 py-2 ml-1 rounded-xl bg-white/20 hover:bg-white/30 text-white"
           >
             <span>התנתקות</span>
           </button>

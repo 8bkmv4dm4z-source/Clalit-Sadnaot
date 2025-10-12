@@ -1,91 +1,103 @@
 // src/layouts/AuthLayout/AuthLayout.jsx
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 
+/** Console logger with timestamp */
+const log = (...args) => {
+  const time = new Date().toLocaleTimeString("he-IL");
+  console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
+};
+
+/** Public shape (includes saveEntity + refreshMe) */
 const AuthContext = createContext({
   isLoggedIn: false,
   isAdmin: false,
   loading: true,
+  user: null,
   filters: {},
   searchQuery: "",
-  user: null, // ✅ נוסף — כדי לדעת מי המשתמש המחובר
-  // פונקציות ברירת מחדל
   setIsLoggedIn: () => {},
   setIsAdmin: () => {},
+  setUser: () => {},
   setFilters: () => {},
   setSearchQuery: () => {},
-  setUser: () => {}, // ✅ חדש
   logout: () => {},
   completeLogin: async () => {},
   registerUser: async () => {},
   sendOtp: async () => {},
   verifyOtp: async () => {},
+  updateEntity: async () => {}, // legacy alias (delegates to saveEntity)
+  saveEntity: async () => {},   // ✅ canonical updater
+  refreshMe: async () => {},    // ✅ expose fetchMe
 });
 
 export const AuthProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [user, setUser] = useState(null);
   const [filters, setFilters] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null); // ✅ חדש
   const didVerifyRef = useRef(false);
 
-  /* =======================================================
-   * ✅ מביא את פרטי המשתמש דרך /api/auth/me
-   * ======================================================= */
+  /** Fetch the logged-in user (if token exists) */
   const fetchMe = async () => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    setUser(null);
-    setIsLoggedIn(false);
-    setIsAdmin(false);
-    return;
-  }
+    const token = localStorage.getItem("token");
+    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-  try {
-    const res = await fetch("/api/users/me", { // ✅ שונה מ־auth ל־users
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    if (!token) {
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+      log("No token → logged out state");
+      return;
+    }
 
-    if (res.ok) {
-      const userData = await res.json();
-      setUser(userData); // ✅ שומר את כל פרטי המשתמש
-      setIsAdmin(userData?.role === "admin");
-      setIsLoggedIn(true);
-    } else {
+    try {
+      const res = await fetch("/api/users/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setUser(data);
+        setIsAdmin(data.role === "admin");
+        setIsLoggedIn(true);
+        log("✅ User loaded:", data?.name || data?.email || data?._id, "| role:", data.role);
+      } else {
+        localStorage.removeItem("token");
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        log("❌ Invalid token removed");
+      }
+    } catch (err) {
+      log("❌ fetchMe error:", err.message);
       localStorage.removeItem("token");
       setUser(null);
       setIsLoggedIn(false);
       setIsAdmin(false);
     }
-  } catch (err) {
-    console.error("❌ Error verifying user:", err);
-    localStorage.removeItem("token");
-    setUser(null);
-    setIsLoggedIn(false);
-    setIsAdmin(false);
-  }
-};
-  /* =======================================================
-   * ✅ נטען פעם אחת בתחילת האפליקציה
-   * ======================================================= */
+  };
+
+  /** On mount: verify auth once and signal 'auth-ready' */
   useEffect(() => {
     if (didVerifyRef.current) return;
     didVerifyRef.current = true;
+    log("🔹 Mounted AuthProvider");
 
     (async () => {
-      try {
-        await fetchMe();
-      } finally {
-        setLoading(false);
-      }
+      await fetchMe();
+      setLoading(false);
+      // Broadcast that auth is ready so other contexts can safely start
+      window.dispatchEvent(new Event("auth-ready"));
+      log("🔸 Auth loading complete | user:", !!user, "| admin:", isAdmin);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* =======================================================
-   * ✅ רישום משתמש חדש
-   * ======================================================= */
+  /** Register */
   const registerUser = async (payload) => {
+    log("📩 registerUser called:", payload?.email);
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
@@ -93,19 +105,18 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message || "Registration failed");
+      if (!res.ok) throw new Error(data.message);
+      log("✅ registerUser success");
       return { success: true, data };
     } catch (err) {
-      console.error("❌ registerUser error:", err);
+      log("❌ registerUser error:", err.message);
       return { success: false, message: err.message };
     }
   };
 
-  /* =======================================================
-   * 🧩 שליחת OTP (אם רוצים להפריד מ־Verify)
-   * ======================================================= */
+  /** OTP flow */
   const sendOtp = async (email) => {
+    log("📤 sendOtp:", email);
     try {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
@@ -113,18 +124,15 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      return res.ok
-        ? { success: true, data }
-        : { success: false, message: data.message };
+      log("sendOtp result:", data);
+      return res.ok ? { success: true, data } : { success: false, message: data.message };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  /* =======================================================
-   * 🧩 אימות OTP
-   * ======================================================= */
   const verifyOtp = async (email, otp) => {
+    log("🔐 verifyOtp called:", email, otp);
     try {
       const res = await fetch("/api/auth/verify", {
         method: "POST",
@@ -133,87 +141,94 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
 
-      if (res.ok && data?.token) {
+      if (res.ok && data.token) {
+        log("✅ OTP verified | token saved");
         await completeLogin(data.token);
         return { success: true, data };
       }
+      log("❌ OTP verify failed:", data.message);
       return { success: false, message: data.message };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  /* =======================================================
-   * ✅ התנתקות מלאה
-   * ======================================================= */
+  /** Complete login: store token, reload user, broadcast readiness */
+  const completeLogin = async (token) => {
+    if (token) localStorage.setItem("token", token);
+    log("💾 Token stored, reloading user...");
+    await fetchMe();
+    window.dispatchEvent(new Event("auth-ready"));
+  };
+
+  /** Logout: clear state and broadcast readiness (so dependents reset) */
   const logout = () => {
     localStorage.removeItem("token");
+    log("🚪 Logout triggered");
     setUser(null);
     setIsLoggedIn(false);
     setIsAdmin(false);
-    setFilters({});
+    window.dispatchEvent(new Event("auth-ready"));
   };
 
-  /* =======================================================
-   * ✅ התחברות אחרי אימות OTP / Login
-   * ======================================================= */
-  const completeLogin = async (token) => {
-    if (token) localStorage.setItem("token", token);
-    await fetchMe(); // ✅ יביא שוב את פרטי המשתמש המלאים
+  /** Expose fetchMe so other contexts can request a refresh */
+  const refreshMe = async () => {
+    await fetchMe();
   };
-    /* =======================================================
-   * ✅ עדכון פרופיל משתמש מחובר
-   * ======================================================= */
-  const updateProfile = async (updates) => {
-  try {
-    const token = localStorage.getItem("token");
-    if (!token) throw new Error("Missing token");
 
-    const bodyData = {
-      ...updates,
-      familyMembers: updates.familyMembers || [],
-    };
+  /**
+   * ✅ Canonical updater (user or family)
+   * payload: { userId?: string, familyId?: string, updates: {...} }
+   * options: { refreshMeIfCurrent?: boolean } (default true)
+   */
+  const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
+    log("✏️ saveEntity called:", payload);
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Missing token");
 
-    const res = await fetch("/api/profile/edit", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(bodyData),
-    });
+      const res = await fetch("/api/users/update-entity", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Update failed");
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Profile update failed");
+      // If current user or one of their family members was updated, refresh me
+      const isCurrentUserUpdate =
+        payload.userId && user && String(payload.userId) === String(user._id);
 
-    // 🟢 נבדוק אם הנתונים מגיעים כ- {user: {...}}
-    const updatedUser = data.user || data;
+      const isCurrentFamilyUpdate =
+        payload.familyId &&
+        user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
 
-    setUser((prev) => ({
-      ...prev,
-      ...updatedUser,
-      familyMembers: updatedUser.familyMembers || prev.familyMembers || [],
-    }));
+      if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
+        await refreshMe();
+      }
 
-    return { success: true, data: updatedUser };
-  } catch (err) {
-    console.error("❌ updateProfile error:", err);
-    return { success: false, message: err.message };
-  }
-};
+      log("✅ saveEntity success:", data);
+      return { success: true, data };
+    } catch (err) {
+      log("❌ saveEntity error:", err.message);
+      return { success: false, message: err.message };
+    }
+  };
 
+  /** Backward-compat: keep updateEntity but delegate to saveEntity */
+  const updateEntity = async (payload) => {
+    return await saveEntity(payload, { refreshMeIfCurrent: true });
+  };
 
-
-
-  /* =======================================================
-   * 🔹 חשיפת הקונטקסט לכל האפליקציה
-   * ======================================================= */
   return (
     <AuthContext.Provider
       value={{
         isLoggedIn,
         isAdmin,
-        user, // ✅ נגיש לכל הרכיבים (כולל Workshops)
+        user,
         loading,
         filters,
         searchQuery,
@@ -227,7 +242,9 @@ export const AuthProvider = ({ children }) => {
         registerUser,
         sendOtp,
         verifyOtp,
-        updateProfile, // ✅ חדש
+        updateEntity, // legacy alias
+        saveEntity,   // ✅ canonical
+        refreshMe,    // ✅ exposed fetchMe
       }}
     >
       {children}

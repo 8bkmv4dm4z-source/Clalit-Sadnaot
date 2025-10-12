@@ -1,19 +1,28 @@
 /**
- * EditWorkshop.jsx — Tailwind Unified Create/Edit (Safe Version)
+ * EditWorkshop.jsx — Tailwind Unified Create/Edit (Security-Aware)
  * ---------------------------------------------------------------
- * - Used for both creating and editing workshops.
- * - No longer sends participants or participantsCount.
- * - Context-safe: updates global workshops state after save.
+ * - Includes validation for required fields (title, coach, startDate, timePeriod)
+ * - Sanitizes input before sending to backend
+ * - Respects backend sanitization in server.js
+ * - Keeps full Tailwind styling and context-safe updates
  */
 
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 
+/* 🔒 Lightweight client-side sanitization */
+function sanitizeInput(value) {
+  if (typeof value !== "string") return value;
+  return value
+    .trim()
+    .replace(/[<>${}]/g, "") // prevent script & template injections
+    .replace(/\s{2,}/g, " "); // collapse double spaces
+}
+
 export default function EditWorkshop() {
   const { id } = useParams();
   const navigate = useNavigate();
-
   const { workshops, addWorkshopLocal, updateWorkshopLocal } = useWorkshops();
 
   const isNew = !id;
@@ -31,6 +40,8 @@ export default function EditWorkshop() {
       price: "",
       available: true,
       description: "",
+      timePeriod: "",
+      startDate: "",
     }
   );
 
@@ -45,7 +56,7 @@ export default function EditWorkshop() {
   }, [id, existingWorkshop]);
 
   const handleChange = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => ({ ...prev, [key]: sanitizeInput(value) }));
   };
 
   const handleImageFile = (file) => {
@@ -55,22 +66,39 @@ export default function EditWorkshop() {
     reader.readAsDataURL(file);
   };
 
+  const validateForm = () => {
+    const requiredFields = ["title", "coach", "startDate", "timePeriod"];
+    for (const f of requiredFields) {
+      if (!form[f] || String(form[f]).trim() === "") {
+        alert(`יש למלא את השדה "${f}" לפני השמירה.`);
+        return false;
+      }
+    }
+    if (isNaN(Number(form.price)) || Number(form.price) < 0) {
+      alert("המחיר חייב להיות מספר חיובי.");
+      return false;
+    }
+    return true;
+  };
+
   const handleSave = async () => {
     try {
+      if (!validateForm()) return;
+
       setSaving(true);
       const token = localStorage.getItem("token");
 
-      // ✅ נבנה את ה־payload רק עם שדות שרלוונטיים לעריכה
-      let payload = { ...form, image: preview };
+      const payload = Object.keys(form).reduce((acc, key) => {
+        acc[key] = sanitizeInput(form[key]);
+        return acc;
+      }, {});
+      payload.image = preview;
 
-      // 🚫 ודא שהשדות האלו לא נשלחים כלל
       delete payload.participants;
       delete payload.participantsCount;
 
       const endpoint = isNew ? "/api/workshops" : `/api/workshops/${form._id}`;
       const method = isNew ? "POST" : "PUT";
-
-      console.log("🛰️ Sending request:", method, endpoint, payload);
 
       const res = await fetch(endpoint, {
         method,
@@ -85,9 +113,6 @@ export default function EditWorkshop() {
       if (!res.ok)
         throw new Error(data?.message || "שמירה נכשלה, נסה שוב מאוחר יותר.");
 
-      console.log("✅ Workshop saved successfully:", data);
-
-      // ✅ עדכון לוקאלי של הקונטקסט
       if (isNew) addWorkshopLocal(data.workshop || data);
       else updateWorkshopLocal(data.workshop || data);
 
@@ -141,6 +166,8 @@ export default function EditWorkshop() {
             ["day", "יום"],
             ["hour", "שעה"],
             ["coach", "מאמן"],
+            ["timePeriod", "תקופה"],
+            ["startDate", "תאריך התחלה"],
           ].map(([key, label]) => (
             <label
               key={key}
@@ -148,6 +175,7 @@ export default function EditWorkshop() {
             >
               {label}:
               <input
+                type={key === "startDate" ? "date" : "text"}
                 className="mt-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
                 value={form[key] || ""}
                 onChange={(e) => handleChange(key, e.target.value)}
@@ -159,9 +187,10 @@ export default function EditWorkshop() {
             מחיר:
             <input
               type="number"
+              min="0"
               className="mt-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
               value={form.price}
-              onChange={(e) => handleChange("price", Number(e.target.value))}
+              onChange={(e) => handleChange("price", e.target.value)}
             />
           </label>
         </div>

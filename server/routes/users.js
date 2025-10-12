@@ -1,30 +1,43 @@
+// server/routes/users.js
 const express = require("express");
 const router = express.Router();
-const {
-  getAllUsers,
-  getUserById,
-  getMe,
-  createUser,
-  updateUser,
-  deleteUser,
-  updateFamilyMember,
-} = require("../controllers/userController");
-const { authenticate: protect } = require("../middleware/authMiddleware");
+const usersController = require("../controllers/userController");
+const { authenticate: protect, authorizeAdmin } = require("../middleware/authMiddleware");
 
-// ✅ NEW route for /me (must come before "/:id")
-router.get("/me", protect, getMe);
+console.log("🧩 USER ROUTES INIT");
 
-// Existing routes
-router.get("/", protect, getAllUsers);
-router.get("/:id", protect, getUserById);
-router.post("/", protect, createUser);
-router.put("/:id", protect, updateUser);
-router.delete("/:id", protect, deleteUser);
+// ============================================================
+// 👤 Logged-in user
+// ============================================================
+router.get("/me", protect, usersController.getMe);
 
-// 🔹 Update a specific family member on the authenticated user (or another user if admin)
-router.put("/family/:memberId", protect, updateFamilyMember);
-console.log("🧩 USER ROUTES INIT:");
-console.log("protect =", typeof protect);
-console.log("getMe =", typeof getMe);
+// ============================================================
+// 👥 General Users CRUD
+// ============================================================
+
+// 🔹 Get all users (Admin only)
+router.get("/", protect, authorizeAdmin, usersController.getAllUsers);
+
+// 🔹 Create new user (Admin only)
+router.post("/", protect, authorizeAdmin, usersController.createUser);
+
+// 🔹 Delete user (Admin only)
+router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser);
+
+// ============================================================
+// 🧩 Mixed User/Family routes
+// ============================================================
+
+// 🔹 Workshops list for user/family (Admin only, placed before /:id)
+router.get("/:id/workshops", protect, authorizeAdmin, usersController.getUserWorkshopsList);
+
+// 🔹 Unified entity fetch (user or family member)
+router.get("/entity/:id", protect, usersController.getEntityById);
+
+// 🔹 Get user by id (after /entity/:id)
+router.get("/:id", protect, usersController.getUserById);
+
+// 🔹 Unified update (user or family)
+router.put("/update-entity", protect, usersController.updateEntity);
 
 module.exports = router;

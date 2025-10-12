@@ -46,6 +46,44 @@ const WorkshopSchema = new mongoose.Schema(
   },
 ],
 
+    /**
+     * 🔄 Waiting list support
+     * -----------------------------------------
+     * Some workshops may over‑subscribe.  When the workshop
+     * reaches capacity new registrants are queued here.  The
+     * waitingList does not contribute towards participantsCount
+     * and is processed in a FIFO manner when space opens up.
+     *
+     * Each entry mirrors the shape of a family registration so
+     * we can support both primary users and family members.
+     */
+    waitingList: [
+      {
+        // If this entry is for a main user then parentUser holds the user id
+        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        // When registering a family member we also keep the member id
+        familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+        name: { type: String, required: true },
+        relation: { type: String, default: "" },
+        idNumber: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        birthDate: { type: String, default: "" },
+      },
+    ],
+
+    /**
+     * Maximum size of the waiting list.  A value of 0 disables
+     * the wait list entirely.  When set to a positive number and
+     * the list is full the API will return an error to the client.
+     */
+    waitingListMax: { type: Number, default: 10, min: 0 },
+
+    /**
+     * When enabled the first person on the waiting list will be
+     * automatically promoted into the workshop when space opens up.
+     */
+    autoEnrollOnVacancy: { type: Boolean, default: false },
+
 
     participantsCount: { type: Number, default: 0 },
 

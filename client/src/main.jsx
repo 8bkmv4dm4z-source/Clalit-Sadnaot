@@ -27,14 +27,15 @@ import { ProfileProvider } from "./layouts/ProfileContext";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
+  <BrowserRouter>
+    <AuthProvider>
+      <ProfileProvider> {/* ✅ Keep only this one */}
         <WorkshopProvider>
-          <ProfileProvider>
-            <App />
-          </ProfileProvider>
+          <App />
         </WorkshopProvider>
-      </AuthProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+      </ProfileProvider>
+    </AuthProvider>
+  </BrowserRouter>ד
+</React.StrictMode>
+
 );

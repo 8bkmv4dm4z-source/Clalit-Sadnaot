@@ -1,200 +1,170 @@
-/**
- * FamilyEditorModal.jsx — Manage Family Members
- * ----------------------------------------------
- * - Displays list of family members
- * - Allows adding new one with idNumber, relation, phone, birthDate
- * - Controlled inputs with onChange
- */
-
 import React, { useState } from "react";
 
 export default function FamilyEditorModal({ user, onClose, onSave }) {
-  const [family, setFamily] = useState(user?.familyMembers || []);
-  const [newMember, setNewMember] = useState({
-    name: "",
-    relation: "",
-    idNumber: "",
-    phone: "",
-    birthDate: "",
-  });
+  const token = localStorage.getItem("token");
+  const [list, setList] = useState(user.familyMembers || []);
+  const [saving, setSaving] = useState(false);
 
-  const handleNewMemberChange = (key, value) => {
-    setNewMember((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleAddMember = () => {
-    if (!newMember.name.trim()) return alert("יש להזין שם מלא");
-    const updated = [...family, { ...newMember, _id: Date.now().toString() }];
-    setFamily(updated);
-    setNewMember({
-      name: "",
-      relation: "",
-      idNumber: "",
-      phone: "",
-      birthDate: "",
+  const updateField = (idx, key, value) => {
+    setList((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [key]: value };
+      return next;
     });
   };
 
-  const handleRemove = (id) => {
-    setFamily(family.filter((f) => f._id !== id));
+  const addMember = () => {
+    setList((prev) => [
+      ...prev,
+      {
+        name: "",
+        relation: "",
+        idNumber: "",
+        phone: "",
+        email: user.email || "", // ✅ default to parent email
+        birthDate: "",
+        city: "",
+      },
+    ]);
   };
 
-  // Handle edits to existing family members.  When a user edits a
-  // field on an existing member, update that specific member in
-  // the local state.  This allows editing of name, relation,
-  // idNumber, phone and birthDate directly in the modal.
-  const handleEditMember = (id, key, value) => {
-    setFamily((prev) =>
-      prev.map((m) => (m._id === id ? { ...m, [key]: value } : m))
-    );
+  const removeMember = (idx) => {
+    setList((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleSave = () => {
-    onSave(family);
-    onClose();
+  const saveAll = async () => {
+    try {
+      setSaving(true);
+
+      const normalized = list.map((m) => ({
+        ...m,
+        email: m.email || user.email || "", // ✅ fallback
+      }));
+
+      const res = await fetch("/api/users/update-entity", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          userId: user._id,
+          updates: { familyMembers: normalized },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Update failed");
+      onSave?.(normalized);
+      try { window.dispatchEvent(new Event('entity-updated')); } catch(e) {}
+      onClose?.();
+    } catch (e) {
+      alert("❌ שגיאה בשמירת בני משפחה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex justify-center items-center z-50">
-      <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl p-8" dir="rtl">
-        <h2 className="text-2xl font-bold mb-4 text-indigo-700 font-[Poppins]">
-          👨‍👩‍👧 ניהול בני משפחה
-        </h2>
-
-        {/* Existing Members */}
-        <div className="space-y-3 max-h-60 overflow-y-auto mb-6">
-          {family.length > 0 ? (
-            family.map((f) => (
-              <div
-                key={f._id}
-                className="p-4 border border-gray-200 rounded-xl bg-gray-50"
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
-                  <div className="flex flex-col">
-                    <label className="text-xs text-gray-600 mb-1">שם</label>
-                    <input
-                      type="text"
-                      value={f.name}
-                      onChange={(e) => handleEditMember(f._id, "name", e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-gray-600 mb-1">יחס</label>
-                    <input
-                      type="text"
-                      value={f.relation || ""}
-                      onChange={(e) => handleEditMember(f._id, "relation", e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                    />
-                  </div>
-                    <div className="flex flex-col">
-                    <label className="text-xs text-gray-600 mb-1">ת"ז</label>
-                    <input
-                      type="text"
-                      value={f.idNumber || ""}
-                      onChange={(e) => handleEditMember(f._id, "idNumber", e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-gray-600 mb-1">טלפון</label>
-                    <input
-                      type="text"
-                      value={f.phone || ""}
-                      onChange={(e) => handleEditMember(f._id, "phone", e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-gray-600 mb-1">תאריך לידה</label>
-                    <input
-                      type="date"
-                      value={f.birthDate || ""}
-                      onChange={(e) => handleEditMember(f._id, "birthDate", e.target.value)}
-                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="mt-2 text-right">
-                  <button
-                    onClick={() => handleRemove(f._id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    ❌ הסר
-                  </button>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-gray-500 text-sm">אין בני משפחה כרגע.</p>
-          )}
-        </div>
-
-        {/* Add New Member */}
-        <div className="border-t border-gray-300 pt-5">
-          <h3 className="text-lg font-semibold mb-3 text-gray-800">
-            ➕ הוסף בן משפחה חדש
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="שם מלא"
-              value={newMember.name}
-              onChange={(e) => handleNewMemberChange("name", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-            />
-            <input
-              type="text"
-              placeholder="יחס (למשל בן, בת, אח)"
-              value={newMember.relation}
-              onChange={(e) => handleNewMemberChange("relation", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-            />
-            <input
-              type="text"
-              placeholder="תעודת זהות"
-              value={newMember.idNumber}
-              onChange={(e) => handleNewMemberChange("idNumber", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-            />
-            <input
-              type="text"
-              placeholder="טלפון"
-              value={newMember.phone}
-              onChange={(e) => handleNewMemberChange("phone", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-            />
-            <input
-              type="date"
-              value={newMember.birthDate}
-              onChange={(e) => handleNewMemberChange("birthDate", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-            />
-          </div>
-
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl p-6"
+        dir="rtl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-800">ניהול בני משפחה</h3>
           <button
-            onClick={handleAddMember}
-            className="mt-4 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 active:scale-95 transition"
+            onClick={onClose}
+            className="text-gray-600 hover:bg-gray-100 rounded-lg px-3 py-1"
           >
-            ➕ הוסף
+            ✕
           </button>
         </div>
 
-        {/* Modal Actions */}
-        <div className="mt-8 flex justify-end gap-3">
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          {list.map((m, idx) => (
+            <div
+              key={m._id || idx}
+              className="border border-gray-200 rounded-xl p-4 bg-gray-50"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="שם"
+                  value={m.name || ""}
+                  onChange={(e) => updateField(idx, "name", e.target.value)}
+                />
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="קשר"
+                  value={m.relation || ""}
+                  onChange={(e) => updateField(idx, "relation", e.target.value)}
+                />
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="ת״ז"
+                  value={m.idNumber || ""}
+                  onChange={(e) => updateField(idx, "idNumber", e.target.value)}
+                />
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="טלפון"
+                  value={m.phone || ""}
+                  onChange={(e) => updateField(idx, "phone", e.target.value)}
+                />
+                <input
+                  type="date"
+                  className="border rounded-lg px-3 py-2"
+                  value={(m.birthDate || "").split("T")[0] || ""}
+                  onChange={(e) => updateField(idx, "birthDate", e.target.value)}
+                />
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="אימייל (לא חובה)"
+                  value={m.email || ""}
+                  onChange={(e) => updateField(idx, "email", e.target.value)}
+                />
+                <input
+                  className="border rounded-lg px-3 py-2"
+                  placeholder="עיר"
+                  value={m.city || ""}
+                  onChange={(e) => updateField(idx, "city", e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end mt-3">
+                <button
+                  onClick={() => removeMember(idx)}
+                  className="text-red-600 text-sm hover:underline"
+                >
+                  מחק
+                </button>
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={addMember}
+            className="w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium"
+          >
+            ➕ הוסף בן משפחה
+          </button>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 active:scale-95 transition"
+            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
           >
             ביטול
           </button>
           <button
-            onClick={handleSave}
-            className="px-5 py-2.5 rounded-xl bg-green-600 text-white font-semibold shadow-sm hover:bg-green-700 active:scale-95 transition"
+            onClick={saveAll}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
           >
-            💾 שמור שינויים
+            {saving ? "שומר..." : "שמור"}
           </button>
         </div>
       </div>
