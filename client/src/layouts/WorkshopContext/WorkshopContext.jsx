@@ -1,12 +1,13 @@
 /**
- * WorkshopContext.jsx — Full Logging Version
- * -------------------------------------------
- * 🧩 Tracks fetching, registration, and view changes.
- * 🪶 Includes timestamps and context-specific logging for debugging render flow.
+ * WorkshopContext.jsx — Updated for Secure Token Flow
+ * ----------------------------------------------------
+ * 🧩 Uses apiFetch() for all backend calls.
+ * 🪶 Automatically refreshes tokens and includes refresh cookie.
  */
 
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { useProfiles } from "../ProfileContext";
+import { apiFetch } from "../../utils/apiFetch";
 
 const WorkshopContext = createContext();
 
@@ -25,10 +26,8 @@ export const WorkshopProvider = ({ children }) => {
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const fetchCooldown = useRef(false);
 
-  // 🧩 Cross-context link
   const { fetchProfiles } = useProfiles();
 
-  // --- Helper ---
   const toId = (v) =>
     typeof v === "string"
       ? v
@@ -48,41 +47,37 @@ export const WorkshopProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem("token");
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
       log("📡 Fetching all workshops...");
-      const res = await fetch(`/api/workshops`, { headers });
+      const res = await apiFetch(`/api/workshops`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to fetch workshops");
 
       const list = (Array.isArray(data) ? data : []).map((w) => {
-  const normalized = {
-    ...w,
-    participants: (w.participants || []).map(toId),
-    familyRegistrations: w.familyRegistrations || [],
-    userFamilyRegistrations: (w.userFamilyRegistrations || []).map(toId),
-    isUserRegistered: !!w.isUserRegistered,
-  };
+        const normalized = {
+          ...w,
+          participants: (w.participants || []).map(toId),
+          familyRegistrations: w.familyRegistrations || [],
+          userFamilyRegistrations: (w.userFamilyRegistrations || []).map(toId),
+          isUserRegistered: !!w.isUserRegistered,
+        };
 
-  if (Array.isArray(w.familyRegistrations)) {
-    normalized.userFamilyRegistrations = [
-      ...new Set([
-        ...normalized.userFamilyRegistrations,
-        ...w.familyRegistrations.map((f) => toId(f.familyMemberId ?? f._id)),
-      ]),
-    ];
-  }
+        if (Array.isArray(w.familyRegistrations)) {
+          normalized.userFamilyRegistrations = [
+            ...new Set([
+              ...normalized.userFamilyRegistrations,
+              ...w.familyRegistrations.map((f) => toId(f.familyMemberId ?? f._id)),
+            ]),
+          ];
+        }
 
-  // ✅ derive participantsCount if missing
-  const pLen = normalized.participants?.length ?? 0;
-  const fLen = normalized.familyRegistrations?.length ?? 0;
-  normalized.participantsCount =
-    typeof w.participantsCount === "number" ? w.participantsCount : pLen + fLen;
+        const pLen = normalized.participants?.length ?? 0;
+        const fLen = normalized.familyRegistrations?.length ?? 0;
+        normalized.participantsCount =
+          typeof w.participantsCount === "number" ? w.participantsCount : pLen + fLen;
 
-  return normalized;
-});
-
+        return normalized;
+      });
 
       log(`✅ Workshops loaded (${list.length})`, list);
       setWorkshops(list);
@@ -96,20 +91,12 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  /** 🔹 Fetch only user-registered workshops */
+  /** 🔹 Fetch registered workshops only */
   const fetchRegisteredWorkshops = async () => {
     log("📡 Fetching registered workshops...");
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
-      if (!token) {
-        log("⚠️ No token found, clearing registeredWorkshopIds");
-        return setRegisteredWorkshopIds([]);
-      }
-
-      const res = await fetch(`/api/workshops/registered`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/workshops/registered`);
       const regIds = await res.json();
       if (!res.ok) throw new Error(regIds.message || "Failed to load registrations");
 
@@ -124,7 +111,7 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  /** 🔁 Switch between modes */
+  /** 🔁 Switch between view modes */
   useEffect(() => {
     log(`🔀 ViewMode changed → ${viewMode}`);
     if (viewMode === "mine") fetchRegisteredWorkshops();
@@ -134,56 +121,48 @@ export const WorkshopProvider = ({ children }) => {
   /** 🔹 Local update helpers */
   const coalesce = (a, b) => (a === undefined ? b : a);
 
-const normalizeCounts = (w) => {
-  const participants = Array.isArray(w.participants) ? w.participants : [];
-  const famRegs = Array.isArray(w.familyRegistrations)
-    ? w.familyRegistrations
-    : [];
-  // if the server does not send a count, derive it
-  const derived =
-    (typeof w.participantsCount === "number"
-      ? w.participantsCount
-      : participants.length + famRegs.length) || 0;
-  return { ...w, participantsCount: derived };
-};
+  const normalizeCounts = (w) => {
+    const participants = Array.isArray(w.participants) ? w.participants : [];
+    const famRegs = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
+    const derived =
+      (typeof w.participantsCount === "number"
+        ? w.participantsCount
+        : participants.length + famRegs.length) || 0;
+    return { ...w, participantsCount: derived };
+  };
 
-const updateWorkshopLocal = (updated) => {
-  if (!updated?._id) return;
-  // normalize/derive counts if needed
-  const upd = normalizeCounts(updated);
+  const updateWorkshopLocal = (updated) => {
+    if (!updated?._id) return;
+    const upd = normalizeCounts(updated);
 
-  log(`🧩 Merging local workshop: ${upd._id}`, upd);
-  setWorkshops((prev) =>
-    prev.map((w) =>
-      w._id === upd._id
-        ? {
-            ...w,
-            ...upd,
-            // preserve arrays when server omitted them
-            participants: upd.participants ?? w.participants,
-            familyRegistrations:
-              upd.familyRegistrations ?? w.familyRegistrations,
-            // preserve count when server omitted it
-            participantsCount: coalesce(upd.participantsCount, w.participantsCount),
-          }
-        : w
-    )
-  );
-  setDisplayedWorkshops((prev) =>
-    prev.map((w) =>
-      w._id === upd._id
-        ? {
-            ...w,
-            ...upd,
-            participants: upd.participants ?? w.participants,
-            familyRegistrations:
-              upd.familyRegistrations ?? w.familyRegistrations,
-            participantsCount: coalesce(upd.participantsCount, w.participantsCount),
-          }
-        : w
-    )
-  );
-};
+    log(`🧩 Merging local workshop: ${upd._id}`, upd);
+    setWorkshops((prev) =>
+      prev.map((w) =>
+        w._id === upd._id
+          ? {
+              ...w,
+              ...upd,
+              participants: upd.participants ?? w.participants,
+              familyRegistrations: upd.familyRegistrations ?? w.familyRegistrations,
+              participantsCount: coalesce(upd.participantsCount, w.participantsCount),
+            }
+          : w
+      )
+    );
+    setDisplayedWorkshops((prev) =>
+      prev.map((w) =>
+        w._id === upd._id
+          ? {
+              ...w,
+              ...upd,
+              participants: upd.participants ?? w.participants,
+              familyRegistrations: upd.familyRegistrations ?? w.familyRegistrations,
+              participantsCount: coalesce(upd.participantsCount, w.participantsCount),
+            }
+          : w
+      )
+    );
+  };
 
   const deleteWorkshopLocal = (id) => {
     log(`🗑 Deleting local workshop: ${id}`);
@@ -198,17 +177,10 @@ const updateWorkshopLocal = (updated) => {
 
   /** 👨‍👩‍👧 Register entity (user/family) */
   const registerEntityToWorkshop = async (workshopId, familyId = null) => {
-    log(`📥 RegisterEntity called → workshopId: ${workshopId}, familyId: ${familyId}`);
+    log(`📥 RegisterEntity → workshopId: ${workshopId}, familyId: ${familyId}`);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Missing token");
-
-      const res = await fetch(`/api/workshops/${workshopId}/register-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopId}/register-entity`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({ familyId }),
       });
 
@@ -234,17 +206,10 @@ const updateWorkshopLocal = (updated) => {
 
   /** 🚫 Unregister entity */
   const unregisterEntityFromWorkshop = async (workshopId, familyId = null) => {
-    log(`📤 UnregisterEntity called → workshopId: ${workshopId}, familyId: ${familyId}`);
+    log(`📤 UnregisterEntity → workshopId: ${workshopId}, familyId: ${familyId}`);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Missing token");
-
-      const res = await fetch(`/api/workshops/${workshopId}/unregister-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopId}/unregister-entity`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({ familyId }),
       });
 
@@ -264,19 +229,6 @@ const updateWorkshopLocal = (updated) => {
       return { success: false, message: err.message };
     }
   };
-
-  /** 🧩 Debug watchers */
-  useEffect(() => {
-    log("📊 workshops length changed", workshops.length);
-  }, [workshops]);
-
-  useEffect(() => {
-    log("📊 registeredWorkshopIds updated", registeredWorkshopIds);
-  }, [registeredWorkshopIds]);
-
-  useEffect(() => {
-    if (selectedWorkshop) log("🎯 selectedWorkshop changed", selectedWorkshop.title);
-  }, [selectedWorkshop]);
 
   return (
     <WorkshopContext.Provider

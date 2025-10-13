@@ -5,6 +5,48 @@ const fs = require("fs");
 const path = require("path");
 const User = require("../models/User");
 
+// ---------- JWT helpers ----------
+function generateAccessToken(user) {
+  const expiresIn = process.env.JWT_EXPIRY || "15m";
+  // אל תכניס מידע מיותר ל-payload; id + role מספיקים
+  return jwt.sign(
+    { id: user._id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn }
+  );
+}
+
+function generateRefreshToken(user) {
+  const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
+  return jwt.sign(
+    { id: user._id }, // אין צורך ב-role ב-refresh
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn }
+  );
+}
+
+// שליחת ה-refresh כ-HttpOnly cookie כדי להגן מפני XSS
+function setRefreshCookie(res, refreshToken) {
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", // רק ב-HTTPS בפרודקשן
+    sameSite: "Strict",                             // מונע CSRF cross-site
+    maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
+    path: "/api/auth", // קוקה תהיה זמינה רק תחת /api/auth*
+  });
+}
+
+// ממיר מחרוזת like "7d"/"15m" ל-ms כדי לשים ב-maxAge
+function parseJwtExpToMs(exp) {
+  // תמיכה ב-s/m/h/d
+  const m = String(exp).match(/^(\d+)([smhd])$/i);
+  if (!m) return 7 * 24 * 60 * 60 * 1000; // fallback 7d
+  const n = parseInt(m[1], 10);
+  const unit = m[2].toLowerCase();
+  const map = { s: 1000, m: 60 * 1000, h: 3600 * 1000, d: 24 * 3600 * 1000 };
+  return n * map[unit];
+}
+
 /* ============================================================
    JWT helper
    ============================================================ */
@@ -79,14 +121,32 @@ exports.registerUser = async (req, res) => {
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email }).select("+passwordHash");
+    const user = await User.findOne({ email: (email || "").toLowerCase().trim() })
+      .select("+passwordHash");
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const match = await bcrypt.compare(password, user.passwordHash || "");
     if (!match) return res.status(400).json({ message: "Invalid credentials" });
 
-    const token = generateJwtToken(user._id);
-    res.json({ token });
+    // ייצור טוקנים
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // שמירת refresh DB עם userAgent לזיהוי מכשיר
+    user.refreshTokens.push({
+      token: refreshToken,
+      userAgent: req.headers["user-agent"] || "",
+    });
+    await user.save();
+
+    // שליחת refresh ב-HttpOnly cookie
+    setRefreshCookie(res, refreshToken);
+
+    // החזרת Access ב-JSON
+    return res.json({
+      accessToken,
+      user: { id: user._id, email: user.email, role: user.role, name: user.name },
+    });
   } catch (e) {
     console.error("login error:", e);
     res.status(500).json({ message: "Server error during login" });
@@ -137,32 +197,42 @@ exports.sendOtp = async (req, res) => {
 exports.verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
-    const user = await User.findOne({ email }).select(
-      "+otpCode +otpExpires +otpAttempts"
-    );
+    const user = await User.findOne({ email: (email || "").toLowerCase().trim() })
+      .select("+otpCode +otpExpires +otpAttempts");
     if (!user) return res.status(404).json({ message: "User not found." });
 
     if (!user.otpExpires || user.otpExpires < Date.now()) {
       user.otpCode = null;
       await user.save();
-      return res
-        .status(400)
-        .json({ message: "OTP expired, please request a new one." });
+      return res.status(400).json({ message: "OTP expired, please request a new one." });
     }
 
     if (String(user.otpCode) !== String(otp)) {
       user.otpAttempts = (user.otpAttempts || 0) + 1;
       await user.save();
-      return res
-        .status(400)
-        .json({ message: `Invalid code. Attempt ${user.otpAttempts}/5` });
+      return res.status(400).json({ message: `Invalid code. Attempt ${user.otpAttempts}/5` });
     }
 
+    // ✅ אימות OTP עבר
     user.otpCode = null;
     await user.save();
 
-    const token = generateJwtToken(user._id);
-    res.json({ token });
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // שמירת refresh ב-DB
+    user.refreshTokens.push({
+      token: refreshToken,
+      userAgent: req.headers["user-agent"] || "",
+    });
+    await user.save();
+
+    setRefreshCookie(res, refreshToken);
+
+    return res.json({
+      accessToken,
+      user: { id: user._id, email: user.email, role: user.role, name: user.name },
+    });
   } catch (e) {
     console.error("verifyOtp error:", e);
     res.status(500).json({ message: "Server error verifying code." });
@@ -286,5 +356,64 @@ exports.resetPassword = async (req, res) => {
   } catch (e) {
     console.error("resetPassword error:", e);
     res.status(500).json({ message: "Server error resetting password" });
+  }
+};
+exports.refreshAccessToken = async (req, res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+    if (!token) return res.status(401).json({ message: "No refresh token" });
+
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+    } catch {
+      return res.status(403).json({ message: "Invalid refresh token" });
+    }
+
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const session = user.refreshTokens.find((rt) => rt.token === token);
+    if (!session)
+      return res.status(403).json({ message: "Refresh not recognized" });
+
+    // ✅ מנפיק Access חדש בלבד
+    const newAccess = generateAccessToken(user);
+    return res.json({ accessToken: newAccess });
+  } catch (e) {
+    console.error("refreshAccessToken error:", e);
+    res.status(500).json({ message: "Server error refreshing token" });
+  }
+};
+exports.logout = async (req, res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
+      path: "/api/auth",
+    });
+
+    if (!token) return res.json({ success: true });
+
+    let userId = null;
+    try {
+      const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+      userId = payload.id;
+    } catch {
+      return res.json({ success: true });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.json({ success: true });
+
+    user.refreshTokens = user.refreshTokens.filter((rt) => rt.token !== token);
+    await user.save();
+
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("logout error:", e);
+    res.status(500).json({ message: "Server error during logout" });
   }
 };

@@ -1,13 +1,20 @@
 // src/layouts/AuthLayout/AuthLayout.jsx
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 
-/** Console logger with timestamp */
+/** 🧩 Logger with timestamp */
 const log = (...args) => {
   const time = new Date().toLocaleTimeString("he-IL");
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
 
-/** Public shape (includes saveEntity + refreshMe) */
+/** 🧭 Context Shape */
 const AuthContext = createContext({
   isLoggedIn: false,
   isAdmin: false,
@@ -25,9 +32,9 @@ const AuthContext = createContext({
   registerUser: async () => {},
   sendOtp: async () => {},
   verifyOtp: async () => {},
-  updateEntity: async () => {}, // legacy alias (delegates to saveEntity)
-  saveEntity: async () => {},   // ✅ canonical updater
-  refreshMe: async () => {},    // ✅ expose fetchMe
+  updateEntity: async () => {},
+  saveEntity: async () => {},
+  refreshMe: async () => {},
 });
 
 export const AuthProvider = ({ children }) => {
@@ -37,34 +44,87 @@ export const AuthProvider = ({ children }) => {
   const [filters, setFilters] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState(localStorage.getItem("accessToken") || null);
   const didVerifyRef = useRef(false);
 
-  /** Fetch the logged-in user (if token exists) */
-  const fetchMe = async () => {
-    const token = localStorage.getItem("token");
-    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
+  /* ============================================================
+     🧠 Refresh Access Token using Refresh Cookie
+     ============================================================ */
+  const refreshAccessToken = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include", // מאפשר שליחת ה-cookie
+      });
+      if (!res.ok) throw new Error("Failed to refresh token");
+      const data = await res.json();
 
-    if (!token) {
+      if (data?.accessToken) {
+        localStorage.setItem("accessToken", data.accessToken);
+        setAccessToken(data.accessToken);
+        log("🔄 Token refreshed successfully");
+        return data.accessToken;
+      }
+    } catch (err) {
+      log("⚠️ refreshAccessToken failed:", err.message);
+      logout();
+      return null;
+    }
+  }, []);
+
+  /* ============================================================
+     🧩 Helper: Authenticated Fetch with Auto-Refresh
+     ============================================================ */
+  const authFetch = useCallback(
+    async (url, options = {}) => {
+      const token = accessToken || localStorage.getItem("accessToken");
+      const headers = {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+
+      let res = await fetch(url, { ...options, headers });
+
+      // אם הטוקן פג תוקף — ננסה לחדש
+      if (res.status === 401) {
+        log("⚠️ 401 detected — attempting refresh...");
+        const newToken = await refreshAccessToken();
+        if (!newToken) throw new Error("Session expired");
+        headers.Authorization = `Bearer ${newToken}`;
+        res = await fetch(url, { ...options, headers });
+      }
+
+      return res;
+    },
+    [accessToken, refreshAccessToken]
+  );
+
+  /* ============================================================
+     👤 Fetch logged-in user info
+     ============================================================ */
+  const fetchMe = async () => {
+    log("fetchMe called | token:", accessToken ? "✅ found" : "❌ none");
+
+    if (!accessToken) {
       setUser(null);
       setIsLoggedIn(false);
       setIsAdmin(false);
-      log("No token → logged out state");
       return;
     }
 
     try {
-      const res = await fetch("/api/users/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch("/api/users/me");
       const data = await res.json();
 
       if (res.ok) {
         setUser(data);
-        setIsAdmin(data.role === "admin");
         setIsLoggedIn(true);
-        log("✅ User loaded:", data?.name || data?.email || data?._id, "| role:", data.role);
+        setIsAdmin(data.role === "admin");
+        log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
       } else {
-        localStorage.removeItem("token");
+        localStorage.removeItem("accessToken");
+        setAccessToken(null);
         setUser(null);
         setIsLoggedIn(false);
         setIsAdmin(false);
@@ -72,14 +132,17 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (err) {
       log("❌ fetchMe error:", err.message);
-      localStorage.removeItem("token");
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
       setUser(null);
       setIsLoggedIn(false);
       setIsAdmin(false);
     }
   };
 
-  /** On mount: verify auth once and signal 'auth-ready' */
+  /* ============================================================
+     🚀 On Mount
+     ============================================================ */
   useEffect(() => {
     if (didVerifyRef.current) return;
     didVerifyRef.current = true;
@@ -88,14 +151,14 @@ export const AuthProvider = ({ children }) => {
     (async () => {
       await fetchMe();
       setLoading(false);
-      // Broadcast that auth is ready so other contexts can safely start
       window.dispatchEvent(new Event("auth-ready"));
-      log("🔸 Auth loading complete | user:", !!user, "| admin:", isAdmin);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Register */
+  /* ============================================================
+     📝 Register
+     ============================================================ */
   const registerUser = async (payload) => {
     log("📩 registerUser called:", payload?.email);
     try {
@@ -106,7 +169,6 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      log("✅ registerUser success");
       return { success: true, data };
     } catch (err) {
       log("❌ registerUser error:", err.message);
@@ -114,7 +176,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  /** OTP flow */
+  /* ============================================================
+     🔐 OTP Flow
+     ============================================================ */
   const sendOtp = async (email) => {
     log("📤 sendOtp:", email);
     try {
@@ -124,7 +188,6 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      log("sendOtp result:", data);
       return res.ok ? { success: true, data } : { success: false, message: data.message };
     } catch (err) {
       return { success: false, message: err.message };
@@ -138,70 +201,74 @@ export const AuthProvider = ({ children }) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
+        credentials: "include", // שולח את refresh cookie
       });
       const data = await res.json();
 
-      if (res.ok && data.token) {
-        log("✅ OTP verified | token saved");
-        await completeLogin(data.token);
+      if (res.ok && data.accessToken) {
+        await completeLogin(data.accessToken);
         return { success: true, data };
       }
-      log("❌ OTP verify failed:", data.message);
       return { success: false, message: data.message };
     } catch (err) {
       return { success: false, message: err.message };
     }
   };
 
-  /** Complete login: store token, reload user, broadcast readiness */
-  const completeLogin = async (token) => {
-    if (token) localStorage.setItem("token", token);
-    log("💾 Token stored, reloading user...");
+  /* ============================================================
+     ✅ Complete Login
+     ============================================================ */
+  const completeLogin = async (accessToken) => {
+    if (accessToken) {
+      localStorage.setItem("accessToken", accessToken);
+      setAccessToken(accessToken);
+    }
+    log("💾 Access token stored, reloading user...");
     await fetchMe();
     window.dispatchEvent(new Event("auth-ready"));
   };
 
-  /** Logout: clear state and broadcast readiness (so dependents reset) */
-  const logout = () => {
-    localStorage.removeItem("token");
-    log("🚪 Logout triggered");
+  /* ============================================================
+     🚪 Logout (clears cookie + local)
+     ============================================================ */
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+    localStorage.removeItem("accessToken");
+    setAccessToken(null);
     setUser(null);
     setIsLoggedIn(false);
     setIsAdmin(false);
+    log("🚪 Logged out (local + server)");
     window.dispatchEvent(new Event("auth-ready"));
   };
 
-  /** Expose fetchMe so other contexts can request a refresh */
+  /* ============================================================
+     ♻️ Refresh Me
+     ============================================================ */
   const refreshMe = async () => {
     await fetchMe();
   };
 
-  /**
-   * ✅ Canonical updater (user or family)
-   * payload: { userId?: string, familyId?: string, updates: {...} }
-   * options: { refreshMeIfCurrent?: boolean } (default true)
-   */
+  /* ============================================================
+     ✏️ Save Entity (User / Family)
+     ============================================================ */
   const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
     log("✏️ saveEntity called:", payload);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Missing token");
-
-      const res = await fetch("/api/users/update-entity", {
+      const res = await authFetch("/api/users/update-entity", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Update failed");
 
-      // If current user or one of their family members was updated, refresh me
       const isCurrentUserUpdate =
         payload.userId && user && String(payload.userId) === String(user._id);
-
       const isCurrentFamilyUpdate =
         payload.familyId &&
         user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
@@ -218,11 +285,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  /** Backward-compat: keep updateEntity but delegate to saveEntity */
-  const updateEntity = async (payload) => {
-    return await saveEntity(payload, { refreshMeIfCurrent: true });
-  };
+  const updateEntity = async (payload) => await saveEntity(payload, { refreshMeIfCurrent: true });
 
+  /* ============================================================
+     🎯 Provide Context
+     ============================================================ */
   return (
     <AuthContext.Provider
       value={{
@@ -242,9 +309,9 @@ export const AuthProvider = ({ children }) => {
         registerUser,
         sendOtp,
         verifyOtp,
-        updateEntity, // legacy alias
-        saveEntity,   // ✅ canonical
-        refreshMe,    // ✅ exposed fetchMe
+        updateEntity,
+        saveEntity,
+        refreshMe,
       }}
     >
       {children}

@@ -1,13 +1,24 @@
 // server/server.js
 require("dotenv").config();
+if (!process.env.JWT_SECRET) {
+  console.error("❌ Missing JWT_SECRET. Exiting...");
+  process.exit(1);
+}
 const express = require("express");
+const helmet = require("helmet");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const jwt = require("jsonwebtoken");
 const connectDB = require("./config/db"); // ✅ use the new helper
+const rateLimit = require("express-rate-limit");
+const hpp = require("hpp");
+const compression = require("compression");
+const mongoSanitize = require("express-mongo-sanitize");
+const cookieParser = require("cookie-parser");
 
 const app = express();
+app.disable("x-powered-by");
 
 /* ----------------------------------------
  * 🔹 בסיס
@@ -19,36 +30,49 @@ app.enable("trust proxy");
 app.use(express.json());
 
 // 🔐 Security headers (minimal Helmet replacement)
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  if (process.env.NODE_ENV === "production") {
-    res.setHeader(
-      "Strict-Transport-Security",
-      "max-age=15552000; includeSubDomains"
-    );
-  }
-  return next();
+// 🔐 Helmet — הגנות ברירת מחדל דרך כותרות HTTP
+app.use(
+  helmet({
+    // CSP נוסיף בשלב ייעודי כדי לא לשבור את ה-UI בזמן פיתוח
+    contentSecurityPolicy: false,
+  })
+);
+app.use(hpp());
+
+app.use(compression());
+
+/* ----------------------------------------
+ * 🚦 Global Rate Limit  ✅ NEW SECTION
+ * -------------------------------------- */
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per 15 min
+  standardHeaders: true, // adds RateLimit-* headers
+  legacyHeaders: false,
+  message: { message: "Too many requests, please try again later." },
 });
+app.use(globalLimiter);
+app.use(cookieParser());
+
+app.use(mongoSanitize());
 
 // 🧼 Basic sanitization to mitigate MongoDB operator injection
-function sanitize(obj) {
-  if (obj && typeof obj === "object") {
-    Object.keys(obj).forEach((key) => {
-      if (key.startsWith("$") || key.includes(".")) {
-        delete obj[key];
-      } else {
-        sanitize(obj[key]);
-      }
-    });
-  }
-}
-app.use((req, _res, next) => {
-  sanitize(req.body);
-  sanitize(req.query);
-  next();
-});
+// function sanitize(obj) {
+//   if (obj && typeof obj === "object") {
+//     Object.keys(obj).forEach((key) => {
+//       if (key.startsWith("$") || key.includes(".")) {
+//         delete obj[key];
+//       } else {
+//         sanitize(obj[key]);
+//       }
+//     });
+//   }
+// }
+// app.use((req, _res, next) => {
+//   sanitize(req.body);
+//   sanitize(req.query);
+//   next();
+// });
 
 /* ----------------------------------------
  * 🌐 CORS

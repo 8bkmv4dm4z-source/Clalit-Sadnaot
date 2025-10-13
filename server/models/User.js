@@ -38,6 +38,21 @@ const UserSchema = new mongoose.Schema(
 
     hasPassword: { type: Boolean, default: false },
     temporaryPassword: { type: Boolean, default: false },
+   refreshTokens: {
+  type: [
+    new mongoose.Schema(
+      {
+        token: { type: String, required: true },      // ה-JWT של ה-refresh
+        userAgent: { type: String, default: "" },     // דפדפן/מכשיר
+        createdAt: { type: Date, default: Date.now }, // למעקב/בקרה
+      },
+      { _id: true }
+    ),
+  ],
+  default: [],
+},
+
+
   },
   { timestamps: true }
 );

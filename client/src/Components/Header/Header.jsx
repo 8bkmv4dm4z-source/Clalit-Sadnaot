@@ -1,25 +1,27 @@
+/**
+ * Header.jsx — Full Logic (Folder-Based Imports)
+ * ----------------------------------------------
+ * ✅ Uses AuthLayout, WorkshopContext, and ProfileContext
+ * ✅ Keeps all UI: view toggles, admin options, create-workshop button
+ * ✅ Works with index.jsx exports (folder-based imports)
+ */
+
 import React, { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useProfiles } from "../../layouts/ProfileContext";
 
-/**
- * Header.jsx — Context-Synced Version
- * -----------------------------------
- * ✅ Reflects real-time profile updates (ProfileContext)
- * ✅ Syncs viewMode across WorkshopContext + UI
- * ✅ Keeps full design & transitions intact
- */
-
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
+
   const { isAdmin, setIsAdmin, setIsLoggedIn, user } = useAuth();
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
 
+  // 🔹 Scroll shadow effect
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 4);
     window.addEventListener("scroll", onScroll);
@@ -35,6 +37,7 @@ export default function Header() {
     navigate("/login");
   };
 
+  // 🧠 show current user (syncs with profile updates)
   const currentUser =
     profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
 
@@ -52,6 +55,7 @@ export default function Header() {
       } text-white`}
     >
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+        {/* 🏠 Brand */}
         <button
           onClick={() => navigate("/")}
           className="text-xl font-bold tracking-tight text-white drop-shadow-sm hover:scale-[1.03] transition-transform"
@@ -59,7 +63,9 @@ export default function Header() {
           כללית סדנאות
         </button>
 
+        {/* 🔗 Navigation Links */}
         <div className="flex items-center gap-3">
+          {/* All Workshops */}
           <button
             onClick={() => {
               setViewMode("all");
@@ -73,6 +79,7 @@ export default function Header() {
             <span>כל הסדנאות</span>
           </button>
 
+          {/* My Workshops */}
           <button
             onClick={() => {
               setViewMode("mine");
@@ -86,15 +93,17 @@ export default function Header() {
             <span>הסדנאות שלי</span>
           </button>
 
+          {/* Profile */}
           <NavLink
             to="/profile"
             className={`${linkBase} ${
               isActive("/profile") ? linkActive : linkIdle
             }`}
           >
-            <span>{ "הפרופיל שלי"}</span>
+            <span>הפרופיל שלי</span>
           </NavLink>
 
+          {/* Admin Tools */}
           {isAdmin && (
             <>
               <NavLink
@@ -105,6 +114,7 @@ export default function Header() {
               >
                 <span>ניהול משתמשים</span>
               </NavLink>
+
               <button
                 onClick={() => {
                   localStorage.removeItem("editingWorkshopId");
@@ -117,6 +127,7 @@ export default function Header() {
             </>
           )}
 
+          {/* Logout */}
           <button
             onClick={handleLogout}
             className="btn btn-outline px-4 py-2 ml-1 rounded-xl bg-white/20 hover:bg-white/30 text-white"

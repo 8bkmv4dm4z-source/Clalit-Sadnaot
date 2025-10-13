@@ -1,15 +1,15 @@
 // src/Components/WorkshopCard.jsx
 import React, { useState, useEffect } from "react";
-import { useAuth } from "../../layouts/AuthLayout";
-import { useWorkshops } from "../../layouts/WorkshopContext";
+import { useAuth } from "../../layouts/AuthLayout";               // ✅ עלייה תיקייה אחת
+import { useWorkshops } from "../../layouts/WorkshopContext";     // ✅ עלייה תיקייה אחת
+import { apiFetch } from "../../utils/apiFetch";                  // ✅ עלייה תיקייה אחת
 
 /**
- * WorkshopCard.jsx — Clean version (fixed)
- * ----------------------------------------
- * - Stateless participants count (derived from props)
- * - Single isFull computed from derivedCount
- * - Family button text → "רשום בני משפחה"
- * - Uses global contexts; keeps your register/unregister logic
+ * WorkshopCard.jsx — Your version, secured imports + excel export
+ * ---------------------------------------------------------------
+ * - Keep your original logic & UI intact.
+ * - Fixed import paths according to src/Components/WorkshopCard.jsx location.
+ * - Excel export now uses apiFetch() (credentials & auto-refresh).
  */
 
 export default function WorkshopCard({
@@ -46,7 +46,7 @@ export default function WorkshopCard({
 
   // ✅ compute isFull ONCE (don’t redeclare later)
   const isFull = maxParticipants > 0 && derivedCount >= maxParticipants;
-  const canRegister = available; // change to (available && !isFull) if you want to block self-reg when full
+  const canRegister = available; // אם תרצה לחסום בהרשמה כשהמקום מלא: available && !isFull
   const registerLabel = isFull ? "הצטרף לרשימת המתנה" : "הירשם";
 
   const [showFamilyList, setShowFamilyList] = useState(false);
@@ -152,14 +152,12 @@ export default function WorkshopCard({
   /** 👁 Family list toggle */
   const toggleFamilyList = () => setShowFamilyList((s) => !s);
 
-  /** 📤 Export Excel */
+  /** 📤 Export Excel — now via apiFetch (secure, includes credentials) */
   const handleExportExcel = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/workshops/${_id}/export`, {
+      const res = await apiFetch(`/api/workshops/${_id}/export`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Export failed");

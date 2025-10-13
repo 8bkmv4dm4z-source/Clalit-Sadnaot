@@ -1,9 +1,9 @@
 /**
- * Workshops.jsx — Full Version (Auth + WorkshopContext only)
- * ----------------------------------------------------------
- * - Displays workshops grouped by user and family members.
- * - Uses Auth (user + familyMembers) and WorkshopContext.
- * - Header is synced via global viewMode (all / mine).
+ * Workshops.jsx — Full Version (apiFetch + Folder-Based Imports)
+ * --------------------------------------------------------------
+ * ✅ All logic & UI preserved
+ * ✅ Replaces fetch() with apiFetch()
+ * ✅ Compatible with your folder-based structure
  */
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -12,16 +12,17 @@ import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../Components/WorkshopCard";
 import WorkshopParticipantsModal from "../../Components/WorkshopParticipantsModal";
+import { apiFetch } from "../../utils/apiFetch";
 
 export default function Workshops() {
   const navigate = useNavigate();
 
-  // 🔹 Local UI States
+  // 🔹 Local States
   const [searchBy, setSearchBy] = useState("all");
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
-  // 🔹 Global Contexts
+  // 🔹 Contexts
   const { isLoggedIn, isAdmin, user, searchQuery, setSearchQuery } = useAuth();
   const {
     displayedWorkshops,
@@ -45,10 +46,7 @@ export default function Workshops() {
     if (!isLoggedIn) return setRegisteredWorkshopIds([]);
     const fetchRegistered = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch("/api/workshops/registered", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch("/api/workshops/registered");
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Failed to load registrations");
         setRegisteredWorkshopIds(Array.isArray(data) ? data : []);
@@ -99,7 +97,7 @@ export default function Workshops() {
     });
   }, [displayedWorkshops, searchQuery, searchBy, viewMode, registeredWorkshopIds, user?._id]);
 
-  // 🧩 Group by user & family members (from Auth.user only)
+  // 🧩 Group by user & family members
   const workshopsByEntity = useMemo(() => {
     if (!user) return {};
 
@@ -112,14 +110,14 @@ export default function Workshops() {
     const map = {};
     const userId = user._id;
 
-    // Me
+    // current user
     map[userId] = {
       name: user.fullName || user.name || "אני",
       relation: "",
       workshops: relatedWorkshops.filter((w) => w.isUserRegistered),
     };
 
-    // Family members (from user.familyMembers)
+    // family members
     const familyList = Array.isArray(user.familyMembers) ? user.familyMembers : [];
 
     familyList.forEach((member) => {
@@ -138,7 +136,7 @@ export default function Workshops() {
     return map;
   }, [user, filteredWorkshops]);
 
-  // 🔹 Registration Handlers
+  // 🔹 Registration handlers
   const handleRegister = async (id, familyId = null) => {
     const result = await registerEntityToWorkshop(id, familyId);
     if (result.success) {
@@ -171,7 +169,7 @@ export default function Workshops() {
     await fetchWorkshops();
   };
 
-  // 🧠 Header sync (dynamic title)
+  // 🧠 Header sync
   const titleText = viewMode === "mine" ? "הסדנאות שלי" : "כלל הסדנאות";
   const subtitleText =
     viewMode === "mine"
@@ -181,7 +179,7 @@ export default function Workshops() {
   // -------------------- JSX --------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 p-6 md:p-10" dir="rtl">
-      {/* Header Section */}
+      {/* Header */}
       <div className="max-w-6xl mx-auto mb-6 text-center transition-all duration-300">
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">{titleText}</h2>
         <p className="text-gray-600 text-sm md:text-base">{subtitleText}</p>
@@ -234,7 +232,7 @@ export default function Workshops() {
         </div>
       )}
 
-      {/* Workshops Display */}
+      {/* Workshops */}
       {loading ? (
         <p className="text-center text-gray-500 mt-10 animate-pulse">⏳ טוען סדנאות...</p>
       ) : error ? (

@@ -1,4 +1,7 @@
+// src/layouts/ProfileContext.jsx — Secure Version using apiFetch()
+
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { apiFetch } from "../../utils/apiFetch";
 
 const log = (msg, data) => {
   const now = new Date().toLocaleTimeString("he-IL");
@@ -10,10 +13,10 @@ const ProfileContext = createContext({
   setProfiles: () => {},
   selectedProfile: null,
   setSelectedProfile: () => {},
-  fetchProfiles: () => {},
-  addProfile: () => {},
-  updateEntity: () => {},
-  deleteProfile: () => {},
+  fetchProfiles: async () => {},
+  addProfile: async () => {},
+  updateEntity: async () => {},
+  deleteProfile: async () => {},
 });
 
 export const ProfileProvider = ({ children }) => {
@@ -22,25 +25,20 @@ export const ProfileProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  /** 🔹 Fetch all profiles (users + families) */
   const fetchProfiles = async () => {
     log("🔄 fetchProfiles() called");
-    const token = localStorage.getItem("token");
-    if (!token) {
-      log("No token → skipping fetchProfiles");
-      setProfiles([]);
-      setError("");
-      setLoading(false);
-      return;
-    }
 
     try {
       setLoading(true);
-      const res = await fetch("/api/users", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      setError("");
+
+      // ✅ Secure fetch with automatic token and refresh
+      const res = await apiFetch("/api/users", { method: "GET" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to load profiles");
 
+      // Normalize data
       const unified = data.flatMap((user) => {
         const userRow = { ...user, isFamily: false, parentName: null };
         const familyRows = (user.familyMembers || []).map((f) => ({
@@ -55,7 +53,6 @@ export const ProfileProvider = ({ children }) => {
 
       setProfiles(unified);
       log(`✅ Profiles loaded (${unified.length})`, unified);
-      setError("");
     } catch (err) {
       console.error("❌ [PROFILE] fetchProfiles error:", err);
       setError(err.message);
@@ -64,16 +61,12 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
+  /** ➕ Add new profile */
   const addProfile = async (profile) => {
     log("➕ addProfile()", profile);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/users", {
+      const res = await apiFetch("/api/users", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(profile),
       });
       const data = await res.json();
@@ -87,22 +80,16 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
+  /** ✏️ Update user or family entity */
   const updateEntity = async (payload) => {
     log("✏️ updateEntity()", payload);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/users/update-entity", {
+      const res = await apiFetch("/api/users/update-entity", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(payload),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to update entity");
-
       log("✅ Entity updated successfully", data);
       await fetchProfiles();
       return { success: true, data };
@@ -112,14 +99,11 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
+  /** 🗑 Delete a profile (user or family) */
   const deleteProfile = async (id) => {
     log(`🗑 deleteProfile(${id})`);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/users/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/users/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to delete profile");
       setProfiles((prev) => prev.filter((p) => p._id !== id));
@@ -131,18 +115,11 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
+  // 🚀 Initialize
   useEffect(() => {
     log("🚀 ProfileProvider mounted — initializing fetch");
     fetchProfiles();
   }, []);
-
-  useEffect(() => {
-    log("📊 State update | profiles count:", profiles.length);
-  }, [profiles]);
-
-  useEffect(() => {
-    if (selectedProfile) log("🎯 Selected profile changed", selectedProfile.name);
-  }, [selectedProfile]);
 
   return (
     <ProfileContext.Provider

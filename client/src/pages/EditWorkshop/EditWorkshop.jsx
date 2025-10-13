@@ -5,13 +5,15 @@
  * - Sanitizes input before sending to backend
  * - Respects backend sanitization in server.js
  * - Keeps full Tailwind styling and context-safe updates
+ * - ✅ Now uses centralized apiFetch() (auto JWT header + refresh + cookies)
  */
 
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import { apiFetch } from "../../utils/apiFetch"; // ✅ secure fetch wrapper
 
-/* 🔒 Lightweight client-side sanitization */
+/* 🔒 Lightweight client-side sanitization (UX-only) */
 function sanitizeInput(value) {
   if (typeof value !== "string") return value;
   return value
@@ -86,27 +88,26 @@ export default function EditWorkshop() {
       if (!validateForm()) return;
 
       setSaving(true);
-      const token = localStorage.getItem("token");
 
+      // Prepare payload (keep existing logic)
       const payload = Object.keys(form).reduce((acc, key) => {
         acc[key] = sanitizeInput(form[key]);
         return acc;
       }, {});
       payload.image = preview;
 
+      // Remove server-managed fields
       delete payload.participants;
       delete payload.participantsCount;
 
       const endpoint = isNew ? "/api/workshops" : `/api/workshops/${form._id}`;
       const method = isNew ? "POST" : "PUT";
 
-      const res = await fetch(endpoint, {
+      // ✅ Use apiFetch (adds Authorization + credentials, auto-refresh on 401)
+      const res = await apiFetch(endpoint, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(payload),
+        // No need to pass headers or token explicitly; apiFetch handles it.
       });
 
       const data = await res.json();
