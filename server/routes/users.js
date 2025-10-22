@@ -4,11 +4,24 @@ const router = express.Router();
 const usersController = require("../controllers/userController");
 const { authenticate: protect, authorizeAdmin } = require("../middleware/authMiddleware");
 
+// 🧩 Joi / Celebrate Validation Schemas
+const {
+  validateUserRegistration,
+  validateUserEdit,
+  validateFamilyMember,
+} = require("../middleware/validation");
+console.log({
+  protect,
+  authorizeAdmin,
+  validateUserRegistration: typeof validateUserRegistration,
+  createUser: typeof usersController.createUser,
+});
 console.log("🧩 USER ROUTES INIT");
 
 // ============================================================
 // 👤 Logged-in user
 // ============================================================
+// אין body, לכן אין צורך בוולידציה
 router.get("/me", protect, usersController.getMe);
 
 // ============================================================
@@ -19,9 +32,11 @@ router.get("/me", protect, usersController.getMe);
 router.get("/", protect, authorizeAdmin, usersController.getAllUsers);
 
 // 🔹 Create new user (Admin only)
-router.post("/", protect, authorizeAdmin, usersController.createUser);
+// ✅ הוספנו validateUserRegistration — בודק שם, אימייל, טלפון וכו'
+router.post("/", protect, authorizeAdmin, validateUserRegistration, usersController.createUser);
 
 // 🔹 Delete user (Admin only)
+// אין גוף בבקשה, לכן אין צורך בוולידציה
 router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser);
 
 // ============================================================
@@ -38,6 +53,10 @@ router.get("/entity/:id", protect, usersController.getEntityById);
 router.get("/:id", protect, usersController.getUserById);
 
 // 🔹 Unified update (user or family)
-router.put("/update-entity", protect, usersController.updateEntity);
+// ✅ הוספנו validateUserEdit — בודק שהשדות תקינים (name, phone, city וכו')
+router.put("/update-entity", protect, validateUserEdit, usersController.updateEntity);
+
+// 🟢 אם תוסיף ראוט להוספת בן משפחה, תוכל להשתמש בזה:
+//router.post("/:id/family", protect, validateFamilyMember, usersController.addFamilyMember);
 
 module.exports = router;

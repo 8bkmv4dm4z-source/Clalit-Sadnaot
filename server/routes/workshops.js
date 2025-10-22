@@ -1,17 +1,34 @@
 // server/routes/workshops.js
 const express = require("express");
 const router = express.Router();
+
 const {
   authenticate: protect,
   authorizeAdmin,
 } = require("../middleware/authMiddleware");
 
-// 📦 Workshop Controller (הגרסה המלאה שלך)
 const workshopController = require("../controllers/workshopController");
+
+// 🎛 Validation middleware (Celebrate + Joi)
+const {
+  validateWorkshopCreate,
+  validateWorkshopEdit,
+  validateWorkshopRegistration,
+  validateWorkshopUnregister,
+} = require("../middleware/validation");
 
 /* ============================================================
    🟢 PUBLIC / USER ROUTES
    ============================================================ */
+
+// ✅ מטא ראוטים (חשוב להופיע לפני :id)
+router.get("/meta/cities", workshopController.getAvailableCities);
+router.get(
+  "/meta/validate-address",
+  protect,
+  authorizeAdmin,
+  workshopController.validateAddress
+);
 
 // ✅ כל הסדנאות (כולל מידע אישי על המשתמש המחובר)
 router.get("/", workshopController.getAllWorkshops);
@@ -25,22 +42,49 @@ router.get("/:id", workshopController.getWorkshopById);
 // ✅ משתתפים בסדנה (למודאל של האדמין)
 router.get("/:id/participants", protect, workshopController.getWorkshopParticipants);
 
-// ✅ רישום משתמש או בן משפחה לסדנה (משתמש רגיל)
-router.post("/:id/register-entity", protect, workshopController.registerEntityToWorkshop);
+// ✅ רישום משתמש או בן משפחה לסדנה
+router.post(
+  "/:id/register-entity",
+  protect,
+  validateWorkshopRegistration,
+  workshopController.registerEntityToWorkshop
+);
 
-// ✅ ביטול רישום לסדנה (משתמש רגיל)
-router.delete("/:id/unregister-entity", protect, workshopController.unregisterEntityFromWorkshop);
+// ✅ ביטול רישום לסדנה
+router.delete(
+  "/:id/unregister-entity",
+  protect,
+  validateWorkshopUnregister,
+  workshopController.unregisterEntityFromWorkshop
+);
 
+// ✅ הוספה לרשימת המתנה (משתמש או בן משפחה)
+router.post("/:id/waitlist-entity", protect, workshopController.addEntityToWaitlist);
+
+// ✅ הסרה מרשימת המתנה (משתמש או בן משפחה)
+router.delete("/:id/waitlist-entity", protect, workshopController.removeEntityFromWaitlist);
 
 /* ============================================================
    🟣 ADMIN ROUTES
    ============================================================ */
 
 // ✅ יצירת סדנה חדשה
-router.post("/", protect, authorizeAdmin, workshopController.createWorkshop);
+router.post(
+  "/",
+  protect,
+  authorizeAdmin,
+  validateWorkshopCreate,
+  workshopController.createWorkshop
+);
 
 // ✅ עדכון סדנה קיימת
-router.put("/:id", protect, authorizeAdmin, workshopController.updateWorkshop);
+router.put(
+  "/:id",
+  protect,
+  authorizeAdmin,
+  validateWorkshopEdit,
+  workshopController.updateWorkshop
+);
 
 // ✅ מחיקת סדנה
 router.delete("/:id", protect, authorizeAdmin, workshopController.deleteWorkshop);
@@ -56,7 +100,6 @@ router.post("/:id/waitlist", protect, authorizeAdmin, workshopController.addToWa
 
 // ✅ הסרה ידנית מרשימת ההמתנה
 router.delete("/:id/waitlist/:entryId", protect, authorizeAdmin, workshopController.removeFromWaitlist);
-
 
 /* ============================================================
    🧩 EXPORT ROUTER

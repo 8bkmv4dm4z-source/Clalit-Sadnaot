@@ -4,12 +4,15 @@ if (!process.env.JWT_SECRET) {
   console.error("❌ Missing JWT_SECRET. Exiting...");
   process.exit(1);
 }
+
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose"); 
+
 const connectDB = require("./config/db"); // ✅ use the new helper
 const rateLimit = require("express-rate-limit");
 const hpp = require("hpp");
@@ -18,16 +21,32 @@ const mongoSanitize = require("express-mongo-sanitize");
 const cookieParser = require("cookie-parser");
 
 const app = express();
+console.log("🌐 NODE_ENV =", process.env.NODE_ENV);
+console.log("Limiter active:", process.env.NODE_ENV !== "loadtest");
+mongoose.connection.once("open", () => {
+  console.log(`✅ Connected to cluster: ${mongoose.connection.host}`);
+  console.log(`📂 Active database: ${mongoose.connection.name}`);
+});
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api/dev", require("./routes/dev"));
+}
 app.disable("x-powered-by");
 
 /* ----------------------------------------
  * 🔹 בסיס
  * -------------------------------------- */
-// חשוב לזיהוי IP נכון מאחורי פרוקסי
-app.enable("trust proxy");
+//enable when behind a proxy (e.g. Heroku, Vercel, Nginx)
+app.set("trust proxy", 1); // ✅ רק hop אחד (Render/Proxy אחד)
 
 // JSON parsing
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+const logPath = "./server_env.log";
+const envInfo = `\n[${new Date().toISOString()}] 🚀 NODE_ENV = ${process.env.NODE_ENV}\nCWD = ${process.cwd()}\n`;
+fs.appendFileSync(logPath, envInfo);
+
+console.log("🧭 Environment info written to", logPath);
 
 // 🔐 Security headers (minimal Helmet replacement)
 // 🔐 Helmet — הגנות ברירת מחדל דרך כותרות HTTP
@@ -44,15 +63,47 @@ app.use(compression());
 /* ----------------------------------------
  * 🚦 Global Rate Limit  ✅ NEW SECTION
  * -------------------------------------- */
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // limit each IP to 200 requests per 15 min
-  standardHeaders: true, // adds RateLimit-* headers
-  legacyHeaders: false,
-  message: { message: "Too many requests, please try again later." },
-});
-app.use(globalLimiter);
+/*hey*/
+
+/* ----------------------------------------
+ * 🚦 Global Rate Limit (Load-Test-Safe)
+ * -------------------------------------- */
+
+const IS_LOADTEST = process.env.NODE_ENV === "loadtest";
+
+const WHITELISTED_IPS = [
+  "127.0.0.1",     // local IPv4
+  "::1",           // local IPv6
+  "192.168.1.100", // LAN IP (for cross-device testing)
+];
+
+let generalLimiter;
+if (IS_LOADTEST) {
+  console.warn("⚠️  Global rate limiter disabled due to loadtest mode");
+  generalLimiter = (req, res, next) => next();
+} else {
+  generalLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100,            // 100 req/min per IP
+    message: { message: "Too many requests, slow down." },
+    handler: (req, res) => {
+      req.app.emit("rate-limit-hit", {
+        type: "auth-general",
+        ip: req.ip,
+        path: req.originalUrl,
+        when: new Date().toISOString(),
+      });
+      res.status(429).json({ message: "Too many requests" });
+    },
+    skip: (req) => WHITELISTED_IPS.includes(req.ip),
+  });
+}
+
+app.use(generalLimiter);
+
 app.use(cookieParser());
+const sanitizeBody = require("./middleware/sanitizeBody");
+app.use(sanitizeBody); // Cleans req.body, req.query, req.params
 
 app.use(mongoSanitize());
 
@@ -73,9 +124,8 @@ app.use(mongoSanitize());
 //   sanitize(req.query);
 //   next();
 // });
-
 /* ----------------------------------------
- * 🌐 CORS
+ * 🌐 CORS (Safe + Controlled)
  * -------------------------------------- */
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
@@ -84,15 +134,29 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 
 const corsOptions = {
   origin: function (origin, callback) {
+    // Allow requests with no Origin (like curl, Postman, k6 local tests)
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
+      return callback(null, true);
     }
+
+    // Instead of throwing, return a controlled 403-style error
+    const msg = `CORS blocked: ${origin} is not in allowed origins`;
+    console.warn(`[CORS] ❌ ${msg}`);
+    return callback(new Error(msg), false);
   },
   credentials: true,
+  optionsSuccessStatus: 204, // Ensure preflights return 204 instead of 200
 };
-app.use(cors(corsOptions));
+
+// Middleware wrapper for cleaner error handling
+app.use((req, res, next) => {
+  cors(corsOptions)(req, res, (err) => {
+    if (err && err.message.startsWith("CORS blocked")) {
+      return res.status(403).json({ message: err.message });
+    }
+    next(err);
+  });
+});
 
 /* ----------------------------------------
  * 🧾 לוגים לקובץ
@@ -172,11 +236,12 @@ const WRITE_WINDOW_MS = 60 * 1000; // 1 דקה
 const WRITE_MAX = 20; // עד 20 פעולות בדקה למשתמש/IP
 
 function workshopWriteLimiter(req, res, next) {
-  // הגנה מופעלת רק על פעולות כתיבה
+  // ✅ Skip limiter completely during load tests
+  if (IS_LOADTEST) return next();
+
   const method = req.method.toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return next();
 
-  // החרגה לאדמין / לבנים
   if (isWhitelistedReq(req)) return next();
 
   const ip = req.ip || req.connection?.remoteAddress || "unknown";
@@ -206,6 +271,7 @@ function workshopWriteLimiter(req, res, next) {
   return next();
 }
 
+
 /* ----------------------------------------
  * 🔀 Routers
  * -------------------------------------- */
@@ -213,6 +279,9 @@ const workshopsRouter = require("./routes/workshops");
 const authRouter = require("./routes/auth");
 const usersRouter = require("./routes/users");
 const profileRouter = require("./routes/profile");
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api/dev", require("./routes/dev"));
+}
 
 // ⚠️ חשוב: למקד את המגבלה רק על כתיבות של workshops
 app.use("/api/workshops", workshopWriteLimiter, workshopsRouter);
@@ -221,6 +290,49 @@ app.use("/api/workshops", workshopWriteLimiter, workshopsRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/profile", profileRouter);
+const { errors } = require("celebrate");
+app.use(errors());
+// 🧩 Error handling middleware — כולל Celebrate + Joi פירוט מלא
+app.use((err, req, res, next) => {
+  console.error("❌ Server error:", err);
+
+  // Celebrate / Joi validation errors
+  if (err.joi) {
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      details: err.joi.details?.map((d) => ({
+        path: d.path,
+        message: d.message,
+      })),
+    });
+  }
+
+  // Celebrate 15+ style errors (Map of segments)
+  if (err.name === "CelebrateError") {
+    const details = [];
+    for (const [segment, joiError] of err.details.entries()) {
+      details.push(
+        ...joiError.details.map((d) => ({
+          segment,
+          path: d.path,
+          message: d.message,
+        }))
+      );
+    }
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      details,
+    });
+  }
+
+  // כל שאר השגיאות
+  return res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Server error",
+  });
+});
 
 /* ----------------------------------------
  * 🚀 Start
@@ -243,3 +355,4 @@ const PORT = process.env.PORT || 5000;
     process.exit(1);
   }
 })();
+

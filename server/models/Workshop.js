@@ -1,68 +1,44 @@
-// server/models/Workshop.js
 const mongoose = require("mongoose");
 
-/**
- * Workshop Schema
- * ----------------------------------
- * - Tracks participants and max capacity
- * - Automatically updates participantsCount on save
- * - Includes familyRegistrations with full details snapshot
- */
 const WorkshopSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     type: { type: String, default: "", trim: true },
     ageGroup: { type: String, default: "", trim: true },
-    city: { type: String, default: "", trim: true },
+
+    /** 📍 Location (Validated City + Address) */
+    city: { type: String, required: true, trim: true }, // ✅ חובה
+    address: { type: String, default: "", trim: true }, // ✅ כתובת נבדקת מול העיר
     studio: { type: String, default: "", trim: true },
     coach: { type: String, default: "", trim: true },
-    day: { type: String, default: "", trim: true },
+
+    /** 🗓 Scheduling */
+    days: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (arr) => arr.length > 0,
+        message: "At least one meeting day is required",
+      },
+    },
     hour: { type: String, default: "", trim: true },
+    sessionsCount: { type: Number, default: 4, min: 1 },
+    startDate: { type: Date, required: false },
+    endDate: { type: Date },
+    inactiveDates: { type: [Date], default: [] },
+
+    /** 📋 Details */
     available: { type: Boolean, default: true },
     description: { type: String, default: "" },
     price: { type: Number, default: 0 },
     image: { type: String, default: "" },
 
-    /** ✅ Participants management */
+    /** 👥 Participants */
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-
-    /** ✅ Family member registrations — full snapshot for reports/UI */
     familyRegistrations: [
-  {
-    parentUser: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    familyMemberId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true, // 🔥 לא לשים ref כאן
-    },
-    name: { type: String, required: true },
-    relation: { type: String, default: "" },
-    idNumber: { type: String, default: "" },
-    phone: { type: String, default: "" },
-    birthDate: { type: String, default: "" },
-  },
-],
-
-    /**
-     * 🔄 Waiting list support
-     * -----------------------------------------
-     * Some workshops may over‑subscribe.  When the workshop
-     * reaches capacity new registrants are queued here.  The
-     * waitingList does not contribute towards participantsCount
-     * and is processed in a FIFO manner when space opens up.
-     *
-     * Each entry mirrors the shape of a family registration so
-     * we can support both primary users and family members.
-     */
-    waitingList: [
       {
-        // If this entry is for a main user then parentUser holds the user id
         parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        // When registering a family member we also keep the member id
-        familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+        familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
         name: { type: String, required: true },
         relation: { type: String, default: "" },
         idNumber: { type: String, default: "" },
@@ -71,50 +47,74 @@ const WorkshopSchema = new mongoose.Schema(
       },
     ],
 
-    /**
-     * Maximum size of the waiting list.  A value of 0 disables
-     * the wait list entirely.  When set to a positive number and
-     * the list is full the API will return an error to the client.
-     */
+    /** 🕒 Waiting list */
+    waitingList: [
+      {
+        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+        name: { type: String, required: true },
+        relation: { type: String, default: "" },
+        idNumber: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        birthDate: { type: String, default: "" },
+      },
+    ],
     waitingListMax: { type: Number, default: 10, min: 0 },
-
-    /**
-     * When enabled the first person on the waiting list will be
-     * automatically promoted into the workshop when space opens up.
-     */
     autoEnrollOnVacancy: { type: Boolean, default: false },
 
-
     participantsCount: { type: Number, default: 0 },
-
-    /** ✅ Capacity control */
     maxParticipants: { type: Number, default: 20, min: 0 },
   },
   { timestamps: true }
 );
 
 /* ============================================================
-   ✅ Middleware — Auto update participantsCount on save
+   🧮 Middleware — Auto calculate endDate (with inactiveDates)
    ============================================================ */
 WorkshopSchema.pre("save", function (next) {
-  const familyCount = Array.isArray(this.familyRegistrations)
-    ? this.familyRegistrations.length
-    : 0;
-  const directCount = Array.isArray(this.participants)
-    ? this.participants.length
-    : 0;
+  if (this.startDate && Array.isArray(this.days) && this.days.length > 0 && this.sessionsCount) {
+    try {
+      const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const start = new Date(this.startDate);
+      let sessions = 0;
+      const current = new Date(start);
+
+      const inactiveSet = new Set(
+        (this.inactiveDates || []).map((d) => new Date(d).toDateString())
+      );
+
+      while (sessions < this.sessionsCount) {
+        const dayName = weekdays[current.getDay()];
+        const dateStr = current.toDateString();
+
+        if (this.days.includes(dayName) && !inactiveSet.has(dateStr)) {
+          sessions++;
+        }
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      this.endDate = current;
+    } catch (err) {
+      console.warn("⚠️ Error calculating endDate:", err.message);
+    }
+  }
+
+  // ✅ update participantsCount
+  const familyCount = this.familyRegistrations?.length || 0;
+  const directCount = this.participants?.length || 0;
   this.participantsCount = directCount + familyCount;
+
   next();
 });
 
 /* ============================================================
-   ✅ Helper method — Check capacity before adding
+   ✅ Helper — Capacity check
    ============================================================ */
 WorkshopSchema.methods.canAddParticipant = function () {
-  if (this.maxParticipants === 0) return true; // unlimited capacity
-  const current =
-    (this.participants?.length || 0) + (this.familyRegistrations?.length || 0);
-  return current < this.maxParticipants;
+  if (this.maxParticipants === 0) return true;
+  const total = (this.participants?.length || 0) + (this.familyRegistrations?.length || 0);
+  return total < this.maxParticipants;
 };
 
 module.exports = mongoose.model("Workshop", WorkshopSchema);

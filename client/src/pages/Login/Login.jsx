@@ -1,10 +1,3 @@
-/**
- * Login.jsx — Tailwind Business Edition
- * -------------------------------------
- * - Logic preserved entirely.
- * - Styled with Tailwind for consistency with Verify & Register.
- */
-
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -51,26 +44,27 @@ export default function Login() {
 
   const gotoOtp = () => navigate("/verify", { state: { email } });
 
-  /* ==================== UI ==================== */
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 p-8"
       dir="rtl"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-white p-6"
     >
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 animate-fade-in">
-        {/* Title */}
-        <h2 className="text-3xl font-bold text-gray-900 text-center font-[Poppins] mb-2">
-          התחברות לחשבון
-        </h2>
-        <p className="text-gray-600 text-center mb-6">
-          הזן את פרטיך כדי להיכנס למערכת
-        </p>
+      <div className="w-full max-w-md bg-white/90 backdrop-blur-lg rounded-3xl border border-indigo-100 shadow-2xl p-10 animate-fade-in transition hover:shadow-indigo-200">
+        {/* 🧭 Header */}
+        <div className="text-center space-y-2 mb-6">
+          <h2 className="text-4xl font-extrabold tracking-tight text-indigo-700">
+            התחברות לחשבון
+          </h2>
+          <p className="text-gray-600 text-sm">
+            הזן את פרטיך כדי להיכנס למערכת
+          </p>
+        </div>
 
-        {/* Form */}
-        <form onSubmit={onSubmit} className="space-y-5">
-          <div>
-            <label className="block text-gray-700 mb-1 font-medium">
-              מייל
+        {/* 🔐 Form */}
+        <form onSubmit={onSubmit} className="space-y-6">
+          <div className="pb-4 border-b border-indigo-50">
+            <label className="block mb-2 text-sm font-semibold text-indigo-700 tracking-wide">
+              כתובת אימייל
             </label>
             <input
               type="email"
@@ -82,8 +76,8 @@ export default function Login() {
             />
           </div>
 
-          <div>
-            <label className="block text-gray-700 mb-1 font-medium">
+          <div className="pb-4 border-b border-indigo-50">
+            <label className="block mb-2 text-sm font-semibold text-indigo-700 tracking-wide">
               סיסמה
             </label>
             <div className="relative">
@@ -99,7 +93,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPw((s) => !s)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600 text-lg"
               >
                 {showPw ? "🙈" : "👁️"}
               </button>
@@ -115,24 +109,24 @@ export default function Login() {
           <button
             type="submit"
             disabled={status === "submitting"}
-            className={`w-full py-2.5 rounded-xl font-semibold text-white shadow-sm transition-all ${
+            className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
               status === "submitting"
                 ? "bg-gray-400 cursor-not-allowed"
-                : "bg-indigo-600 hover:bg-indigo-700 active:scale-95"
+                : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
             }`}
           >
             {status === "submitting" ? "מתחבר..." : "התחבר"}
           </button>
         </form>
 
-        {/* Alternative login */}
-        <div className="text-center mt-6">
-          <p className="text-gray-500 text-sm mb-2">
+        {/* 🧾 OTP Section */}
+        <div className="text-center mt-6 space-y-3">
+          <p className="text-gray-500 text-sm font-medium">
             או התחבר עם קוד חד־פעמי (OTP)
           </p>
           <button
             onClick={gotoOtp}
-            className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium transition"
+            className="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold transition"
           >
             שלח קוד למייל →
           </button>
@@ -141,7 +135,6 @@ export default function Login() {
         {/* Divider */}
         <div className="my-6 border-t border-gray-200"></div>
 
-        {/* Register link */}
         <p className="text-center text-sm text-gray-600">
           אין לך חשבון עדיין?{" "}
           <button

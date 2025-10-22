@@ -1,16 +1,25 @@
 {
-  "name": "galil-workshops-server",
+  "name": "clalit-workshops-server",
   "version": "1.0.0",
-  "description": "Express server skeleton for the Galil Workshops app with MongoDB integration.",
+  "description": "Express server skeleton for the Clalit Workshops app with MongoDB integration.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "server": "cd server && node server.js",
-    "dev-server": "cd server && npx nodemon server.js"
+    "start": "cross-env NODE_ENV=\"production\" node server.js",
+    "dev": "cross-env NODE_ENV=\"development\" nodemon server.js",
+    "server": "cd server && cross-env NODE_ENV=\"production\" node server.js",
+    "dev-server": "cd server && cross-env NODE_ENV=\"development\" npx nodemon server.js",
+    "loadtest": "cross-env NODE_ENV=\"loadtest\" node server.js",
+    "loadtest-dev": "cross-env NODE_ENV=\"loadtest\" nodemon server.js",
+    "scan:limiters": "node scripts/find-rate-limiters.js",
+    "scan:skips": "node scripts/find-skip.js",
+    "test:load": "cross-env NODE_ENV=\"loadtest\" k6 run tests/k6/03-scenario-auth-register.js --out json=tests/results/loadtest.ndjson --summary-export=tests/results/loadtest.json",
+    "test:report": "node scripts/generate-k6-report.js",
+    "test:e2e": "npx artillery run tests/artillery/e2e-multiuser.yaml",
+    "test:full": "npm run test:load && npm run test:report"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "celebrate": "^15.0.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -21,11 +30,15 @@
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
+    "joi": "^18.0.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.3.4",
     "nodemailer": "^7.0.9"
   },
   "devDependencies": {
+    "artillery": "^2.0.26",
+    "cross-env": "^10.1.0",
+    "k6-html-reporter": "^1.0.5",
     "nodemon": "^3.1.10"
   },
   "keywords": [],

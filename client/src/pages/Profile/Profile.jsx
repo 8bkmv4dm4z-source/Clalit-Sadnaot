@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-import FamilyEditorModal from "../../Components/people/FamilyEditorModal";
+// After reorganising files, the family editor modal lives under
+// `src/components/people`. Update the import path accordingly.
+import FamilyEditorModal from "../../components/people/FamilyEditorModal";
 
 export default function Profile() {
   const { user, updateEntity } = useAuth();
@@ -73,9 +75,9 @@ export default function Profile() {
       className="min-h-screen bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 py-10 flex justify-center"
       dir="rtl"
     >
-      <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-8 border border-gray-200 animate-fade-in">
+      <div className="w-full max-w-lg container-box p-8 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center gap-5 mb-8 border-b pb-5 border-gray-300">
+        <div className="flex items-center gap-5 mb-8 border-b pb-5 border-indigo-200">
           <img
             src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
               user.name || "משתמש"
@@ -157,17 +159,13 @@ export default function Profile() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className={`px-5 py-2.5 rounded-xl font-semibold text-white shadow-sm transition-all ${
-                  saving
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700 active:scale-95"
-                }`}
+                className={`btn btn-primary px-5 py-2.5 ${saving ? "cursor-not-allowed bg-gray-400" : ""}`}
               >
                 {saving ? "שומר..." : "💾 שמור"}
               </button>
               <button
                 onClick={handleCancel}
-                className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 active:scale-95 transition"
+                className="btn btn-secondary px-5 py-2.5"
               >
                 ביטול
               </button>
@@ -176,13 +174,13 @@ export default function Profile() {
             <>
               <button
                 onClick={() => setEditMode(true)}
-                className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 active:scale-95 transition"
+                className="btn btn-primary px-5 py-2.5"
               >
                 ✏️ ערוך פרטים
               </button>
               <button
                 onClick={() => setShowFamilyModal(true)}
-                className="px-5 py-2.5 rounded-xl border border-indigo-500 text-indigo-700 font-semibold hover:bg-indigo-50 active:scale-95 transition"
+                className="btn btn-outline px-5 py-2.5 border-indigo-500 text-indigo-700"
               >
                 👨‍👩‍👧 ניהול בני משפחה
               </button>
@@ -217,14 +215,14 @@ function ProfileField({
   displayExtra = "",
 }) {
   return (
-    <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+    <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50">
       <span className="text-gray-700 font-medium">{label}:</span>
       {editMode ? (
         <input
           type={type}
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+          className="input mt-2"
         />
       ) : (
         <p className="text-gray-800 mt-1">

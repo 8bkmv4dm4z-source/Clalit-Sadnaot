@@ -9,6 +9,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
+import { apiFetch } from "../../utils/apiFetch";
 
 const calcAge = (dateStr) => {
   if (!dateStr) return null;
@@ -34,14 +35,11 @@ export default function EditProfile() {
   const [familyForm, setFamilyForm] = useState({});
   const [addingFamily, setAddingFamily] = useState(false);
 
-  /* 🟢 Fetch profile by ID */
+  /* 🟢 Fetch profile by ID (via apiFetch) */
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`/api/users/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch(`/api/users/${id}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "User not found");
         setForm(data);
@@ -138,12 +136,10 @@ export default function EditProfile() {
       const result = await updateEntity(payload);
       if (!result?.success) throw new Error(result?.message || "Update failed");
 
-      // refresh local form from server (so list reflects persisted fallback)
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/users/${form._id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // refresh local form from server (via apiFetch)
+      const res = await apiFetch(`/api/users/${form._id}`);
       const refreshed = await res.json();
+      if (!res.ok) throw new Error(refreshed.message || "Failed to refresh user");
       setForm(refreshed);
 
       setEditingFamilyId(null);

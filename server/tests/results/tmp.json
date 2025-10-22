@@ -1,0 +1,963 @@
+{
+  "aggregate": {
+    "counters": {
+      "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 760,
+      "vusers.created": 760,
+      "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 760,
+      "http.requests": 760,
+      "http.codes.400": 760,
+      "http.responses": 760,
+      "http.downloaded_bytes": 122360,
+      "errors.Failed capture or match": 760,
+      "vusers.failed": 760
+    },
+    "rates": {
+      "http.request_rate": 10
+    },
+    "firstCounterAt": 1761128542704,
+    "firstHistogramAt": 1761128542726,
+    "lastCounterAt": 1761128642090,
+    "lastHistogramAt": 1761128642090,
+    "firstMetricAt": 1761128542704,
+    "lastMetricAt": 1761128642090,
+    "period": 1761128640000,
+    "summaries": {
+      "http.response_time": {
+        "min": 0,
+        "max": 2,
+        "count": 760,
+        "mean": 0.8,
+        "p50": 1,
+        "median": 1,
+        "p75": 1,
+        "p90": 1,
+        "p95": 1,
+        "p99": 1,
+        "p999": 2
+      },
+      "http.response_time.4xx": {
+        "min": 0,
+        "max": 2,
+        "count": 760,
+        "mean": 0.8,
+        "p50": 1,
+        "median": 1,
+        "p75": 1,
+        "p90": 1,
+        "p95": 1,
+        "p99": 1,
+        "p999": 2
+      }
+    },
+    "histograms": {
+      "http.response_time": {
+        "min": 0,
+        "max": 2,
+        "count": 760,
+        "mean": 0.8,
+        "p50": 1,
+        "median": 1,
+        "p75": 1,
+        "p90": 1,
+        "p95": 1,
+        "p99": 1,
+        "p999": 2
+      },
+      "http.response_time.4xx": {
+        "min": 0,
+        "max": 2,
+        "count": 760,
+        "mean": 0.8,
+        "p50": 1,
+        "median": 1,
+        "p75": 1,
+        "p90": 1,
+        "p95": 1,
+        "p99": 1,
+        "p999": 2
+      }
+    }
+  },
+  "intermediate": [
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 8,
+        "vusers.created": 8,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 8,
+        "http.requests": 8,
+        "http.codes.400": 8,
+        "http.responses": 8,
+        "http.downloaded_bytes": 1288,
+        "errors.Failed capture or match": 8,
+        "vusers.failed": 8
+      },
+      "rates": {
+        "http.request_rate": 1
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128542704,
+      "firstHistogramAt": 1761128542726,
+      "lastCounterAt": 1761128549705,
+      "lastHistogramAt": 1761128549704,
+      "firstMetricAt": 1761128542704,
+      "lastMetricAt": 1761128549705,
+      "period": "1761128540000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 8,
+          "mean": 0.9,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 8,
+          "mean": 0.9,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 8,
+          "mean": 0.9,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 8,
+          "mean": 0.9,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 42,
+        "vusers.created": 42,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 42,
+        "http.requests": 42,
+        "http.codes.400": 42,
+        "http.responses": 42,
+        "http.downloaded_bytes": 6762,
+        "errors.Failed capture or match": 42,
+        "vusers.failed": 42
+      },
+      "rates": {
+        "http.request_rate": 5
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128550700,
+      "firstHistogramAt": 1761128550704,
+      "lastCounterAt": 1761128559954,
+      "lastHistogramAt": 1761128559953,
+      "firstMetricAt": 1761128550700,
+      "lastMetricAt": 1761128559954,
+      "period": "1761128550000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 42,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 42,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 42,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 42,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 50,
+        "vusers.created": 50,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 50,
+        "http.requests": 50,
+        "http.codes.400": 50,
+        "http.responses": 50,
+        "http.downloaded_bytes": 8050,
+        "errors.Failed capture or match": 50,
+        "vusers.failed": 50
+      },
+      "rates": {
+        "http.request_rate": 5
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128560701,
+      "firstHistogramAt": 1761128560703,
+      "lastCounterAt": 1761128569953,
+      "lastHistogramAt": 1761128569953,
+      "firstMetricAt": 1761128560701,
+      "lastMetricAt": 1761128569953,
+      "period": "1761128560000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 50,
+        "vusers.created": 50,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 50,
+        "http.requests": 50,
+        "http.codes.400": 50,
+        "http.responses": 50,
+        "http.downloaded_bytes": 8050,
+        "errors.Failed capture or match": 50,
+        "vusers.failed": 50
+      },
+      "rates": {
+        "http.request_rate": 5
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128570701,
+      "firstHistogramAt": 1761128570703,
+      "lastCounterAt": 1761128579953,
+      "lastHistogramAt": 1761128579953,
+      "firstMetricAt": 1761128570701,
+      "lastMetricAt": 1761128579953,
+      "period": "1761128570000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 50,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 88,
+        "vusers.created": 88,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 88,
+        "http.requests": 88,
+        "http.codes.400": 88,
+        "http.responses": 88,
+        "http.downloaded_bytes": 14168,
+        "errors.Failed capture or match": 88,
+        "vusers.failed": 88
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128580701,
+      "firstHistogramAt": 1761128580703,
+      "lastCounterAt": 1761128589953,
+      "lastHistogramAt": 1761128589953,
+      "firstMetricAt": 1761128580701,
+      "lastMetricAt": 1761128589953,
+      "period": "1761128580000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 88,
+          "mean": 0.6,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 88,
+          "mean": 0.6,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 88,
+          "mean": 0.6,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 88,
+          "mean": 0.6,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 100,
+        "vusers.created": 100,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 100,
+        "http.requests": 100,
+        "http.codes.400": 100,
+        "http.responses": 100,
+        "http.downloaded_bytes": 16100,
+        "errors.Failed capture or match": 100,
+        "vusers.failed": 100
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128590025,
+      "firstHistogramAt": 1761128590028,
+      "lastCounterAt": 1761128599954,
+      "lastHistogramAt": 1761128599953,
+      "firstMetricAt": 1761128590025,
+      "lastMetricAt": 1761128599954,
+      "period": "1761128590000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 100,
+        "vusers.created": 100,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 100,
+        "http.requests": 100,
+        "http.codes.400": 100,
+        "http.responses": 100,
+        "http.downloaded_bytes": 16100,
+        "errors.Failed capture or match": 100,
+        "vusers.failed": 100
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128600025,
+      "firstHistogramAt": 1761128600028,
+      "lastCounterAt": 1761128609954,
+      "lastHistogramAt": 1761128609953,
+      "firstMetricAt": 1761128600025,
+      "lastMetricAt": 1761128609954,
+      "period": "1761128600000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 100,
+        "vusers.created": 100,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 100,
+        "http.requests": 100,
+        "http.codes.400": 100,
+        "http.responses": 100,
+        "http.downloaded_bytes": 16100,
+        "errors.Failed capture or match": 100,
+        "vusers.failed": 100
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128610025,
+      "firstHistogramAt": 1761128610028,
+      "lastCounterAt": 1761128619954,
+      "lastHistogramAt": 1761128619954,
+      "firstMetricAt": 1761128610025,
+      "lastMetricAt": 1761128619954,
+      "period": "1761128610000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 2,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 100,
+        "vusers.created": 100,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 100,
+        "http.requests": 100,
+        "http.codes.400": 100,
+        "http.responses": 100,
+        "http.downloaded_bytes": 16100,
+        "errors.Failed capture or match": 100,
+        "vusers.failed": 100
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128620025,
+      "firstHistogramAt": 1761128620028,
+      "lastCounterAt": 1761128629954,
+      "lastHistogramAt": 1761128629954,
+      "firstMetricAt": 1761128620025,
+      "lastMetricAt": 1761128629954,
+      "period": "1761128620000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 100,
+        "vusers.created": 100,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 100,
+        "http.requests": 100,
+        "http.codes.400": 100,
+        "http.responses": 100,
+        "http.downloaded_bytes": 16100,
+        "errors.Failed capture or match": 100,
+        "vusers.failed": 100
+      },
+      "rates": {
+        "http.request_rate": 10
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128630025,
+      "firstHistogramAt": 1761128630027,
+      "lastCounterAt": 1761128639954,
+      "lastHistogramAt": 1761128639954,
+      "firstMetricAt": 1761128630025,
+      "lastMetricAt": 1761128639954,
+      "period": "1761128630000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 100,
+          "mean": 0.8,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    },
+    {
+      "counters": {
+        "vusers.created_by_name.Auto Register → Login → Fetch Workshops": 22,
+        "vusers.created": 22,
+        "errors.Undefined function \"const idx = Math.floor(Math.random() * vars.emails.length);\nvars.email = vars.emails[idx];\n\"": 22,
+        "http.requests": 22,
+        "http.codes.400": 22,
+        "http.responses": 22,
+        "http.downloaded_bytes": 3542,
+        "errors.Failed capture or match": 22,
+        "vusers.failed": 22
+      },
+      "rates": {
+        "http.request_rate": 17
+      },
+      "http.request_rate": null,
+      "firstCounterAt": 1761128640025,
+      "firstHistogramAt": 1761128640028,
+      "lastCounterAt": 1761128642090,
+      "lastHistogramAt": 1761128642090,
+      "firstMetricAt": 1761128640025,
+      "lastMetricAt": 1761128642090,
+      "period": "1761128640000",
+      "summaries": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 22,
+          "mean": 0.7,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 22,
+          "mean": 0.7,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      },
+      "histograms": {
+        "http.response_time": {
+          "min": 0,
+          "max": 1,
+          "count": 22,
+          "mean": 0.7,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        },
+        "http.response_time.4xx": {
+          "min": 0,
+          "max": 1,
+          "count": 22,
+          "mean": 0.7,
+          "p50": 1,
+          "median": 1,
+          "p75": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1,
+          "p999": 1
+        }
+      }
+    }
+  ]
+}

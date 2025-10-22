@@ -6,9 +6,17 @@ const { getUserProfile } = require("../controllers/authController");
 const {
   getAllUsers,
   deleteUser,
-  updateUser,
+  updateEntity, // ⬅️ זה השם הנכון!
 } = require("../controllers/userController");
 
+
+
+// 🎛 Validation middleware
+const { validateProfile } = require("../middleware/validation");
+console.log({
+  authenticateType: typeof authenticate,
+  validateProfileType: typeof validateProfile,
+});
 /**
  * ✅ GET /api/profile
  * מחזיר את פרופיל המשתמש המחובר לפי ה־token
@@ -21,7 +29,7 @@ router.get("/", authenticate, getUserProfile);
  * משתמש בפונקציה updateUser מתוך userController,
  * אך "מזריק" את userId מה־token לתוך req.params.id
  */
-router.put("/edit", authenticate, async (req, res) => {
+router.put("/edit", authenticate, validateProfile, async (req, res) => {
   try {
     if (!req.user?._id) {
       return res.status(401).json({ message: "Unauthorized - no user in token" });
@@ -29,11 +37,10 @@ router.put("/edit", authenticate, async (req, res) => {
 
     console.log("✏️ [Profile/Edit] Authenticated user:", req.user._id);
 
-    // נשתמש בפונקציה updateUser אבל נגדיר ידנית את ה-id
-    req.params.id = req.user._id.toString();
+    req.body.userId = req.user._id.toString(); // ⬅️ נשתמש במבנה של updateEntity
+    req.body.updates = req.body; // ⬅️ כי updateEntity מצפה ל-updates
 
-    // נריץ את הפונקציה של userController ישירות
-    await updateUser(req, res);
+    await updateEntity(req, res); // ⬅️ קורא לפונקציה הקיימת שלך
   } catch (e) {
     console.error("❌ [Profile/Edit] Server error:", e);
     res.status(500).json({
@@ -42,6 +49,7 @@ router.put("/edit", authenticate, async (req, res) => {
     });
   }
 });
+
 
 /**
  * ✅ GET /api/profile/all

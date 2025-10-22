@@ -1,0 +1,8 @@
+# tests/artillery/clean-test.yaml
+config:
+  target: "http://localhost:5000"
+scenarios:
+  - flow:
+      - log: "✅ Clean test started"
+      - get:
+          url: "/api/workshops"

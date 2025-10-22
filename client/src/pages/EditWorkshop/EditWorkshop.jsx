@@ -1,65 +1,231 @@
 /**
- * EditWorkshop.jsx — Tailwind Unified Create/Edit (Security-Aware)
- * ---------------------------------------------------------------
- * - Includes validation for required fields (title, coach, startDate, timePeriod)
- * - Sanitizes input before sending to backend
- * - Respects backend sanitization in server.js
- * - Keeps full Tailwind styling and context-safe updates
- * - ✅ Now uses centralized apiFetch() (auto JWT header + refresh + cookies)
+ * EditWorkshop.jsx — Multi-Sessions Admin Form (Create + Edit + Address Support)
+ * -----------------------------------------------------------------------------
+ * ✓ תואם לסכמה החדשה (days[], sessionsCount, inactiveDates[], וכו')
+ * ✓ תומך גם בנתונים ישנים (day, weeksDuration)
+ * ✓ מציג ומעדכן city + address (כולל ולידציה רכה)
+ * ✓ כולל חישוב endDate חיה ו־UI מלא
+ * ✓ שימוש ב־apiFetch עם רענון טוקן אוטומטי
  */
 
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-import { apiFetch } from "../../utils/apiFetch"; // ✅ secure fetch wrapper
+import { apiFetch } from "../../utils/apiFetch";
 
-/* 🔒 Lightweight client-side sanitization (UX-only) */
-function sanitizeInput(value) {
+// === Day labels & mapping ===
+const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_HE_LETTER = { Sunday: "א", Monday: "ב", Tuesday: "ג", Wednesday: "ד", Thursday: "ה", Friday: "ו", Saturday: "ש" };
+const HE_TO_EN = {
+  "ראשון": "Sunday",
+  "שני": "Monday",
+  "שלישי": "Tuesday",
+  "רביעי": "Wednesday",
+  "חמישי": "Thursday",
+  "שישי": "Friday",
+  "שבת": "Saturday",
+  "א": "Sunday",
+  "ב": "Monday",
+  "ג": "Tuesday",
+  "ד": "Wednesday",
+  "ה": "Thursday",
+  "ו": "Friday",
+  "ש": "Saturday",
+};
+const EN_TO_HE = { Sunday: "ראשון", Monday: "שני", Tuesday: "שלישי", Wednesday: "רביעי", Thursday: "חמישי", Friday: "שישי", Saturday: "שבת" };
+
+function sanitize(value) {
   if (typeof value !== "string") return value;
-  return value
-    .trim()
-    .replace(/[<>${}]/g, "") // prevent script & template injections
-    .replace(/\s{2,}/g, " "); // collapse double spaces
+  return value.replace(/[<>]/g, "").replace(/[\r\n\t]+/g, " ");
+}
+
+function computeEndDatePreview(startDate, days = [], sessionsCount = 0, inactiveDates = []) {
+  if (!startDate || !sessionsCount || !Array.isArray(days) || days.length === 0) return null;
+  try {
+    const engDays = days.map((d) => (EN_TO_HE[d] ? d : HE_TO_EN[d] || d));
+    const start = new Date(startDate);
+    if (isNaN(start)) return null;
+
+    let sessions = 0;
+    const current = new Date(start);
+    const inactiveSet = new Set((inactiveDates || []).map((d) => new Date(d).toDateString()));
+
+    while (sessions < sessionsCount) {
+      const dayName = DAYS_EN[current.getDay()];
+      const dateStr = current.toDateString();
+      if (engDays.includes(dayName) && !inactiveSet.has(dateStr)) {
+        sessions++;
+      }
+      current.setDate(current.getDate() + 1);
+      if (sessionsCount > 1000) break;
+    }
+    return current;
+  } catch {
+    return null;
+  }
 }
 
 export default function EditWorkshop() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { workshops, addWorkshopLocal, updateWorkshopLocal } = useWorkshops();
 
-  const isNew = !id;
-  const existingWorkshop = id ? workshops.find((w) => w?._id === id) : null;
+  const [form, setForm] = useState({
+    title: "",
+    type: "",
+    ageGroup: "",
+    city: "",
+    address: "",
+    studio: "",
+    coach: "",
+    days: [],
+    hour: "",
+    sessionsCount: "",
+    startDate: "",
+    inactiveDates: [],
+    available: true,
+    description: "",
+    price: "",
+    image: "",
+    maxParticipants: 20,
+    waitingListMax: 10,
+    autoEnrollOnVacancy: false,
+  });
 
-  const [form, setForm] = useState(
-    existingWorkshop || {
-      title: "",
-      type: "",
-      ageGroup: "",
-      city: "",
-      coach: "",
-      day: "",
-      hour: "",
-      price: "",
-      available: true,
-      description: "",
-      timePeriod: "",
-      startDate: "",
-    }
-  );
-
-  const [preview, setPreview] = useState(existingWorkshop?.image || "");
+  const [preview, setPreview] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addingHoliday, setAddingHoliday] = useState("");
+  const [cities, setCities] = useState(Array.isArray(location?.state?.cities) ? location.state.cities : []);
+  const [freeCity, setFreeCity] = useState(false);
+  const [addrValid, setAddrValid] = useState({ status: "idle", message: "" }); // idle|checking|ok|warn|err
 
+  const isNew = !id;
+  const existing = id ? workshops.find((w) => w?._id === id) : null;
+
+  // --- fetch cities if not provided via navigation state
   useEffect(() => {
-    if (existingWorkshop) {
-      setForm(existingWorkshop);
-      setPreview(existingWorkshop?.image || "");
-    }
-  }, [id, existingWorkshop]);
+    let cancelled = false;
+    const load = async () => {
+      if (cities.length) return;
+      try {
+        const res = await apiFetch("/api/workshops/cities"); // controller: getAvailableCities
+        const data = await res.json();
+        if (!cancelled && data?.success && Array.isArray(data.cities)) {
+          setCities(data.cities);
+        }
+      } catch (e) {
+        // silent fallback
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []); // eslint-disable-line
 
-  const handleChange = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: sanitizeInput(value) }));
+  // === Reset for NEW ===
+  useEffect(() => {
+    if (isNew) {
+      setForm({
+        title: "",
+        type: "",
+        ageGroup: "",
+        city: "",
+        address: "",
+        studio: "",
+        coach: "",
+        days: [],
+        hour: "",
+        sessionsCount: "",
+        startDate: "",
+        inactiveDates: [],
+        available: true,
+        description: "",
+        price: "",
+        image: "",
+        maxParticipants: 20,
+        waitingListMax: 10,
+        autoEnrollOnVacancy: false,
+      });
+      setPreview("");
+      setAddrValid({ status: "idle", message: "" });
+      setFreeCity(false);
+    }
+  }, [isNew]);
+
+  // === Load existing (edit mode) ===
+  useEffect(() => {
+    if (!existing) return;
+    const legacyDays = (() => {
+      if (Array.isArray(existing.days) && existing.days.length) return existing.days;
+      if (existing.day) {
+        const d = existing.day;
+        if (HE_TO_EN[d]) return [HE_TO_EN[d]];
+        if (EN_TO_HE[d]) return [d];
+      }
+      return [];
+    })();
+
+    const legacySessions = existing.sessionsCount || existing.weeksDuration || "";
+    const inactive = Array.isArray(existing.inactiveDates)
+      ? existing.inactiveDates
+          .map((d) => {
+            const dt = new Date(d);
+            return isNaN(dt) ? null : dt.toISOString().slice(0, 10);
+          })
+          .filter(Boolean)
+      : [];
+
+    setForm({
+      _id: existing._id,
+      title: existing.title || "",
+      type: existing.type || "",
+      ageGroup: existing.ageGroup || "",
+      city: existing.city || "",
+      address: existing.address || "",
+      studio: existing.studio || "",
+      coach: existing.coach || "",
+      days: legacyDays,
+      hour: existing.hour || "",
+      sessionsCount: legacySessions || "",
+      startDate: existing.startDate ? new Date(existing.startDate).toISOString().slice(0, 10) : "",
+      inactiveDates: inactive,
+      available: !!existing.available,
+      description: existing.description || "",
+      price: (existing.price ?? "") === "" ? "" : Number(existing.price),
+      image: existing.image || "",
+      maxParticipants: typeof existing.maxParticipants === "number" ? existing.maxParticipants : 20,
+      waitingListMax: typeof existing.waitingListMax === "number" ? existing.waitingListMax : 10,
+      autoEnrollOnVacancy: !!existing.autoEnrollOnVacancy,
+    });
+    setPreview(existing.image || "");
+    setFreeCity(!!existing.city && !cities.includes(existing.city)); // auto-toggle free mode if city not in list
+  }, [existing, cities]);
+
+  // === Controlled updates ===
+  const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: sanitize(value) }));
+  const toggleDay = (enDay) =>
+    setForm((prev) => ({
+      ...prev,
+      days: prev.days.includes(enDay) ? prev.days.filter((d) => d !== enDay) : [...prev.days, enDay],
+    }));
+
+  const addInactiveDate = () => {
+    if (!addingHoliday) return;
+    if (form.inactiveDates.includes(addingHoliday)) {
+      setAddingHoliday("");
+      return;
+    }
+    setForm((prev) => ({ ...prev, inactiveDates: [...prev.inactiveDates, addingHoliday] }));
+    setAddingHoliday("");
   };
+
+  const removeInactiveDate = (dateStr) =>
+    setForm((prev) => ({
+      ...prev,
+      inactiveDates: prev.inactiveDates.filter((d) => d !== dateStr),
+    }));
 
   const handleImageFile = (file) => {
     if (!file) return;
@@ -68,165 +234,434 @@ export default function EditWorkshop() {
     reader.readAsDataURL(file);
   };
 
-  const validateForm = () => {
-    const requiredFields = ["title", "coach", "startDate", "timePeriod"];
-    for (const f of requiredFields) {
+  // === Live endDate preview ===
+  const endPreview = useMemo(() => {
+    const end = computeEndDatePreview(form.startDate, form.days, Number(form.sessionsCount), form.inactiveDates);
+    return end ? end.toLocaleDateString("he-IL") : "—";
+  }, [form.startDate, form.days, form.sessionsCount, form.inactiveDates]);
+
+  // === Soft address validation (debounced) ===
+  useEffect(() => {
+    if (!form.city || !form.address) {
+      setAddrValid({ status: "idle", message: "" });
+      return;
+    }
+    let t = setTimeout(async () => {
+      try {
+        setAddrValid({ status: "checking", message: "" });
+        const url = `/api/workshops/meta/validate-address?city=${encodeURIComponent(form.city)}&address=${encodeURIComponent(form.address)}`;
+        const res = await apiFetch(url);
+        const data = await res.json();
+        if (data?.success) {
+          setAddrValid({
+            status: data.valid ? "ok" : "warn",
+            message: data.valid ? "הכתובת תואמת לעיר" : "לא נמצאה התאמה חד משמעית לעיר הזאת",
+          });
+        } else {
+          setAddrValid({ status: "err", message: "שגיאה בבדיקת הכתובת" });
+        }
+      } catch (e) {
+        setAddrValid({ status: "err", message: "שירות בדיקת כתובת לא זמין" });
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [form.city, form.address]);
+
+  // === Validation ===
+  const validate = () => {
+    const required = ["title", "coach", "startDate", "sessionsCount"];
+    for (const f of required) {
       if (!form[f] || String(form[f]).trim() === "") {
         alert(`יש למלא את השדה "${f}" לפני השמירה.`);
         return false;
       }
     }
-    if (isNaN(Number(form.price)) || Number(form.price) < 0) {
-      alert("המחיר חייב להיות מספר חיובי.");
+    if (!form.city || form.city.trim() === "") {
+      alert("יש להזין עיר.");
+      return false;
+    }
+    if (!form.address || form.address.trim() === "") {
+      alert("יש להזין כתובת מלאה לסדנה.");
+      return false;
+    }
+    if (!Array.isArray(form.days) || form.days.length === 0) {
+      alert("יש לבחור לפחות יום אחד בשבוע.");
+      return false;
+    }
+    if (Number.isNaN(Number(form.sessionsCount)) || Number(form.sessionsCount) < 1) {
+      alert("מספר המפגשים חייב להיות מספר חיובי.");
       return false;
     }
     return true;
   };
 
+  // === Save ===
   const handleSave = async () => {
-    try {
-      if (!validateForm()) return;
+  if (!validate()) return;
+  setSaving(true);
 
-      setSaving(true);
+  try {
+    const payload = {
+      title: sanitize(form.title),
+      type: sanitize(form.type),
+      ageGroup: sanitize(form.ageGroup),
+      city: sanitize(form.city),
+      address: sanitize(form.address),
+      studio: sanitize(form.studio),
+      coach: sanitize(form.coach),
+      days: (form.days || []).map((d) => HE_TO_EN[d] || d),
+      hour: sanitize(form.hour),
+      sessionsCount: Number(form.sessionsCount),
+      startDate: form.startDate || null,
+      inactiveDates: form.inactiveDates || [],
+      available: !!form.available,
+      description: sanitize(form.description),
+      price: form.price === "" ? 0 : Number(form.price),
+      image: preview || "",
+      maxParticipants: Number(form.maxParticipants) || 0,
+      waitingListMax: Number(form.waitingListMax) || 0,
+      autoEnrollOnVacancy: !!form.autoEnrollOnVacancy,
+    };
 
-      // Prepare payload (keep existing logic)
-      const payload = Object.keys(form).reduce((acc, key) => {
-        acc[key] = sanitizeInput(form[key]);
-        return acc;
-      }, {});
-      payload.image = preview;
+    const endpoint = isNew ? "/api/workshops" : `/api/workshops/${form._id}`;
+    const method = isNew ? "POST" : "PUT";
+    console.log("🧩 Saving workshop to:", endpoint, "\nPayload:", payload);
 
-      // Remove server-managed fields
-      delete payload.participants;
-      delete payload.participantsCount;
+    const res = await apiFetch(endpoint, { method, body: JSON.stringify(payload) });
+    const contentType = res.headers.get("content-type") || "";
 
-      const endpoint = isNew ? "/api/workshops" : `/api/workshops/${form._id}`;
-      const method = isNew ? "POST" : "PUT";
+    // 🧠 אם זה לא JSON — קרא כטקסט כדי למנוע SyntaxError
+    const data = contentType.includes("application/json")
+      ? await res.json()
+      : { message: await res.text() };
 
-      // ✅ Use apiFetch (adds Authorization + credentials, auto-refresh on 401)
-      const res = await apiFetch(endpoint, {
-        method,
-        body: JSON.stringify(payload),
-        // No need to pass headers or token explicitly; apiFetch handles it.
-      });
-
-      const data = await res.json();
-      if (!res.ok)
-        throw new Error(data?.message || "שמירה נכשלה, נסה שוב מאוחר יותר.");
-
-      if (isNew) addWorkshopLocal(data.workshop || data);
-      else updateWorkshopLocal(data.workshop || data);
-
-      navigate("/workshops");
-    } catch (err) {
-      console.error("❌ Workshop save error:", err);
-      alert(err.message || "שגיאה בשמירה, נסה שוב מאוחר יותר.");
-    } finally {
-      setSaving(false);
+    if (!res.ok) {
+      // ✅ אם השרת מחזיר הודעת שגיאה קריאה
+      const msg =
+        data?.message ||
+        (typeof data === "string" ? data : "שמירה נכשלה, בדוק את הנתונים שהוזנו.");
+      throw new Error(msg);
     }
-  };
+
+    const saved = data.workshop || data;
+    if (isNew) addWorkshopLocal(saved);
+    else updateWorkshopLocal(saved);
+
+    navigate("/workshops");
+  } catch (err) {
+    console.error("❌ save error:", err);
+    alert(err.message || "שגיאה בשמירה");
+  } finally {
+    setSaving(false);
+  }
+};
+
+
+  // === Render ===
+  const addrHint =
+    addrValid.status === "checking"
+      ? "בודק כתובת…"
+      : addrValid.status === "ok"
+      ? "✓ הכתובת נראית תקינה לעיר"
+      : addrValid.status === "warn"
+      ? "⚠︎ הכתובת לא אומתה לעיר — אפשר לשמור בכל זאת"
+      : addrValid.status === "err"
+      ? "⚠︎ שירות ולידציה לא זמין — אפשר לשמור בכל זאת"
+      : "";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 to-orange-50 flex justify-center items-center p-6">
-      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-6 text-center font-[Poppins]">
-          {isNew ? "צור סדנה חדשה" : "עריכת סדנה"}
+    <div dir="rtl" className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 py-10 px-4">
+      <div className="w-full max-w-5xl mx-auto bg-white rounded-3xl shadow-2xl p-6 md:p-10 border border-indigo-100">
+        <h2 className="text-3xl font-extrabold text-indigo-800 text-center mb-8">
+          {isNew ? "🪄 יצירת סדנה חדשה" : "🎛️ עריכת סדנה"}
         </h2>
 
-        {/* === Image Preview === */}
-        <div className="text-center mb-6">
+        {/* === Image === */}
+        <div className="flex flex-col items-center mb-8">
           {preview ? (
-            <img
-              src={preview}
-              alt="תצוגה מקדימה"
-              className="w-full max-h-64 object-cover rounded-xl shadow-sm border border-gray-100"
-            />
+            <img src={preview} alt="תמונה" className="w-full max-h-72 object-cover rounded-2xl shadow-md border border-indigo-100" />
           ) : (
-            <div className="w-full h-48 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-sm">
+            <div className="w-full h-56 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-400">
               אין תמונה
             </div>
           )}
-          <label className="mt-4 inline-block cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-xl shadow-sm transition">
+          <label className="mt-4 inline-block cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-5 rounded-xl shadow transition">
             החלף תמונה
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleImageFile(e.target.files?.[0])}
-              className="hidden"
-            />
+            <input type="file" accept="image/*" onChange={(e) => handleImageFile(e.target.files?.[0])} className="hidden" />
           </label>
         </div>
 
-        {/* === Form Fields === */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* === Base fields === */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
           {[
             ["title", "שם הסדנה"],
             ["type", "סוג"],
             ["ageGroup", "קבוצת גיל"],
-            ["city", "עיר"],
-            ["day", "יום"],
-            ["hour", "שעה"],
-            ["coach", "מאמן"],
-            ["timePeriod", "תקופה"],
-            ["startDate", "תאריך התחלה"],
           ].map(([key, label]) => (
-            <label
-              key={key}
-              className="flex flex-col text-sm font-medium text-gray-700"
-            >
+            <label key={key} className="flex flex-col text-sm font-medium text-gray-700">
               {label}:
               <input
-                type={key === "startDate" ? "date" : "text"}
-                className="mt-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
-                value={form[key] || ""}
-                onChange={(e) => handleChange(key, e.target.value)}
+                type="text"
+                value={form[key] ?? ""}
+                onChange={(e) => setField(key, e.target.value)}
+                className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none transition"
               />
             </label>
           ))}
 
+          {/* City + Address */}
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={freeCity}
+                onChange={(e) => setFreeCity(e.target.checked)}
+                className="w-4 h-4 accent-indigo-600"
+              />
+              הזן עיר חופשית (במקום לבחור מהרשימה)
+            </label>
+
+            {!freeCity ? (
+              <label className="flex flex-col text-sm font-medium text-gray-700">
+                עיר:
+                <select
+                  value={form.city || ""}
+                  onChange={(e) => setField("city", e.target.value)}
+                  className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-400 outline-none transition"
+                >
+                  <option value="">בחר עיר...</option>
+                  {cities.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="flex flex-col text-sm font-medium text-gray-700">
+                עיר (טקסט חופשי):
+                <input
+                  type="text"
+                  value={form.city}
+                  onChange={(e) => setField("city", e.target.value)}
+                  className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none transition"
+                  placeholder="לדוגמה: תל אביב"
+                />
+              </label>
+            )}
+
+            <label className="flex flex-col text-sm font-medium text-gray-700">
+              כתובת:
+              <input
+                type="text"
+                value={form.address}
+                onChange={(e) => setField("address", e.target.value)}
+                className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none transition"
+                placeholder="רחוב ומספר, שכונה (אופציונלי)"
+              />
+              {!!addrHint && (
+                <span
+                  className={`mt-1 text-xs ${
+                    addrValid.status === "ok"
+                      ? "text-green-700"
+                      : addrValid.status === "warn"
+                      ? "text-amber-600"
+                      : addrValid.status === "err"
+                      ? "text-red-600"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {addrHint}
+                </span>
+              )}
+            </label>
+          </div>
+
+          {[
+            ["studio", "סטודיו"],
+            ["coach", "מנחה"],
+            ["hour", "שעה (לדוג׳ 18:00)"],
+            ["price", "מחיר (₪)"],
+          ].map(([key, label]) => (
+            <label key={key} className="flex flex-col text-sm font-medium text-gray-700">
+              {label}:
+              <input
+                type={key === "price" ? "number" : "text"}
+                min={key === "price" ? "0" : undefined}
+                value={form[key] ?? ""}
+                onChange={(e) => setField(key, e.target.value)}
+                className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none transition"
+              />
+            </label>
+          ))}
+        </div>
+
+        {/* Schedule section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           <label className="flex flex-col text-sm font-medium text-gray-700">
-            מחיר:
+            תאריך התחלה:
+            <input
+              type="date"
+              value={form.startDate || ""}
+              onChange={(e) => setField("startDate", e.target.value)}
+              className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+          </label>
+
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            מספר מפגשים:
+            <input
+              type="number"
+              min="1"
+              value={form.sessionsCount}
+              onChange={(e) => setField("sessionsCount", e.target.value)}
+              className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+          </label>
+
+          <div className="flex flex-col justify-end">
+            <div className="text-sm text-gray-700">
+              <span className="font-semibold">תאריך סיום צפוי: </span>
+              <span className="text-indigo-600 font-bold">{endPreview}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Days selector */}
+        <div className="mb-8">
+          <div className="text-sm font-semibold text-indigo-900 mb-2">ימי פעילות:</div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2">
+            {DAYS_EN.map((en) => (
+              <label
+                key={en}
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border ${
+                  form.days.includes(en)
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-indigo-50 border-indigo-200 text-indigo-900"
+                } cursor-pointer select-none`}
+              >
+                <span className="text-sm font-bold">
+                  {EN_TO_HE[en]} ({DAY_HE_LETTER[en]})
+                </span>
+                <input
+                  type="checkbox"
+                  checked={form.days.includes(en)}
+                  onChange={() => toggleDay(en)}
+                  className="accent-indigo-700 w-4 h-4"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Inactive dates */}
+        <div className="mb-8">
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="flex flex-col text-sm font-medium text-gray-700">
+                הוסף יום חופש:
+                <input
+                  type="date"
+                  value={addingHoliday}
+                  onChange={(e) => setAddingHoliday(e.target.value)}
+                  className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none"
+                />
+              </label>
+            </div>
+            <button
+              onClick={addInactiveDate}
+              className="h-[42px] bg-amber-500 hover:bg-amber-600 text-white px-4 rounded-xl"
+            >
+              הוסף
+            </button>
+          </div>
+
+          {form.inactiveDates.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {form.inactiveDates.map((d) => (
+                <span
+                  key={d}
+                  className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-800 px-3 py-1 rounded-full text-sm"
+                >
+                  {new Date(d).toLocaleDateString("he-IL")}
+                  <button
+                    onClick={() => removeInactiveDate(d)}
+                    className="text-red-500 hover:text-red-600"
+                    title="הסר"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Capacity & waitlist */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            קיבולת מקסימלית:
             <input
               type="number"
               min="0"
-              className="mt-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={form.price}
-              onChange={(e) => handleChange("price", e.target.value)}
+              value={form.maxParticipants}
+              onChange={(e) => setField("maxParticipants", e.target.value)}
+              className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none"
             />
+          </label>
+
+          <label className="flex flex-col text-sm font-medium text-gray-700">
+            אורך רשימת המתנה:
+            <input
+              type="number"
+              min="0"
+              value={form.waitingListMax}
+              onChange={(e) => setField("waitingListMax", e.target.value)}
+              className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none"
+            />
+          </label>
+
+          <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
+            <input
+              type="checkbox"
+              checked={!!form.autoEnrollOnVacancy}
+              onChange={(e) => setField("autoEnrollOnVacancy", e.target.checked)}
+              className="w-5 h-5 accent-indigo-600"
+            />
+            קבלה אוטומטית מרשימת המתנה כשמתפנה מקום
           </label>
         </div>
 
-        {/* === Description + Availability === */}
-        <div className="mt-5">
-          <label className="flex flex-col text-sm font-medium text-gray-700">
-            תיאור:
-            <textarea
-              className="mt-1 border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
-              value={form.description}
-              onChange={(e) => handleChange("description", e.target.value)}
-            />
-          </label>
-
-          <label className="flex items-center gap-2 mt-3 text-sm font-medium text-gray-700">
+        {/* Availability + description */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
             <input
               type="checkbox"
               checked={!!form.available}
-              onChange={(e) => handleChange("available", e.target.checked)}
-              className="w-4 h-4 accent-indigo-600"
+              onChange={(e) => setField("available", e.target.checked)}
+              className="w-5 h-5 accent-indigo-600"
             />
-            זמינה
+            זמינה להרשמה
           </label>
+          <div />
         </div>
 
-        {/* === Actions === */}
-        <div className="mt-8 flex justify-center gap-4">
+        <label className="flex flex-col text-sm font-medium text-gray-700 mb-8">
+          תיאור הסדנה:
+          <textarea
+            className="mt-1 border border-indigo-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none min-h-[140px]"
+            value={form.description}
+            onChange={(e) => setField("description", e.target.value)}
+          />
+        </label>
+
+        {/* Actions */}
+        <div className="flex justify-center gap-5">
           <button
             onClick={handleSave}
             disabled={saving}
-            className={`px-6 py-2 rounded-xl font-semibold text-white transition ${
-              saving
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-green-600 hover:bg-green-700"
+            className={`px-8 py-2 rounded-xl font-semibold text-white transition-all duration-200 ${
+              saving ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 shadow-md"
             }`}
           >
             {saving ? "שומר..." : "💾 שמור"}
@@ -235,7 +670,7 @@ export default function EditWorkshop() {
           <button
             onClick={() => navigate("/workshops")}
             disabled={saving}
-            className="px-6 py-2 rounded-xl font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition"
+            className="px-8 py-2 rounded-xl font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition shadow-sm"
           >
             ביטול
           </button>

@@ -1,7 +1,8 @@
 /**
- * AppRoutes.jsx
- * Path: src/routes/AppRoutes/AppRoutes.jsx
- * Role: Handles all public and protected routes (with admin layer)
+ * AppRoutes.jsx — Updated with MyWorkshops Route
+ * ----------------------------------------------
+ * - Keeps Workshops (grid view) and MyWorkshops (calendar view) separate.
+ * - Both share the same AppShell layout and WorkshopContext.
  */
 
 import React from "react";
@@ -18,82 +19,67 @@ import Workshops from "../../pages/Workshops/Workshops";
 import EditWorkshop from "../../pages/EditWorkshop";
 import AllProfiles from "../../pages/AllProfiles";
 import EditProfile from "../../pages/EditProfile";
+import MyWorkshops from "../../pages/MyWorkshops/MyWorkshops"; // ✅ new
+import { useWorkshops } from "../../layouts/WorkshopContext";   // ✅ context access
 
-// 🧭 Components
-import Header from "../../Components/Header";
+// 🧭 Layouts
+import AppShell from "../../layouts/AppShell";
+import PublicLayout from "../../layouts/PublicLayout";
+import MyWorkshopWrapper from "../../layouts/MyWorkshopWrapper"; // ✅ wrapper
 
-function AppRoutes() {
-  const {
-    isLoggedIn,
-    logout,
-    searchQuery,
-    setSearchQuery,
-    filters,
-    setFilters,
-    loading,
-    isAdmin,
-  } = useAuth();
+/* ============================================================
+   🔹 Main Routing Tree
+   ============================================================ */
+export default function AppRoutes() {
+  const { isLoggedIn, isAdmin, loading } = useAuth();
 
-  /** 🔹 Logout handler */
-  const onLogout = () => {
-    setSearchQuery("");
-    setFilters({});
-    logout();
-  };
-
-  /** 🕒 Show loading screen during auth check */
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 text-gray-600 text-lg">
-        ⏳ טוען את המערכת...
+        Loading…
       </div>
     );
   }
 
-  return (
-    <div className="app-layout min-h-screen flex flex-col bg-gray-50" dir="rtl">
-      {/* ✅ Header appears only when logged in */}
-      {isLoggedIn && <Header onLogout={onLogout} />}
-
-      {/* 🏠 Public Home for guests */}
-      {!isLoggedIn && <Home />}
-
-      <main className="flex-1 p-0">
-        <Routes>
-          {/* 🔓 Public routes */}
+  // 🔐 Logged-in user routes
+  if (isLoggedIn) {
+    return (
+      <Routes>
+        <Route element={<AppShell />}>
           <Route path="/workshops" element={<Workshops />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/verify" element={<Verify />} />
-
-          {/* 🔐 Protected routes */}
-          {isLoggedIn && (
+          <Route path="/myworkshops" element={<MyWorkshopWrapper />} /> {/* ✅ calendar */}
+          <Route path="/profile" element={<Profile />} />
+          {isAdmin && (
             <>
-              <Route path="/myworkshops" element={<Workshops />} />
-              <Route path="/profile" element={<Profile />} />
-
-              {/* 👑 Admin-only routes */}
-              {isAdmin && (
-                <>
-                  <Route path="/profiles" element={<AllProfiles />} />
-                  <Route path="/editprofile/:id" element={<EditProfile />} />
-
-                  {/* ✳️ Workshop management */}
-                  <Route path="/editworkshop" element={<EditWorkshop />} />
-                  <Route path="/editworkshop/:id" element={<EditWorkshop />} />
-                  <Route path="/editworkshop/new" element={<EditWorkshop />} />
-                </>
-              )}
+              <Route path="/profiles" element={<AllProfiles />} />
+              <Route path="/editprofile/:id" element={<EditProfile />} />
+              <Route path="/editworkshop" element={<EditWorkshop />} />
+              <Route path="/editworkshop/:id" element={<EditWorkshop />} />
+              <Route path="/editworkshop/new" element={<EditWorkshop />} />
             </>
           )}
+        </Route>
 
-          {/* ↩️ Redirects */}
-          <Route path="/" element={<Navigate to="/workshops" replace />} />
-          <Route path="*" element={<Navigate to="/workshops" replace />} />
-        </Routes>
-      </main>
-    </div>
+        {/* defaults while logged-in */}
+        <Route path="/" element={<Navigate to="/workshops" replace />} />
+        <Route path="*" element={<Navigate to="/workshops" replace />} />
+      </Routes>
+    );
+  }
+
+  // 🔓 Public (logged-out) routes
+  return (
+    <Routes>
+      <Route element={<PublicLayout />}>
+        <Route path="/workshops" element={<Workshops />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/verify" element={<Verify />} />
+        <Route path="/home" element={<Home />} />
+      </Route>
+
+      <Route path="/" element={<Navigate to="/workshops" replace />} />
+      <Route path="*" element={<Navigate to="/workshops" replace />} />
+    </Routes>
   );
 }
-
-export default AppRoutes;

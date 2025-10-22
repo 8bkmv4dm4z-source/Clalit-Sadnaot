@@ -27,14 +27,19 @@ function generateRefreshToken(user) {
 
 // שליחת ה-refresh כ-HttpOnly cookie כדי להגן מפני XSS
 function setRefreshCookie(res, refreshToken) {
+  const isProd = process.env.NODE_ENV === "production";
+
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production", // רק ב-HTTPS בפרודקשן
-    sameSite: "Strict",                             // מונע CSRF cross-site
+    secure: isProd ? true : false, // בלוקאל - false
+    sameSite: isProd ? "Strict" : "Lax", // בלוקאל חייב להיות Lax, לא None
+    path: "/", // חשוב שיהיה /
     maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
-    path: "/api/auth", // קוקה תהיה זמינה רק תחת /api/auth*
   });
+
+  console.log(`✅ refreshToken cookie set | secure=${isProd ? "true" : "false"} | sameSite=${isProd ? "Strict" : "Lax"}`);
 }
+
 
 // ממיר מחרוזת like "7d"/"15m" ל-ms כדי לשים ב-maxAge
 function parseJwtExpToMs(exp) {
@@ -84,49 +89,125 @@ const isDev = true; // <-- active development mode
    ============================================================ */
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password, idNumber, birthDate, city, phone } = req.body;
-    if (!email) return res.status(400).json({ message: "Email is required" });
+    const {
+      name,
+      email = "",
+      password,
+      idNumber,
+      birthDate,
+      city,
+      phone = "",
+      canCharge,
+      familyMembers = [],
+    } = req.body;
 
-    const existing = await User.findOne({ email });
-    if (existing)
-      return res.status(400).json({ message: "User already exists" });
+    // ✅ Force role to "user" — no client override allowed
+    const role = "user";
 
+    // ✅ Require at least one contact method
+    if (!email && !phone)
+      return res.status(400).json({ message: "Email or phone is required" });
+
+    const cleanEmail = email?.trim().toLowerCase();
+
+    // ✅ Prevent duplicates by email or phone
+    const existing = await User.findOne({
+      $or: [
+        cleanEmail ? { email: cleanEmail } : null,
+        phone ? { phone } : null,
+      ].filter(Boolean),
+    });
+
+    if (existing) {
+      return res
+        .status(400)
+        .json({ message: "A user with this email or phone already exists" });
+    }
+
+    // ✅ Hash password securely
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
+    // ✅ Validate and normalize family members
+    const validFamily = Array.isArray(familyMembers)
+      ? familyMembers
+          .filter((m) => m.name && m.idNumber)
+          .map((m) => ({
+            name: m.name,
+            relation: m.relation || "",
+            idNumber: m.idNumber,
+            phone: m.phone || phone || "",
+            email: m.email || cleanEmail || "",
+            city: m.city || city || "",
+            birthDate: m.birthDate || "",
+          }))
+      : [];
+
+    // ✅ Create new user document
     const user = await User.create({
       name,
-      email: email.trim().toLowerCase(),
+      email: cleanEmail || null,
+      phone: phone || null,
       passwordHash,
       idNumber,
       birthDate,
       city,
-      phone,
+      canCharge: !!canCharge,
+      familyMembers: validFamily,
       hasPassword: !!password,
       temporaryPassword: false,
+      role, // <— enforced here
     });
 
-    res.status(201).json({
+    // ✅ Return clean response (no password hash)
+    return res.status(201).json({
+      success: true,
       message: "User registered successfully.",
-      user: { id: user._id, email: user.email },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        city: user.city,
+        idNumber: user.idNumber,
+        birthDate: user.birthDate,
+        canCharge: user.canCharge,
+        role: user.role,
+        familyMembers: user.familyMembers,
+      },
     });
   } catch (e) {
-    console.error("register error:", e);
-    res.status(500).json({ message: "Server error during registration." });
+    console.error("registerUser error:", e);
+    res.status(500).json({
+      message: "Server error during registration.",
+      error: e.message,
+    });
   }
 };
+
+
 
 /* ============================================================
    Login User
    ============================================================ */
 exports.loginUser = async (req, res) => {
+    console.log("[DEBUG loginUser] incoming body:", req.body);
+
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email: (email || "").toLowerCase().trim() })
       .select("+passwordHash");
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+  console.log(`[AUTH] ❌ No user found for ${email}`);
+  return res.status(400).json({ message: "Invalid email or password" });
+}
+const match = await bcrypt.compare(password, user.passwordHash || "");
 
-    const match = await bcrypt.compare(password, user.passwordHash || "");
-    if (!match) return res.status(400).json({ message: "Invalid credentials" });
+if (!match) {
+  console.log(`[AUTH] ❌ Wrong password for ${email}`);
+  return res.status(400).json({ message: "Invalid email or password" });
+}
+
+console.log(`[AUTH] ✅ Login success for ${email}`);
 
     // ייצור טוקנים
     const accessToken = generateAccessToken(user);
@@ -158,23 +239,47 @@ exports.loginUser = async (req, res) => {
    ============================================================ */
 exports.sendOtp = async (req, res) => {
   try {
-    const email = (req.body.email || "").trim().toLowerCase();
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    console.log("sendOtp called with:", req.body);
 
+    const emailRaw = req.body?.email;
+    console.log("[DEBUG] raw email field:", emailRaw, "typeof:", typeof emailRaw);
+
+    const email = (emailRaw || "").trim().toLowerCase();
+    console.log("[DEBUG] normalized email:", JSON.stringify(email));
+
+    if (!email) {
+      console.log("[DEBUG] returning 400 - no email");
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // Check DB lookup explicitly
+    let user;
+    try {
+      user = await User.findOne({ email }).exec();
+      console.log("[DEBUG] User.findOne returned:", !!user);
+    } catch (dbErr) {
+      console.error("[DEBUG] User.findOne threw:", dbErr);
+      return res.status(500).json({ message: "DB error during lookup" });
+    }
+
+    if (!user) {
+      console.log("[DEBUG] returning 404 - user not found for:", email);
+      return res.status(404).json({ message: "User with this email not found" });
+    }
+
+    // Generate and store OTP (unchanged)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otpCode = otp;
     user.otpExpires = Date.now() + 5 * 60 * 1000;
     user.otpAttempts = 0;
     await user.save();
+    console.log("[DEBUG] OTP saved on user:", user._id);
 
     if (isDev) {
-      // --- Write to otp_log.csv ---
       const line = `${new Date().toISOString()},${email},${otp}\n`;
       fs.appendFileSync(logFile, line);
       console.log(`⚙️ [DEV MODE] OTP for ${email}: ${otp}`);
     } else if (transporter) {
-      // --- Production email sending ---
       await transporter.sendMail({
         from: `"Workshops" <${process.env.EMAIL_USER}>`,
         to: email,
@@ -184,12 +289,13 @@ exports.sendOtp = async (req, res) => {
       console.log(`📧 OTP sent to ${email}`);
     }
 
-    res.json({ success: true, message: "OTP generated successfully." });
+    return res.json({ success: true, message: "OTP generated successfully." });
   } catch (e) {
     console.error("sendOtp error:", e);
     res.status(500).json({ message: "Failed to send OTP." });
   }
 };
+
 
 /* ============================================================
    Verify OTP
@@ -388,32 +494,40 @@ exports.refreshAccessToken = async (req, res) => {
 exports.logout = async (req, res) => {
   try {
     const token = req.cookies?.refreshToken;
-    res.clearCookie("refreshToken", {
+    const isProd = process.env.NODE_ENV === "production";
+
+    // ⚙️ אותן הגדרות בדיוק כמו ב־setRefreshCookie
+    const clearOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Strict",
-      path: "/api/auth",
-    });
+      secure: isProd ? true : false,
+      sameSite: isProd ? "Strict" : "Lax",
+      path: "/", // חייב להיות זהה
+    };
 
-    if (!token) return res.json({ success: true });
+    // 🧹 ניקוי העוגייה מהדפדפן
+    res.clearCookie("refreshToken", clearOptions);
 
-    let userId = null;
-    try {
-      const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-      userId = payload.id;
-    } catch {
-      return res.json({ success: true });
+    // 🧩 אם יש טוקן, מנקים גם מה־DB
+    if (token) {
+      try {
+        const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+        const user = await User.findById(payload.id);
+        if (user) {
+          user.refreshTokens = user.refreshTokens.filter(
+            (rt) => rt.token !== token
+          );
+          await user.save();
+        }
+      } catch (err) {
+        console.warn("⚠️ Logout token verify failed:", err.message);
+      }
     }
 
-    const user = await User.findById(userId);
-    if (!user) return res.json({ success: true });
-
-    user.refreshTokens = user.refreshTokens.filter((rt) => rt.token !== token);
-    await user.save();
-
+    console.log("✅ Logout successful — cookie cleared");
     return res.json({ success: true });
   } catch (e) {
-    console.error("logout error:", e);
+    console.error("❌ logout error:", e);
     res.status(500).json({ message: "Server error during logout" });
   }
 };
+

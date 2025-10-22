@@ -110,7 +110,12 @@ exports.updateEntity = async (req, res) => {
     if (!userId && !familyId)
       return res.status(400).json({ message: "Missing userId or familyId" });
 
-    // 🔹 Case 1: Update main user
+    if (!updates || typeof updates !== "object")
+      return res.status(400).json({ message: "Missing updates payload" });
+
+    /* =========================
+       🔹 Case 1: Update main user
+    ========================== */
     if (userId && !familyId) {
       if (requester.role !== "admin" && String(requester._id) !== String(userId))
         return res.status(403).json({ message: "Unauthorized" });
@@ -118,20 +123,37 @@ exports.updateEntity = async (req, res) => {
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ message: "User not found" });
 
-      const allowed = ["name", "idNumber", "birthDate", "phone", "city", "canCharge", "role", "familyMembers"];
-      for (const key of allowed) if (updates[key] !== undefined) user[key] = updates[key];
+      const allowed = [
+        "name",
+        "idNumber",
+        "birthDate",
+        "phone",
+        "city",
+        "canCharge",
+        "role",
+        "familyMembers",
+      ];
+
+      for (const key of allowed)
+        if (updates[key] !== undefined) user[key] = updates[key];
 
       await user.save();
       const cleanUser = user.toObject();
       delete cleanUser.passwordHash;
       delete cleanUser.otpCode;
       delete cleanUser.otpAttempts;
-      return res.json({ message: "User updated successfully", user: cleanUser });
+      return res.json({
+        success: true,
+        message: "User updated successfully",
+        user: cleanUser,
+      });
     }
 
-    // 🔹 Case 2: Update family member
+    /* =========================
+       🔹 Case 2: Update family member
+    ========================== */
     if (familyId) {
-      const targetUserId = requester.role === "admin" && parentUserId ? parentUserId : requester._id;
+      const targetUserId = parentUserId || userId || requester._id;
 
       const user = await User.findById(targetUserId);
       if (!user) return res.status(404).json({ message: "Parent user not found" });
@@ -139,36 +161,58 @@ exports.updateEntity = async (req, res) => {
       const member = user.familyMembers.id(familyId);
       if (!member) return res.status(404).json({ message: "Family member not found" });
 
-      const allowed = ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"];
-      for (const key of allowed) if (updates[key] !== undefined) member[key] = updates[key];
+      const allowed = [
+        "name",
+        "relation",
+        "idNumber",
+        "phone",
+        "birthDate",
+        "email",
+        "city",
+      ];
+
+      for (const key of allowed)
+        if (updates[key] !== undefined) member[key] = updates[key];
 
       await user.save();
 
-      // 🔁 Sync with workshops
-      await Workshop.updateMany(
-        { "familyRegistrations.familyMemberId": member._id, "familyRegistrations.parentUser": user._id },
-        {
-          $set: {
-            "familyRegistrations.$[f].name": member.name,
-            "familyRegistrations.$[f].relation": member.relation,
-            "familyRegistrations.$[f].idNumber": member.idNumber,
-            "familyRegistrations.$[f].phone": member.phone,
-            "familyRegistrations.$[f].birthDate": member.birthDate,
-          },
-        },
-        { arrayFilters: [{ "f.familyMemberId": member._id, "f.parentUser": user._id }] }
-      );
+      // 🔁 Sync updated family member info into all workshops
+// 🔁 Sync with all workshops where this family member is registered
+await Workshop.updateMany(
+  { "familyRegistrations.familyMemberId": member._id },
+  {
+    $set: {
+      "familyRegistrations.$[f].name": member.name,
+      "familyRegistrations.$[f].relation": member.relation,
+      "familyRegistrations.$[f].idNumber": member.idNumber,
+      "familyRegistrations.$[f].phone": member.phone || user.phone, // fallback
+      "familyRegistrations.$[f].birthDate": member.birthDate,
+      "familyRegistrations.$[f].city": member.city,
+      "familyRegistrations.$[f].parentEmail": user.email,
+    },
+  },
+  {
+    arrayFilters: [{ "f.familyMemberId": member._id }],
+  }
+);
+
 
       const cleanUser = user.toObject();
       delete cleanUser.passwordHash;
       delete cleanUser.otpCode;
       delete cleanUser.otpAttempts;
 
-      return res.json({ message: "Family member updated successfully (synced)", user: cleanUser });
+      return res.json({
+        success: true,
+        message: "Family member updated successfully (synced)",
+        user: cleanUser,
+      });
     }
   } catch (err) {
     console.error("❌ [updateEntity] Error:", err);
-    res.status(500).json({ message: "Server error updating entity", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Server error updating entity", error: err.message });
   }
 };
 

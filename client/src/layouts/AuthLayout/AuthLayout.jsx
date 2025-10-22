@@ -7,6 +7,7 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import { useNavigate } from "react-router-dom";
 
 /** 🧩 Logger with timestamp */
 const log = (...args) => {
@@ -38,6 +39,7 @@ const AuthContext = createContext({
 });
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [user, setUser] = useState(null);
@@ -54,7 +56,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await fetch("/api/auth/refresh", {
         method: "POST",
-        credentials: "include", // מאפשר שליחת ה-cookie
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to refresh token");
       const data = await res.json();
@@ -86,7 +88,6 @@ export const AuthProvider = ({ children }) => {
 
       let res = await fetch(url, { ...options, headers });
 
-      // אם הטוקן פג תוקף — ננסה לחדש
       if (res.status === 401) {
         log("⚠️ 401 detected — attempting refresh...");
         const newToken = await refreshAccessToken();
@@ -103,10 +104,11 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
      👤 Fetch logged-in user info
      ============================================================ */
-  const fetchMe = async () => {
-    log("fetchMe called | token:", accessToken ? "✅ found" : "❌ none");
+  const fetchMe = async (tokenOverride = null) => {
+    const token = tokenOverride || accessToken || localStorage.getItem("accessToken");
+    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-    if (!accessToken) {
+    if (!token) {
       setUser(null);
       setIsLoggedIn(false);
       setIsAdmin(false);
@@ -114,7 +116,12 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const res = await authFetch("/api/users/me");
+      const res = await fetch("/api/users/me", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
       const data = await res.json();
 
       if (res.ok) {
@@ -153,7 +160,6 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
       window.dispatchEvent(new Event("auth-ready"));
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ============================================================
@@ -216,36 +222,59 @@ export const AuthProvider = ({ children }) => {
   };
 
   /* ============================================================
-     ✅ Complete Login
+     ✅ Complete Login — fixed version
      ============================================================ */
-  const completeLogin = async (accessToken) => {
-    if (accessToken) {
-      localStorage.setItem("accessToken", accessToken);
-      setAccessToken(accessToken);
-    }
-    log("💾 Access token stored, reloading user...");
-    await fetchMe();
+  const completeLogin = async (newToken) => {
+    if (!newToken) return;
+
+    localStorage.setItem("accessToken", newToken);
+    setAccessToken(newToken);
+    log("💾 Access token stored, loading user directly...");
+
+    await fetchMe(newToken); // ✅ מעביר את הטוקן החדש ישירות
     window.dispatchEvent(new Event("auth-ready"));
+
+    // Redirect אחרי login מוצלח
+    navigate("/workshops");
   };
 
   /* ============================================================
      🚪 Logout (clears cookie + local)
      ============================================================ */
   const logout = async () => {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {}
+  try {
+    // 🧠 Call the server logout endpoint
+    const res = await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    // 🧹 Even if server returns an error, clear client state
+    if (res.ok || res.status === 401 || res.status === 403) {
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+      log("🚪 Logged out (local + server)");
+      window.dispatchEvent(new Event("auth-ready"));
+      navigate("/workshops");
+    } else {
+      console.warn("Logout failed:", res.status);
+    }
+  } catch (err) {
+    console.error("Logout error:", err);
+    // fallback: clear everything anyway
     localStorage.removeItem("accessToken");
     setAccessToken(null);
     setUser(null);
     setIsLoggedIn(false);
     setIsAdmin(false);
-    log("🚪 Logged out (local + server)");
     window.dispatchEvent(new Event("auth-ready"));
-  };
+    navigate("/workshops");
+  }
+};
+
 
   /* ============================================================
      ♻️ Refresh Me

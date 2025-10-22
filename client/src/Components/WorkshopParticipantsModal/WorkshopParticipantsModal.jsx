@@ -1,87 +1,173 @@
 /**
- * WorkshopParticipantsModal.jsx — Same logic + "ערוך" per card, via apiFetch
- * -------------------------------------------------------------------------
- * - Keeps ALL existing behavior (fetch, add/remove, close, messages).
- * - Adds inline edit on each participant card (ערוך → שמור/ביטול).
- * - Uses apiFetch() to update either a user or a family member.
+ * WorkshopParticipantsModal.jsx — Full Server-Driven Version (Final)
+ * -----------------------------------------------------------------
+ * ✅ מציג משתתפים ורשימת המתנה
+ * ✅ מאפשר עריכה, ביטול, הוספה, וקידום מרשימת המתנה
+ * ✅ מונע קידום אם אין מקום
+ * ✅ משתמש אך ורק ב-apiFetch (ללא props לוגיים)
  */
 
 import React, { useEffect, useState, useCallback } from "react";
+import { apiFetch } from "../../utils/apiFetch";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAuth } from "../../layouts/AuthLayout";
-import { apiFetch } from "../../utils/apiFetch";
+import AllProfiles from "../../pages/AllProfiles";
 
-/* Helper: calculate age from birth date */
-const calcAge = (dateStr) => {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d)) return null;
+const calcAge = (d) => {
+  if (!d) return null;
+  const x = new Date(d);
+  if (isNaN(x)) return null;
   const t = new Date();
-  let a = t.getFullYear() - d.getFullYear();
-  const m = t.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < d.getDate())) a--;
+  let a = t.getFullYear() - x.getFullYear();
+  const m = t.getMonth() - x.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < x.getDate())) a--;
   return a;
 };
 
+/** 🔹 QuickEdit modal */
+function QuickEdit({ person, onClose, onSaved }) {
+  const [form, setForm] = useState(() => ({
+    name: person?.name || "",
+    phone: person?.phone || "",
+    city: person?.city || "",
+    birthDate: person?.birthDate ? String(person.birthDate).slice(0, 10) : "",
+    idNumber: person?.idNumber || "",
+    relation: person?.relation || "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    try {
+      setSaving(true);
+      const payload = person.isFamily
+        ? {
+            familyId: person._id,
+            parentUserId: person.parentId || person.parentUser?._id,
+            updates: { ...form },
+          }
+        : {
+            userId: person._id,
+            updates: { ...form },
+          };
+
+      const res = await apiFetch("/api/users/update-entity", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "עדכון נכשל");
+
+      onSaved?.({ _id: person._id, ...form });
+      onClose?.();
+    } catch (e) {
+      alert("❌ שגיאה בעדכון: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-5"
+        dir="rtl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-lg font-bold text-gray-800">עריכת משתתף</h4>
+          <button
+            onClick={onClose}
+            className="text-gray-600 hover:bg-gray-100 rounded-lg px-3 py-1"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          {["name", "phone", "city", "birthDate", "idNumber"].map((key) => (
+            <label key={key} className="flex flex-col">
+              {key === "birthDate"
+                ? "תאריך לידה:"
+                : key === "idNumber"
+                ? "ת.ז:"
+                : key === "name"
+                ? "שם:"
+                : key === "phone"
+                ? "טלפון:"
+                : "עיר:"}
+              <input
+                type={key === "birthDate" ? "date" : "text"}
+                className="mt-1 border rounded-lg px-3 py-2"
+                value={form[key]}
+                onChange={(e) => update(key, e.target.value)}
+              />
+            </label>
+          ))}
+          {person.isFamily && (
+            <label className="flex flex-col">
+              קרבה:
+              <input
+                className="mt-1 border rounded-lg px-3 py-2"
+                value={form.relation}
+                onChange={(e) => update("relation", e.target.value)}
+              />
+            </label>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            ביטול
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving ? "שומר..." : "שמור"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 🔹 Main Modal */
 export default function WorkshopParticipantsModal({ workshop, onClose }) {
-  const { registerEntityToWorkshop, unregisterEntityFromWorkshop, fetchWorkshops } = useWorkshops();
+  const { fetchWorkshops } = useWorkshops();
   const { refreshMe } = useAuth();
 
   const [participants, setParticipants] = useState([]);
-  const [familyMembers, setFamilyMembers] = useState([]);
-  const [selectedFamilyId, setSelectedFamilyId] = useState("");
+  const [waitlist, setWaitlist] = useState([]);
+  const [view, setView] = useState("participants");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [editPerson, setEditPerson] = useState(null);
+  const [showProfiles, setShowProfiles] = useState(false);
 
-  // 🆕 Inline edit state
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    city: "",
-    birthDate: "",
-    idNumber: "",
-    relation: "", // used for family
-  });
-
-  /** 🧩 Fetch participants and family from server */
+  /** Load both lists */
   const fetchAll = useCallback(async () => {
     if (!workshop?._id) return;
     setLoading(true);
-    setMessage(null);
     try {
-      const [participantsRes, familyRes] = await Promise.all([
-        apiFetch(`/api/workshops/${workshop._id}/participants`, { method: "GET" }),
-        apiFetch(`/api/users/me`, { method: "GET" }),
+      const [resP, resW] = await Promise.all([
+        apiFetch(`/api/workshops/${workshop._id}/participants`),
+        apiFetch(`/api/workshops/${workshop._id}/waitlist`),
       ]);
-
-      const [participantsData, familyData] = await Promise.all([
-        participantsRes.json(),
-        familyRes.json(),
-      ]);
-
-      if (!participantsRes.ok)
-        throw new Error(participantsData.message || "שגיאה בטעינת משתתפים");
-      if (!familyRes.ok)
-        throw new Error(familyData.message || "שגיאה בטעינת בני משפחה");
-
-      const merged = [
-        ...(participantsData.participants || []),
-        ...(participantsData.familyRegistrations || []).map((f) => ({
-          ...f,
-          isFamily: true,
-          _id: f._id ?? f.familyMemberId,
-          parentEmail: f.parentEmail,
-          parentId: f.parentId, // if your API provides it
-        })),
-      ];
-
-      setParticipants(merged);
-      setFamilyMembers(familyData.familyMembers || []);
-    } catch (err) {
-      console.error("❌ [Modal] Fetch error:", err);
-      setMessage(`❌ ${err.message}`);
+      const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
+      if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
+      setParticipants(Array.isArray(dataP.participants) ? dataP.participants : []);
+      setWaitlist(Array.isArray(dataW) ? dataW : []);
+    } catch (e) {
+      console.error("❌ fetchAll:", e);
+      setMessage("❌ " + e.message);
     } finally {
       setLoading(false);
     }
@@ -91,360 +177,280 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     fetchAll();
   }, [fetchAll]);
 
-  /** ✅ Close modal and refresh workshop grid */
-  const handleCloseModal = async () => {
-    await fetchWorkshops(); // refresh main grid after close
-    onClose();
-  };
-
-  /** ✅ Add family member */
-  const handleAddFamily = async () => {
-    if (!selectedFamilyId) return setMessage("⚠️ בחר בן משפחה להוספה");
+  /** Remove entity */
+  const handleUnregister = async (person, fromWaitlist = false) => {
+    if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
     try {
-      const result = await registerEntityToWorkshop(workshop._id, selectedFamilyId);
-      if (result.success) {
-        setMessage("✅ בן המשפחה נרשם בהצלחה!");
-        setSelectedFamilyId("");
-        await refreshMe();
-        await fetchAll(); // re-fetch from server
-      } else {
-        setMessage(result.message || "❌ שגיאה בהרשמת בן משפחה");
-      }
-    } catch (err) {
-      console.error("❌ handleAddFamily error:", err);
-      setMessage("❌ שגיאה בהרשמת בן משפחה");
-    }
-  };
-
-  /** ✅ Remove family member */
-  const handleRemoveFamily = async (familyId) => {
-    try {
-      const confirmed = window.confirm("להסיר בן משפחה זה מהסדנה?");
-      if (!confirmed) return;
-
-      const result = await unregisterEntityFromWorkshop(workshop._id, familyId);
-      if (result.success) {
-        setMessage("🚫 בן המשפחה הוסר בהצלחה");
-        await refreshMe();
-        await fetchAll(); // refresh from server
-      } else {
-        setMessage(result.message || "❌ שגיאה בהסרת בן משפחה");
-      }
-    } catch (err) {
-      console.error("❌ handleRemoveFamily error:", err);
-      setMessage("❌ שגיאה בהסרת בן משפחה");
-    }
-  };
-
-  /** ✅ Remove current user */
-  const handleRemoveUser = async () => {
-    try {
-      const confirmed = window.confirm("להסיר את המשתמש מהסדנה?");
-      if (!confirmed) return;
-
-      const result = await unregisterEntityFromWorkshop(workshop._id);
-      if (result.success) {
-        setMessage("🚫 ההרשמה בוטלה בהצלחה");
-        await refreshMe();
-        await fetchAll(); // refresh from server
-      } else {
-        setMessage(result.message || "❌ שגיאה בביטול ההרשמה");
-      }
-    } catch (err) {
-      console.error("❌ handleRemoveUser error:", err);
-      setMessage("❌ שגיאה בביטול ההרשמה");
-    }
-  };
-
-  // 🆕 Edit handlers
-  const startEdit = (p) => {
-    setEditingId(p._id);
-    setEditForm({
-      name: p.name || "",
-      email: p.email || p.parentEmail || "",
-      phone: p.phone || "",
-      city: p.city || "",
-      birthDate: p.birthDate ? new Date(p.birthDate).toISOString().slice(0, 10) : "",
-      idNumber: p.idNumber || "",
-      relation: p.relation || "", // shown only if p.isFamily
-      // keep anything else you want editable here
-    });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm({
-      name: "",
-      email: "",
-      phone: "",
-      city: "",
-      birthDate: "",
-      idNumber: "",
-      relation: "",
-    });
-  };
-
-  const handleEditChange = (key, value) => {
-    setEditForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const saveEdit = async (p) => {
-    try {
-      // Use the same endpoint your profiles context uses
-      // Payload is designed to work with /api/users/update-entity
-      const payload = {
-        entityType: p.isFamily ? "family" : "user",
-        userId: p.isFamily ? undefined : p._id,
-        familyMemberId: p.isFamily ? p._id : undefined,
-        parentEmail: p.isFamily ? (p.parentEmail || "") : undefined,
-        updates: {
-          name: editForm.name?.trim(),
-          email: editForm.email?.trim(),
-          phone: editForm.phone?.trim(),
-          city: editForm.city?.trim(),
-          birthDate: editForm.birthDate || null,
-          idNumber: editForm.idNumber?.trim(),
-          ...(p.isFamily ? { relation: editForm.relation?.trim() || "" } : {}),
-        },
-      };
-
-      const res = await apiFetch("/api/users/update-entity", {
-        method: "PUT",
+      const payload = person.isFamily ? { familyId: person._id } : {};
+      const endpoint = fromWaitlist
+        ? `/api/workshops/${workshop._id}/waitlist-entity`
+        : `/api/workshops/${workshop._id}/unregister-entity`;
+      const res = await apiFetch(endpoint, {
+        method: "DELETE",
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "עדכון נכשל");
-
-      setMessage("✅ הפרטים עודכנו בהצלחה");
-      setEditingId(null);
-      await refreshMe();
+      if (!res.ok) throw new Error(data.message || "שגיאה בביטול");
+      setMessage("🚫 בוטל בהצלחה");
       await fetchAll();
-    } catch (err) {
-      console.error("❌ saveEdit error:", err);
-      setMessage("❌ שגיאה בעדכון פרטי המשתתף");
+      await fetchWorkshops();
+    } catch (e) {
+      alert("❌ " + e.message);
     }
   };
 
-  /** 🧩 Participant card */
-  const renderParticipant = (p) => {
-    const email = p.email || p.parentEmail || "-";
-    const age = calcAge(p.birthDate);
-    const isEditing = editingId === p._id;
+  /** Promote from waitlist → participants */
+  const handlePromote = async (wl) => {
+    try {
+      const payload = wl.familyMemberId ? { familyId: wl.familyMemberId } : {};
 
+      // בדיקת מקום
+      const isFull =
+        (workshop.participantsCount ??
+          (workshop.participants?.length || 0) +
+            (workshop.familyRegistrations?.length || 0)) >=
+        (workshop.maxParticipants || 0);
+      if (isFull) {
+        alert("❌ אין מקום פנוי לקידום משתתף זה.");
+        return;
+      }
+
+      // שלב 1: הסר מרשימת ההמתנה
+      await apiFetch(`/api/workshops/${workshop._id}/waitlist-entity`, {
+        method: "DELETE",
+        body: JSON.stringify(payload),
+      });
+
+      // שלב 2: רשום לרשימת המשתתפים
+      const res = await apiFetch(`/api/workshops/${workshop._id}/register-entity`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "שגיאה בקידום מהרשימה");
+
+      setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
+      await fetchAll();
+      await fetchWorkshops();
+    } catch (e) {
+      alert("❌ " + e.message);
+    }
+  };
+
+  /** Export */
+  const handleExport = async () => {
+    const type = view === "participants" ? "current" : "waitlist";
+    try {
+      const res = await apiFetch(`/api/workshops/${workshop._id}/export?type=${type}`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "שגיאה ביצוא דו\"ח");
+      alert("📤 דו\"ח נשלח למייל שלך!");
+    } catch (e) {
+      alert("❌ " + e.message);
+    }
+  };
+
+  /** Render waitlist item */
+ const renderWaitlistItem = (wl) => {
+  const age = calcAge(wl.birthDate);
+
+  const isFull =
+    (workshop.participantsCount ??
+      (workshop.participants?.length || 0) +
+        (workshop.familyRegistrations?.length || 0)) >=
+    (workshop.maxParticipants || 0);
+
+  // 🧩 הגדרת ערכי fallback מהאב
+  const phone = wl.phone || wl.parentUser?.phone || "-";
+  const email = wl.email || wl.parentUser?.email || "-";
+  const city = wl.city || wl.parentUser?.city || "-";
+
+  return (
+    <div
+      key={wl._id}
+      className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
+    >
+      <div className="flex justify-between items-center mb-2">
+        <h4 className="text-lg font-semibold text-gray-800">{wl.name}</h4>
+        <div className="flex gap-3 text-xs">
+          {!isFull && (
+            <button
+              onClick={() => handlePromote(wl)}
+              className="text-green-600 hover:underline"
+            >
+              קדם לרשימה
+            </button>
+          )}
+          <button
+            onClick={() => handleUnregister(wl, true)}
+            className="text-red-600 hover:underline"
+          >
+            בטל המתנה
+          </button>
+        </div>
+      </div>
+
+      <p className="text-sm text-gray-600">{email}</p>
+
+      <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+        <p>טלפון: {phone}</p>
+        <p>עיר: {city}</p>
+        <p>
+          תאריך לידה:{" "}
+          {wl.birthDate ? new Date(wl.birthDate).toLocaleDateString("he-IL") : "-"}{" "}
+          {typeof age === "number" && <>— גיל: {age}</>}
+        </p>
+        <p>ת.ז: {wl.idNumber || "-"}</p>
+        {wl.relation && <p>קרבה: {wl.relation}</p>}
+      </div>
+    </div>
+  );
+};
+
+
+  const renderParticipant = (p) => {
+    const age = calcAge(p.birthDate);
     return (
       <div
         key={p._id}
         className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
       >
-        {/* Header row: name + badges */}
-        <div className="flex items-start justify-between gap-3">
-          <h4 className="text-lg font-semibold text-gray-800">
-            {p.name}{" "}
-            {p.isFamily && (
-              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                בן משפחה
-              </span>
-            )}
-          </h4>
-
-          {/* Top-right buttons: ערוך (or שמור/בטל) */}
-          {!isEditing ? (
-            <button
-              onClick={() => startEdit(p)}
-              className="text-indigo-600 hover:underline text-xs"
-            >
-              ערוך
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => saveEdit(p)}
-                className="text-green-700 hover:underline text-xs"
-              >
-                שמור
-              </button>
-              <button
-                onClick={cancelEdit}
-                className="text-gray-600 hover:underline text-xs"
-              >
-                ביטול
-              </button>
-            </div>
-          )}
+        <div className="flex justify-between items-start gap-3">
+          <h4 className="text-lg font-semibold text-gray-800">{p.name}</h4>
+          <button
+            onClick={() => setEditPerson(p)}
+            className="text-indigo-600 hover:underline text-xs"
+          >
+            ערוך
+          </button>
         </div>
-
-        {/* Body */}
-        {!isEditing ? (
-          <>
-            <p className="text-sm text-gray-600">{email}</p>
-            <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-              <p>טלפון: {p.phone || "-"}</p>
-              <p>עיר: {p.city || "-"}</p>
-              <p>
-                תאריך לידה:{" "}
-                {p.birthDate ? new Date(p.birthDate).toLocaleDateString("he-IL") : "-"}
-                {typeof age === "number" && <> — גיל: {age}</>}
-              </p>
-              <p>ת.ז: {p.idNumber || "-"}</p>
-              {p.isFamily && <p>קרבה: {p.relation || "-"}</p>}
-            </div>
-          </>
-        ) : (
-          // 🆕 Inline edit form (minimal, focused on your fields)
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <label className="flex flex-col">
-              שם:
-              <input
-                type="text"
-                value={editForm.name}
-                onChange={(e) => handleEditChange("name", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            <label className="flex flex-col">
-              אימייל:
-              <input
-                type="email"
-                value={editForm.email}
-                onChange={(e) => handleEditChange("email", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            <label className="flex flex-col">
-              טלפון:
-              <input
-                type="text"
-                value={editForm.phone}
-                onChange={(e) => handleEditChange("phone", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            <label className="flex flex-col">
-              עיר:
-              <input
-                type="text"
-                value={editForm.city}
-                onChange={(e) => handleEditChange("city", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            <label className="flex flex-col">
-              תאריך לידה:
-              <input
-                type="date"
-                value={editForm.birthDate}
-                onChange={(e) => handleEditChange("birthDate", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            <label className="flex flex-col">
-              ת.ז:
-              <input
-                type="text"
-                value={editForm.idNumber}
-                onChange={(e) => handleEditChange("idNumber", e.target.value)}
-                className="mt-1 border rounded-md px-2 py-1"
-              />
-            </label>
-            {participants.find((x) => x._id === editingId)?.isFamily && (
-              <label className="flex flex-col">
-                קרבה:
-                <input
-                  type="text"
-                  value={editForm.relation}
-                  onChange={(e) => handleEditChange("relation", e.target.value)}
-                  className="mt-1 border rounded-md px-2 py-1"
-                />
-              </label>
-            )}
-          </div>
-        )}
-
-        {/* Footer actions (remove) — unchanged */}
-        {!isEditing && (
-          <div className="flex justify-between items-center mt-3">
-            {p.isFamily ? (
-              <button
-                onClick={() => handleRemoveFamily(p._id)}
-                className="text-red-600 hover:underline text-xs"
-              >
-                הסר בן משפחה
-              </button>
-            ) : (
-              <button
-                onClick={handleRemoveUser}
-                className="text-red-600 hover:underline text-xs"
-              >
-                בטל הרשמה
-              </button>
-            )}
-          </div>
-        )}
+        <p className="text-sm text-gray-600">{p.email || "-"}</p>
+        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+          <p>טלפון: {p.phone || "-"}</p>
+          <p>עיר: {p.city || "-"}</p>
+          <p>
+            תאריך לידה:{" "}
+            {p.birthDate ? new Date(p.birthDate).toLocaleDateString("he-IL") : "-"}{" "}
+            {typeof age === "number" && <>— גיל: {age}</>}
+          </p>
+          <p>ת.ז: {p.idNumber || "-"}</p>
+        </div>
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={() => handleUnregister(p)}
+            className="text-red-600 hover:underline text-xs"
+          >
+            בטל הרשמה
+          </button>
+        </div>
       </div>
     );
   };
 
+  const handleClose = async () => {
+    await fetchWorkshops();
+    onClose();
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={handleCloseModal}
+      className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center"
+      onClick={handleClose}
     >
       <div
-        className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl p-6 animate-[fadeIn_.15s_ease]"
+        className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl p-6 overflow-y-auto max-h-[90vh]"
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-6 flex items-center justify-between">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between mb-6 gap-2">
           <h3 className="text-xl font-bold text-gray-800">
-            משתתפים בסדנה:{" "}
+            {view === "participants" ? "משתתפים בסדנה" : "רשימת המתנה"}:{" "}
             <span className="text-indigo-600">{workshop.title}</span>
           </h3>
-          <button
-            onClick={handleCloseModal}
-            className="rounded-lg px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
-          >
-            ✕ סגור
-          </button>
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              onClick={() => setView("participants")}
+              className={`px-3 py-1 rounded-lg text-sm ${
+                view === "participants"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              משתתפים
+            </button>
+            <button
+              onClick={() => setView("waitlist")}
+              className={`px-3 py-1 rounded-lg text-sm ${
+                view === "waitlist"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-100 text-gray-700"
+              }`}
+            >
+              המתנה
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-3 py-1 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700"
+            >
+              📤 יצוא
+            </button>
+            <button
+              onClick={() => setShowProfiles((s) => !s)}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition ${
+                showProfiles ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
+              }`}
+            >
+              {showProfiles ? "❌ סגור רשימת משתמשים" : "➕ הוסף משתתף"}
+            </button>
+            <button
+              onClick={handleClose}
+              className="rounded-lg px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
+            >
+              ✕ סגור
+            </button>
+          </div>
         </div>
 
-        {familyMembers.length > 0 && (
-          <div className="mb-6 flex gap-3 items-center">
-            <select
-              value={selectedFamilyId}
-              onChange={(e) => setSelectedFamilyId(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">בחר בן משפחה להוספה...</option>
-              {familyMembers
-                .filter(
-                  (f) =>
-                    !participants.some(
-                      (p) => p._id === f._id || p.familyMemberId === f._id
-                    )
-                )
-                .map((f) => (
-                  <option key={f._id} value={f._id}>
-                    {f.name} {f.relation ? `(${f.relation})` : ""}
-                  </option>
-                ))}
-            </select>
-            <button
-              onClick={handleAddFamily}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
-            >
-              ➕ הוסף לסדנה
-            </button>
+        {showProfiles && (
+          <div className="border border-indigo-100 rounded-xl bg-indigo-50/30 mb-6 p-4">
+            <AllProfiles
+              mode="select"
+              onSelectUser={async (p) => {
+                try {
+                  const payload = p.isFamily ? { familyId: p._id } : {};
+                  const res = await apiFetch(
+                    `/api/workshops/${workshop._id}/register-entity`,
+                    {
+                      method: "POST",
+                      body: JSON.stringify(payload),
+                    }
+                  );
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.message || "שגיאה בהרשמה");
+                  setShowProfiles(false);
+                  await fetchAll();
+                  await fetchWorkshops();
+                  alert("✅ נוסף בהצלחה!");
+                } catch (e) {
+                  alert("❌ " + e.message);
+                }
+              }}
+              existingIds={participants.map((p) => p._id)}
+            />
           </div>
         )}
 
         {message && (
           <p
-            className={`mb-3 text-sm font-medium ${
-              message.startsWith("✅") || message.startsWith("🚫")
+            className={`mb-3 text-sm ${
+              message.startsWith("❌")
+                ? "text-red-600"
+                : message.startsWith("✅")
                 ? "text-green-600"
-                : message.startsWith("⚠️")
-                ? "text-amber-600"
-                : "text-red-600"
+                : "text-gray-600"
             }`}
           >
             {message}
@@ -452,15 +458,34 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         )}
 
         {loading ? (
-          <p className="text-sm text-gray-600">⏳ טוען משתתפים...</p>
-        ) : participants.length > 0 ? (
+          <p className="text-sm text-gray-600">⏳ טוען נתונים...</p>
+        ) : view === "participants" ? (
+          participants.length ? (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+              {participants.map(renderParticipant)}
+            </div>
+          ) : (
+            <p className="text-center text-gray-500">אין משתתפים רשומים.</p>
+          )
+        ) : waitlist.length ? (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            {participants.map(renderParticipant)}
+            {waitlist.map(renderWaitlistItem)}
           </div>
         ) : (
-          <p className="text-center text-gray-500">אין משתתפים רשומים עדיין.</p>
+          <p className="text-center text-gray-500">אין רשימת המתנה.</p>
         )}
       </div>
+
+      {editPerson && (
+        <QuickEdit
+          person={editPerson}
+          onClose={() => setEditPerson(null)}
+          onSaved={async () => {
+            await refreshMe();
+            await fetchAll();
+          }}
+        />
+      )}
     </div>
   );
 }

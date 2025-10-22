@@ -1,11 +1,3 @@
-/**
- * Verify.jsx — Tailwind + useAuth Integration
- * --------------------------------------------
- * - Uses sendOtp() and verifyOtp() from AuthLayout context.
- * - Fully styled with Tailwind (no legacy CSS).
- * - Logic preserved 100% (steps, status, navigation).
- */
-
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -13,13 +5,12 @@ import { useAuth } from "../../layouts/AuthLayout";
 export default function Verify() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { sendOtp, verifyOtp } = useAuth(); // ✅ שימוש בקונטקסט
+  const { sendOtp, verifyOtp } = useAuth();
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("idle");
 
-  // אם הגענו מדף ההתחברות עם מייל מוכן
   useEffect(() => {
     if (location.state?.email) {
       setEmail(location.state.email);
@@ -27,7 +18,6 @@ export default function Verify() {
     }
   }, [location.state]);
 
-  /* ==================== שלב 1: שליחת קוד ==================== */
   const handleSendOtp = async (e) => {
     e.preventDefault();
     if (!email) return alert("נא להזין מייל תקין.");
@@ -44,7 +34,6 @@ export default function Verify() {
     }
   };
 
-  /* ==================== שלב 2: אימות קוד ==================== */
   const handleVerifyCode = async (e) => {
     e.preventDefault();
     if (!code) return alert("נא להזין את הקוד שהתקבל במייל.");
@@ -61,42 +50,47 @@ export default function Verify() {
     }
   };
 
-  /* ==================== עיצוב וממשק ==================== */
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 p-8"
       dir="rtl"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-white p-6"
     >
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 animate-fade-in">
+      <div className="w-full max-w-md bg-white/90 backdrop-blur-lg rounded-3xl border border-indigo-100 shadow-2xl p-10 animate-fade-in transition hover:shadow-indigo-200">
         {step === 1 ? (
           <>
-            <h2 className="text-2xl font-bold text-gray-900 text-center mb-2 font-[Poppins]">
-              כניסה באמצעות מייל
-            </h2>
-            <p className="text-gray-600 text-center mb-6">
-              הזן את כתובת המייל שלך ונשלח אליך קוד אימות חד־פעמי
-            </p>
+            {/* Header */}
+            <div className="text-center mb-6 space-y-2">
+              <h2 className="text-3xl font-extrabold text-indigo-700 tracking-tight">
+                כניסה באמצעות מייל
+              </h2>
+              <p className="text-gray-600 text-sm font-medium">
+                הזן את כתובת המייל שלך ונשלח אליך קוד אימות חד־פעמי
+              </p>
+            </div>
 
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <label className="block text-gray-700">
-                כתובת אימייל:
+            {/* Email Input */}
+            <form onSubmit={handleSendOtp} className="space-y-6">
+              <div className="pb-4 border-b border-indigo-50">
+                <label className="block mb-2 text-sm font-semibold text-indigo-700 tracking-wide">
+                  כתובת אימייל
+                </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="example@gmail.com"
                   required
-                  className="w-full mt-1 px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                  className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none"
                 />
-              </label>
+              </div>
 
               <button
                 type="submit"
                 disabled={status === "sending"}
-                className={`w-full py-2.5 rounded-xl font-semibold text-white shadow-sm transition ${
+                className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
                   status === "sending"
                     ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700 active:scale-95"
+                    : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
                 }`}
               >
                 {status === "sending" ? "שולח..." : "שלח קוד אימות"}
@@ -105,16 +99,23 @@ export default function Verify() {
           </>
         ) : (
           <>
-            <h2 className="text-2xl font-bold text-gray-900 text-center mb-2 font-[Poppins]">
-              אימות קוד
-            </h2>
-            <p className="text-gray-600 text-center mb-4">
-              הקוד נשלח לכתובת: <strong>{email}</strong>
-            </p>
+            {/* Header */}
+            <div className="text-center mb-6 space-y-2">
+              <h2 className="text-3xl font-extrabold text-indigo-700 tracking-tight">
+                אימות קוד
+              </h2>
+              <p className="text-gray-600 text-sm font-medium">
+                הקוד נשלח לכתובת:{" "}
+                <span className="font-semibold text-indigo-700">{email}</span>
+              </p>
+            </div>
 
-            <form onSubmit={handleVerifyCode} className="space-y-4">
-              <label className="block text-gray-700">
-                הזן את הקוד שקיבלת:
+            {/* Code Input */}
+            <form onSubmit={handleVerifyCode} className="space-y-6">
+              <div className="pb-4 border-b border-indigo-50">
+                <label className="block mb-2 text-sm font-semibold text-indigo-700 tracking-wide">
+                  הזן את הקוד שהתקבל במייל
+                </label>
                 <input
                   type="text"
                   value={code}
@@ -122,17 +123,17 @@ export default function Verify() {
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="6 ספרות"
                   required
-                  className="w-full mt-1 px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none text-center tracking-widest font-mono"
+                  className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none text-center tracking-widest font-mono"
                 />
-              </label>
+              </div>
 
               <button
                 type="submit"
                 disabled={status === "verifying"}
-                className={`w-full py-2.5 rounded-xl font-semibold text-white shadow-sm transition ${
+                className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
                   status === "verifying"
                     ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700 active:scale-95"
+                    : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
                 }`}
               >
                 {status === "verifying" ? "מאמת..." : "אמת קוד"}
@@ -141,7 +142,7 @@ export default function Verify() {
 
             <button
               onClick={() => setStep(1)}
-              className="mt-5 text-indigo-600 hover:underline block text-center"
+              className="mt-6 text-indigo-600 hover:underline block text-center font-medium"
             >
               ← חזרה להזנת מייל
             </button>

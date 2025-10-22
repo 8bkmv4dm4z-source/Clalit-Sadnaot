@@ -1,0 +1,131 @@
+config:
+  target: "http://localhost:5000"
+  processor: "./processors/auth-flow.js"
+
+  # ⏱ increase request timeout + connection timeout
+  http:
+    timeout: 20000          # 20 s per request
+    connectTimeout: 10000   # 10 s connection establishment
+    maxSockets: 30          # optional – limit concurrency at TCP level
+
+  phases:
+    - duration: 10
+      arrivalRate: 1
+      name: Warmup
+    - duration: 30
+      arrivalRate: 5
+      name: Ramp up
+    - duration: 60
+      arrivalRate: 10
+      name: Sustained load
+
+  defaults:
+    headers:
+      Content-Type: "application/json"
+    think: 1    
+
+  variables:
+    password: "ValidPass@2025"   
+    email: "u{{ $randomInt(1,20) }}@test.com"
+    ROUTE_LOGIN: "/api/auth/login"
+    ROUTE_REGISTER: "/api/auth/register"
+    ROUTE_WORKSHOPS: "/api/workshops"
+    ROUTE_PROFILE: "/api/profile/me"
+
+scenarios:
+  - name: "Auto Register → Login → Protected (resilient, contract-first)"
+    flow:
+      - function: "ensureEmail"
+
+      # 1) Try login
+      - post:
+          name: "Login"
+          url: "{{ ROUTE_LOGIN }}"
+          json:
+            email: "{{ email }}"
+            password: "{{ password }}"
+          capture:
+            - json: "$.accessToken"
+              as: "token"
+              strict: false
+            - json: "$.token"
+              as: "token_alt"
+              strict: false
+            - json: "$.data.accessToken"
+              as: "token_data"
+              strict: false
+          continueOnError: true
+
+      - function: "foldLoginTokens"
+
+      # 2) Register only if token missing
+      - function: "buildRegisterPayloadIfNoToken"
+
+      - post:
+          name: "Register (if needed)"
+          url: "{{ ROUTE_REGISTER }}"
+          json: "{{ _regPayload }}"
+          ifTrue: "_regPayload"
+          continueOnError: true
+
+
+      # 3) Final login to obtain accessToken
+      - post:
+          name: "Login"
+          url: "{{ ROUTE_LOGIN }}"
+          json:
+            email: "{{ email }}"
+            password: "{{ password }}"
+          capture:
+            - json: "$.accessToken"
+              as: "token"
+              strict: false
+            - json: "$.token"
+              as: "token_alt"
+              strict: false
+            - json: "$.data.accessToken"
+              as: "token_data"
+              strict: false
+            - header: "set-cookie"
+              as: "set_cookie"
+              strict: false
+          continueOnError: true
+
+
+      - function: "foldRetryTokens"
+
+      # 4) Unauth probe (OK if 200/401/403)
+      - get:
+          name: "Workshops (unauth probe)"
+          url: "{{ ROUTE_WORKSHOPS }}"
+          continueOnError: true
+          expect:
+            - statusCode: 200
+            - statusCode: 401
+            - statusCode: 403
+
+      # 5) Auth burst (only if token present)
+      - loop:
+          - get:
+              name: "Workshops (auth burst)"
+              url: "{{ ROUTE_WORKSHOPS }}"
+              headers:
+                Authorization: "Bearer {{ token }}"
+              ifTrue: "token"
+              expect:
+                - statusCode: 200
+              continueOnError: true
+          - think: 1.5
+        count: 5
+
+      - think: 1
+
+      - get:
+          name: "Profile (auth)"
+          url: "{{ ROUTE_PROFILE }}"
+          headers:
+            Authorization: "Bearer {{ token }}"
+          ifTrue: "token"
+          expect:
+            - statusCode: 200
+          continueOnError: true
