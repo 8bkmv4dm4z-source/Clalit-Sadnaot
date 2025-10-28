@@ -53,7 +53,7 @@ const generalAuthLimiter = rateLimit({
 });
 // OTP-specific limiter
 const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,     // 10 minutes
+  windowMs: 1 * 60 * 1000,     // 10 minutes
   max: 3,                       // only 3 OTPs per IP per 10 min
   message: { message: "Too many OTP requests. Try again later." },
   standardHeaders: true,        // return RateLimit-* headers

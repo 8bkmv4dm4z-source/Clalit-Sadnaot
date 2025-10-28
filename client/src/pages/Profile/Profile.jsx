@@ -1,45 +1,71 @@
+/**
+ * Profile.jsx — User Profile Page (Full DB-Sync, Hebrew UI + English Notes)
+ * -----------------------------------------------------------------------
+ * ✅ Updates user via /api/users/update-entity (AuthContext updateEntity)
+ * ✅ Always fetches /api/users/me on mount (single source of truth)
+ * ✅ Keeps full design, modal, and Hebrew layout intact
+ * ✅ Prevents local-only updates (server is always authority)
+ */
+
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-// After reorganising files, the family editor modal lives under
-// `src/components/people`. Update the import path accordingly.
+import { apiFetch } from "../../utils/apiFetch";
 import FamilyEditorModal from "../../components/people/FamilyEditorModal";
 
 export default function Profile() {
   const { user, updateEntity } = useAuth();
   const { fetchWorkshops } = useWorkshops();
 
+  // 🔹 Local UI state
   const [form, setForm] = useState(user || {});
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showFamilyModal, setShowFamilyModal] = useState(false);
 
+  /* ------------------------------------------------------------
+     🔄 Refresh user info from backend (single source of truth)
+  ------------------------------------------------------------ */
   useEffect(() => {
-    if (user) setForm(user);
-  }, [user]);
+    const refreshUser = async () => {
+      try {
+        const res = await apiFetch("/api/users/me");
+        const data = await res.json();
+        if (res.ok && data?._id) setForm(data);
+      } catch (err) {
+        console.warn("⚠️ Failed to refresh user data:", err.message);
+      }
+    };
+    refreshUser();
+  }, []);
 
-  const handleChange = (key, value) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+  /* ------------------------------------------------------------
+     🧩 Controlled input updates
+  ------------------------------------------------------------ */
+  const handleChange = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
+  /* ------------------------------------------------------------
+     💾 Save user profile (via update-entity)
+  ------------------------------------------------------------ */
   const handleSave = async () => {
     try {
       setSaving(true);
-      const payload = {
-        userId: user._id,
-        updates: {
-          name: form.name,
-          idNumber: form.idNumber,
-          phone: form.phone,
-          city: form.city,
-          birthDate: form.birthDate,
-          canCharge: form.canCharge,
-        },
+
+      const updates = {
+        name: form.name,
+        idNumber: form.idNumber,
+        phone: form.phone,
+        city: form.city,
+        birthDate: form.birthDate,
+        canCharge: form.canCharge,
       };
+
+      const payload = { userId: user._id, updates };
       const result = await updateEntity(payload);
+
       if (!result.success) throw new Error(result.message);
 
-      // עדכון גלובלי (רענון גרידים/טבלאות שמאזינים)
-      window.dispatchEvent(new Event("entity-updated"));
+      // Refresh dependent UI
       await fetchWorkshops();
 
       alert("✅ הנתונים עודכנו בהצלחה!");
@@ -51,25 +77,36 @@ export default function Profile() {
     }
   };
 
+  /* ------------------------------------------------------------
+     ↩️ Cancel editing
+  ------------------------------------------------------------ */
   const handleCancel = () => {
     setForm(user);
     setEditMode(false);
   };
 
+  /* ------------------------------------------------------------
+     📆 Calculate age helper
+  ------------------------------------------------------------ */
   const calcAge = (birthDate) => {
     if (!birthDate) return "";
     const diff = new Date() - new Date(birthDate);
     return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
   };
 
-  if (!user) {
+  /* ------------------------------------------------------------
+     ⏳ Guard: wait for user
+  ------------------------------------------------------------ */
+  if (!user)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500">
         ⏳ טוען נתוני משתמש...
       </div>
     );
-  }
 
+  /* ------------------------------------------------------------
+     🧱 UI Layout
+  ------------------------------------------------------------ */
   return (
     <div
       className="min-h-screen bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 py-10 flex justify-center"
@@ -87,7 +124,7 @@ export default function Profile() {
           />
           <div>
             <h2 className="text-2xl font-bold text-gray-900 font-[Poppins]">
-              {user.name || "משתמש"}
+              {form.name || "משתמש"}
             </h2>
             <p className="text-gray-600 mt-1">
               {user.role === "admin" ? "מנהל מערכת" : "משתמש רגיל"}
@@ -99,22 +136,22 @@ export default function Profile() {
         <div className="space-y-5">
           <ProfileField
             label="תעודת זהות"
-            editMode={editMode}
             value={form.idNumber}
+            editMode={editMode}
             onChange={(v) => handleChange("idNumber", v)}
           />
           <ProfileField
             label="שם מלא"
-            editMode={editMode}
             value={form.name}
+            editMode={editMode}
             onChange={(v) => handleChange("name", v)}
           />
-          <ProfileField label="אימייל" editMode={false} value={user.email} />
+          <ProfileField label="אימייל" value={user.email} editMode={false} />
           <ProfileField
             label="תאריך לידה"
-            editMode={editMode}
             type="date"
             value={form.birthDate}
+            editMode={editMode}
             onChange={(v) => handleChange("birthDate", v)}
             displayExtra={
               !editMode && form.birthDate ? `(${calcAge(form.birthDate)} שנים)` : ""
@@ -122,17 +159,18 @@ export default function Profile() {
           />
           <ProfileField
             label="עיר"
-            editMode={editMode}
             value={form.city}
+            editMode={editMode}
             onChange={(v) => handleChange("city", v)}
           />
           <ProfileField
             label="טלפון"
-            editMode={editMode}
             value={form.phone}
+            editMode={editMode}
             onChange={(v) => handleChange("phone", v)}
           />
 
+          {/* Charge permission */}
           <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
             {editMode ? (
               <label className="flex items-center gap-3">
@@ -146,7 +184,7 @@ export default function Profile() {
               </label>
             ) : (
               <p className="text-gray-700 font-medium">
-                הרשאה לגבייה: <strong>{user.canCharge ? "✅ כן" : "❌ לא"}</strong>
+                הרשאה לגבייה: <strong>{form.canCharge ? "✅ כן" : "❌ לא"}</strong>
               </p>
             )}
           </div>
@@ -159,14 +197,13 @@ export default function Profile() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className={`btn btn-primary px-5 py-2.5 ${saving ? "cursor-not-allowed bg-gray-400" : ""}`}
+                className={`btn btn-primary px-5 py-2.5 ${
+                  saving ? "cursor-not-allowed bg-gray-400" : ""
+                }`}
               >
                 {saving ? "שומר..." : "💾 שמור"}
               </button>
-              <button
-                onClick={handleCancel}
-                className="btn btn-secondary px-5 py-2.5"
-              >
+              <button onClick={handleCancel} className="btn btn-secondary px-5 py-2.5">
                 ביטול
               </button>
             </>
@@ -188,17 +225,17 @@ export default function Profile() {
           )}
         </div>
 
-        {/* רק מודאל ניהול בני משפחה – בלי רשימה נוספת בדף */}
+        {/* Family Modal */}
         {showFamilyModal && (
           <FamilyEditorModal
-            user={user}
+            user={form}
             onClose={() => setShowFamilyModal(false)}
-            onSave={(newFamilyList) =>
-              updateEntity({
+            onSave={async (updatedUser) => {
+              await updateEntity({
                 userId: user._id,
-                updates: { familyMembers: newFamilyList },
-              })
-            }
+                updates: { familyMembers: updatedUser.familyMembers },
+              });
+            }}
           />
         )}
       </div>
@@ -206,14 +243,10 @@ export default function Profile() {
   );
 }
 
-function ProfileField({
-  label,
-  value,
-  onChange,
-  editMode,
-  type = "text",
-  displayExtra = "",
-}) {
+/* ------------------------------------------------------------
+   🧩 ProfileField Subcomponent
+------------------------------------------------------------ */
+function ProfileField({ label, value, onChange, editMode, type = "text", displayExtra = "" }) {
   return (
     <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50">
       <span className="text-gray-700 font-medium">{label}:</span>

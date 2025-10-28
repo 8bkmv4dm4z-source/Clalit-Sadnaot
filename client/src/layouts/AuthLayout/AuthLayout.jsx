@@ -1,4 +1,5 @@
 // src/layouts/AuthLayout/AuthLayout.jsx
+import { View } from "lucide-react";
 import React, {
   createContext,
   useContext,
@@ -9,13 +10,27 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 
-/** 🧩 Logger with timestamp */
+/* ------------------------------ Logger ------------------------------ */
 const log = (...args) => {
   const time = new Date().toLocaleTimeString("he-IL");
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
 
-/** 🧭 Context Shape */
+/* ----------------------------- Events ------------------------------- */
+function fireAuthReady(loggedIn, extra = {}) {
+  // Backwards-compat event + payload for anyone listening
+  window.dispatchEvent(
+    new CustomEvent("auth-ready", { detail: { loggedIn: !!loggedIn, ...extra } })
+  );
+}
+function fireLoggedIn(extra = {}) {
+  window.dispatchEvent(new CustomEvent("auth-logged-in", { detail: { ...extra } }));
+}
+function fireLoggedOut(extra = {}) {
+  window.dispatchEvent(new CustomEvent("auth-logged-out", { detail: { ...extra } }));
+}
+
+/* --------------------------- Context Shape -------------------------- */
 const AuthContext = createContext({
   isLoggedIn: false,
   isAdmin: false,
@@ -40,25 +55,30 @@ const AuthContext = createContext({
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [user, setUser] = useState(null);
   const [filters, setFilters] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState(localStorage.getItem("accessToken") || null);
+  const [accessToken, setAccessToken] = useState(
+    localStorage.getItem("accessToken") || null
+  );
+
   const didVerifyRef = useRef(false);
 
   /* ============================================================
-     🧠 Refresh Access Token using Refresh Cookie
+     🔁 Refresh Access Token (via refresh cookie)
      ============================================================ */
   const refreshAccessToken = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/refresh", {
         method: "POST",
-        credentials: "include",
+        credentials: "include", // REQUIRED so refresh cookie is sent
+        headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) throw new Error("Failed to refresh token");
+      if (!res.ok) throw new Error(`Failed to refresh token (${res.status})`);
       const data = await res.json();
 
       if (data?.accessToken) {
@@ -67,22 +87,24 @@ export const AuthProvider = ({ children }) => {
         log("🔄 Token refreshed successfully");
         return data.accessToken;
       }
+      throw new Error("No access token in refresh response");
     } catch (err) {
       log("⚠️ refreshAccessToken failed:", err.message);
-      logout();
+      // do NOT recurse; perform a clean logout
+      await logout(true); // silent
       return null;
     }
   }, []);
 
   /* ============================================================
-     🧩 Helper: Authenticated Fetch with Auto-Refresh
+     🔐 authFetch helper — auto refresh on 401 once
      ============================================================ */
   const authFetch = useCallback(
     async (url, options = {}) => {
       const token = accessToken || localStorage.getItem("accessToken");
       const headers = {
         ...(options.headers || {}),
-        Authorization: `Bearer ${token}`,
+        Authorization: token ? `Bearer ${token}` : undefined,
         "Content-Type": "application/json",
       };
 
@@ -92,8 +114,8 @@ export const AuthProvider = ({ children }) => {
         log("⚠️ 401 detected — attempting refresh...");
         const newToken = await refreshAccessToken();
         if (!newToken) throw new Error("Session expired");
-        headers.Authorization = `Bearer ${newToken}`;
-        res = await fetch(url, { ...options, headers });
+        const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
+        res = await fetch(url, { ...options, headers: headers2 });
       }
 
       return res;
@@ -102,10 +124,11 @@ export const AuthProvider = ({ children }) => {
   );
 
   /* ============================================================
-     👤 Fetch logged-in user info
+     👤 fetchMe — load current user by access token
      ============================================================ */
   const fetchMe = async (tokenOverride = null) => {
-    const token = tokenOverride || accessToken || localStorage.getItem("accessToken");
+    const token =
+      tokenOverride || accessToken || localStorage.getItem("accessToken");
     log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
     if (!token) {
@@ -158,8 +181,10 @@ export const AuthProvider = ({ children }) => {
     (async () => {
       await fetchMe();
       setLoading(false);
-      window.dispatchEvent(new Event("auth-ready"));
+      // fire auth-ready with current state
+      fireAuthReady(!!(accessToken || localStorage.getItem("accessToken")));
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ============================================================
@@ -194,7 +219,9 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      return res.ok ? { success: true, data } : { success: false, message: data.message };
+      return res.ok
+        ? { success: true, data }
+        : { success: false, message: data.message };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -207,7 +234,7 @@ export const AuthProvider = ({ children }) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
-        credentials: "include", // שולח את refresh cookie
+        credentials: "include", // send/receive refresh cookie
       });
       const data = await res.json();
 
@@ -222,7 +249,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   /* ============================================================
-     ✅ Complete Login — fixed version
+     ✅ Complete Login
      ============================================================ */
   const completeLogin = async (newToken) => {
     if (!newToken) return;
@@ -231,94 +258,109 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(newToken);
     log("💾 Access token stored, loading user directly...");
 
-    await fetchMe(newToken); // ✅ מעביר את הטוקן החדש ישירות
-    window.dispatchEvent(new Event("auth-ready"));
+    await fetchMe(newToken);
 
-    // Redirect אחרי login מוצלח
+    // fire both the legacy signal and explicit "logged-in"
+    fireAuthReady(true, { phase: "login-complete" });
+    fireLoggedIn({ userId: String(user?.id || user?._id || "") });
+
+    // redirect after successful login
     navigate("/workshops");
   };
 
   /* ============================================================
-     🚪 Logout (clears cookie + local)
+     🚪 Logout (server + local) with global signals
      ============================================================ */
-  const logout = async () => {
-  try {
-    // 🧠 Call the server logout endpoint
-    const res = await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    });
-
-    // 🧹 Even if server returns an error, clear client state
-    if (res.ok || res.status === 401 || res.status === 403) {
-      localStorage.removeItem("accessToken");
-      setAccessToken(null);
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-      log("🚪 Logged out (local + server)");
-      window.dispatchEvent(new Event("auth-ready"));
-      navigate("/workshops");
-    } else {
-      console.warn("Logout failed:", res.status);
+  const logout = async (silent = false) => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (_) {
+      // ignore network error; still clear client state
     }
-  } catch (err) {
-    console.error("Logout error:", err);
-    // fallback: clear everything anyway
+
     localStorage.removeItem("accessToken");
     setAccessToken(null);
     setUser(null);
     setIsLoggedIn(false);
     setIsAdmin(false);
-    window.dispatchEvent(new Event("auth-ready"));
-    navigate("/workshops");
-  }
-};
 
+    log("🚪 Logged out (local + server)");
+
+    // fire both events so other contexts can react (e.g., WorkshopContext)
+    fireAuthReady(false, { phase: "logout" });
+    fireLoggedOut();
+
+    if (!silent) navigate("/workshops");
+  };
 
   /* ============================================================
-     ♻️ Refresh Me
+    
+    ♻️ Refresh Me
      ============================================================ */
+
   const refreshMe = async () => {
     await fetchMe();
+    // עדכן את האפליקציה כולה שמידע המשתמש רוענן
+    window.dispatchEvent(
+      new CustomEvent("auth-user-updated", {
+        detail: { at: Date.now(), userId: String(user?._id || "") },
+      })
+    );
   };
 
-  /* ============================================================
+ /* ============================================================
      ✏️ Save Entity (User / Family)
      ============================================================ */
-  const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
-    log("✏️ saveEntity called:", payload);
-    try {
-      const res = await authFetch("/api/users/update-entity", {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Update failed");
+   const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
+     log("✏️ saveEntity called:", payload);
+     try {
+       const res = await authFetch("/api/users/update-entity", {
+         method: "PUT",
+         body: JSON.stringify(payload),
+       });
+       const data = await res.json();
+       if (!res.ok) throw new Error(data.message || "Update failed");
 
-      const isCurrentUserUpdate =
-        payload.userId && user && String(payload.userId) === String(user._id);
-      const isCurrentFamilyUpdate =
-        payload.familyId &&
-        user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
+       const isCurrentUserUpdate =
+         payload.userId && user && String(payload.userId) === String(user._id);
+       const isCurrentFamilyUpdate =
+         payload.familyId &&
+         user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
 
-      if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
+       if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
         await refreshMe();
-      }
+       }
 
-      log("✅ saveEntity success:", data);
-      return { success: true, data };
-    } catch (err) {
-      log("❌ saveEntity error:", err.message);
-      return { success: false, message: err.message };
-    }
-  };
+      // גם אם זה לא המשתמש הנוכחי—אפשר לשדר לכל האפליקציה שהתרחשה עדכון
+      window.dispatchEvent(
+        new CustomEvent("auth-user-updated", {
+          detail: {
+            at: Date.now(),
+            userId: String(user?._id || ""),
+            affected: {
+              userId: payload.userId ? String(payload.userId) : null,
+              familyId: payload.familyId ? String(payload.familyId) : null,
+            },
+          },
+        })
+      );
 
-  const updateEntity = async (payload) => await saveEntity(payload, { refreshMeIfCurrent: true });
+       log("✅ saveEntity success:", data);
+       return { success: true, data };
+     } catch (err) {
+       log("❌ saveEntity error:", err.message);
+       return { success: false, message: err.message };
+     }
+   };
 
-  /* ============================================================
-     🎯 Provide Context
-     ============================================================ */
+   const updateEntity = async (payload) => await saveEntity(payload, { refreshMeIfCurrent: true });
+
+/* ============================================================
+   🎯 Provide Context
+   ============================================================ */
   return (
     <AuthContext.Provider
       value={{
@@ -340,12 +382,12 @@ export const AuthProvider = ({ children }) => {
         verifyOtp,
         updateEntity,
         saveEntity,
-        refreshMe,
+       refreshMe,
       }}
     >
       {children}
     </AuthContext.Provider>
-  );
-};
-
+  );}
+  // src/layouts/AuthLayout/AuthLayout.jsx
 export const useAuth = () => useContext(AuthContext);
+

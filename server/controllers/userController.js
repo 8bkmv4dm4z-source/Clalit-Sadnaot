@@ -1,6 +1,389 @@
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 
+
+
+const mongoose = require("mongoose");
+
+
+// routes stay the same: router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser)
+
+const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop} =
+  require("../services/workshopRegistration");
+
+/**
+ * deleteUser
+ * --------------------------------------------------------------------------
+ * Deletes a user and cleans up all workshop registrations efficiently.
+ * Uses userWorkshopMap and familyWorkshopMap for O(1) lookups.
+ */
+exports.deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId).select("userWorkshopMap familyWorkshopMap");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // unregister direct user workshops
+    for (const wid of user.userWorkshopMap) {
+      await unregisterUserFromWorkshop({ workshopId: wid, userId });
+    }
+
+    // unregister family workshops
+    for (const f of user.familyWorkshopMap) {
+      for (const wid of f.workshops) {
+        await unregisterFamilyFromWorkshop({
+          workshopId: wid,
+          parentUserId: userId,
+          familyId: f.familyMemberId,
+        });
+      }
+    }
+
+    await User.findByIdAndDelete(userId);
+    res.json({ success: true, message: "User deleted and cleaned up successfully" });
+  } catch (err) {
+    console.error("❌ deleteUser error:", err);
+    res.status(500).json({ success: false, message: "Server error deleting user" });
+  }
+};
+
+
+
+
+
+/* ============================================================
+   🔍 Hybrid Search (admin: global, user: own family)
+   ============================================================ */
+
+// ---- helpers ----
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeSearchQuery(q) {
+  let s = String(q ?? "");
+  try { s = decodeURIComponent(s); } catch (_) {}
+  s = s.trim().toLowerCase();
+  if (/[\d\-]/.test(s)) s = s.replace(/[\u00A0\s\-]+/g, ""); // only for phones
+  s = s.replace(/[^\w@.\u0590-\u05FF\s]/g, "");
+  return s;
+}
+
+// analyzed (text/fuzzy)
+const SEARCH_ANALYZED = [
+  "name","email","city","idNumber","phone",
+  "familyMembers.name","familyMembers.email","familyMembers.city",
+  "familyMembers.idNumber","familyMembers.phone","familyMembers.relation",
+];
+
+// keyword (wildcard/regex true substring)
+const SEARCH_KEYWORD = [
+  "name_keyword","email_keyword","city_keyword","idNumber_keyword","phone_keyword",
+  "familyMembers.name_keyword","familyMembers.email_keyword","familyMembers.city_keyword",
+  "familyMembers.idNumber_keyword","familyMembers.phone_keyword",
+];
+
+/* ============================================================
+   MAIN: searchUsers
+   ============================================================ */
+exports.searchUsers = async (req, res) => {
+  try {
+    const raw = (req.query.q || "").trim();
+    if (!raw) return res.json([]);
+
+    const requester = req.user;
+    const q = normalizeSearchQuery(raw);
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit || "60", 10) || 60, 200));
+    const escaped = escapeRegex(q);
+    const wildcardToken = `*${q}*`;
+
+    // ============================================================
+    // ADMIN MODE — Full-Index Global Search
+    // ============================================================
+    if (requester && requester.role === "admin") {
+      const start = Date.now();
+      console.groupCollapsed("🔎 [searchUsers] ADMIN entry");
+      console.log("🔹 Raw:", raw, "| Normalized:", q, "| Limit:", limit);
+      console.groupEnd();
+
+      // ---------- Atlas Compound Search ----------
+      const pipeline = [
+        {
+          $search: {
+            index: "UsersIndex",
+            compound: {
+              should: [
+                { text: { query: q, path: SEARCH_ANALYZED } }, // exact-ish text
+                { wildcard: { path: SEARCH_KEYWORD, query: wildcardToken, allowAnalyzedField: true } }, // substring
+                { text: { query: q, path: SEARCH_ANALYZED, fuzzy: { maxEdits: 1 } } }, // fuzzy
+                { regex: { path: SEARCH_KEYWORD, query: escaped, allowAnalyzedField: true } }, // literal regex
+              ],
+              minimumShouldMatch: 1,
+            },
+          },
+        },
+        { $limit: Math.max(limit, 40) },
+        {
+          $project: {
+            name: 1, email: 1, phone: 1, idNumber: 1, city: 1,
+            role: 1, canCharge: 1, birthDate: 1,
+            familyMembers: {
+              _id: 1, name: 1, email: 1, phone: 1,
+              idNumber: 1, city: 1, relation: 1, birthDate: 1,
+            },
+            score: { $meta: "searchScore" },
+            highlights: { $meta: "searchHighlights" },
+          },
+        },
+      ];
+
+      let docs = [];
+      let clauseUsed = null;
+
+      try {
+        docs = await User.aggregate(pipeline).exec();
+        clauseUsed = "Atlas compound";
+      } catch (err) {
+        console.error("⚠️ Atlas $search error:", err.codeName || err.message);
+        clauseUsed = "Atlas error → fallback regex";
+      }
+
+      // ---------- Fallback (Regex) ----------
+      if (!docs.length && q) {
+        const rx = new RegExp(escapeRegex(q), "i");
+        console.log("⚙️ [fallback] Running two-phase regex fallback for:", q);
+
+        // Phase A: user fields
+        const usersFound = await User.find({
+          $or: [
+            { name: rx }, { email: rx }, { phone: rx }, { idNumber: rx }, { city: rx },
+          ],
+        }).limit(Math.max(limit, 40)).lean();
+
+        // Phase B: family fields
+        const familyFound = await User.find({
+          $or: [
+            { "familyMembers.name": rx },
+            { "familyMembers.email": rx },
+            { "familyMembers.phone": rx },
+            { "familyMembers.idNumber": rx },
+            { "familyMembers.city": rx },
+            { "familyMembers.relation": rx },
+          ],
+        }).limit(Math.max(limit, 40)).lean();
+
+        console.log(`⚙️ [fallback] usersFound=${usersFound.length}, familyFound=${familyFound.length}`);
+        if (usersFound.length) {
+          clauseUsed = "fallback regex (user fields)";
+          docs = usersFound;
+        } else if (familyFound.length) {
+          clauseUsed = "fallback regex (family fields)";
+          docs = familyFound;
+        } else {
+          clauseUsed = "fallback regex (no hits)";
+          docs = [];
+        }
+      }
+
+      // ---------- Diagnostics ----------
+      const took = Date.now() - start;
+      const sample = docs[0];
+      console.groupCollapsed(`🧩 [searchUsers] ADMIN stage (${clauseUsed}, ${took} ms)`);
+      console.log("docs:", docs.length);
+      if (sample) {
+        console.log("sample:", {
+          _id: sample._id,
+          name: sample.name,
+          familyCount: sample.familyMembers?.length || 0,
+          highlight: sample.highlights?.slice(0, 3)?.map(h => ({
+            path: h.path,
+            type: h.type || "text",
+            snippet: h.texts?.map(t => t.value).join(""),
+          })),
+        });
+      }
+      console.groupEnd();
+
+      // ============================================================
+      // Deterministic Emission
+      // ============================================================
+      const userMap = new Map();
+      const unified = [];
+
+      for (const doc of docs) {
+        const key = String(doc._id);
+
+        // --- USER field match ---
+        const userFields = [doc.name, doc.email, doc.idNumber, doc.phone, doc.city]
+          .map(v => (v ? String(v).toLowerCase() : ""));
+        let userExact = false, userPartial = false, userMatchType = "";
+        for (const f of userFields) {
+          if (!f) continue;
+          if (f === q) { userExact = true; userMatchType = "exact"; break; }
+          if (f.includes(q)) { userPartial = true; userMatchType = "partial"; }
+        }
+
+        // --- FAMILY field match ---
+        const matchedFamilies = [];
+        let familyExact = false, familyPartial = false, familyMatchType = "";
+        for (const fam of doc.familyMembers || []) {
+          const famFields = [fam.name, fam.email, fam.idNumber, fam.phone, fam.city, fam.relation]
+            .map(v => (v ? String(v).toLowerCase() : ""));
+          let famExact = false, famPartial = false;
+          for (const fField of famFields) {
+            if (!fField) continue;
+            if (fField === q) { famExact = true; familyMatchType = "exact"; break; }
+            if (fField.includes(q)) { famPartial = true; familyMatchType = "partial"; }
+          }
+          if (famExact) familyExact = true;
+          if (famPartial) familyPartial = true;
+          if (famExact || famPartial) {
+            matchedFamilies.push({
+              _id: fam._id,
+              name: fam.name,
+              email: fam.email,
+              phone: fam.phone,
+              idNumber: fam.idNumber,
+              city: fam.city,
+              relation: fam.relation,
+              birthDate: fam.birthDate,
+              canCharge: Boolean(doc.canCharge),
+            });
+          }
+        }
+
+        // --- CASE evaluation ---
+        const hasUserMatch = userExact || userPartial;
+        const hasFamilyMatch = familyExact || familyPartial;
+        let caseNum = 0;
+        if (!hasUserMatch && !hasFamilyMatch) continue;
+        if (hasUserMatch && hasFamilyMatch) caseNum = 3;
+        else if (hasUserMatch) caseNum = 1;
+        else if (hasFamilyMatch) caseNum = 2;
+
+        if (!userMap.has(key)) {
+          userMap.set(key, {
+            _id: doc._id,
+            name: doc.name,
+            email: doc.email,
+            phone: doc.phone,
+            idNumber: doc.idNumber,
+            city: doc.city,
+            role: doc.role,
+            canCharge: Boolean(doc.canCharge),
+            birthDate: doc.birthDate,
+            familyMembers: [],
+            _seenFamilyIds: new Set(),
+            familyOnly: false,
+          });
+        }
+
+        const base = userMap.get(key);
+
+        // --- CASE logic ---
+        if (caseNum === 3) {
+          for (const mf of matchedFamilies) {
+            const fid = String(mf._id);
+            if (!base._seenFamilyIds.has(fid)) {
+              base._seenFamilyIds.add(fid);
+              base.familyMembers.push(mf);
+            }
+          }
+        } else if (caseNum === 2) {
+  // 🧩 Family-only match — no direct user match at all
+  base.familyOnly = true;
+
+  // Build standalone payloads for each matched family member
+  for (const mf of matchedFamilies) {
+    const fid = String(mf._id);
+    if (!base._seenFamilyIds.has(fid)) {
+      base._seenFamilyIds.add(fid);
+    }
+
+    // Push only the matching family member — not the parent
+    unified.push({
+      _id: mf._id,
+      name: mf.name,
+      email: mf.email,
+      phone: mf.phone,
+      idNumber: mf.idNumber,
+      city: mf.city,
+      relation: mf.relation,
+      birthDate: mf.birthDate,
+      canCharge: Boolean(doc.canCharge),
+      parentId: doc._id,
+      parentName: doc.name,
+      parentEmail: doc.email,
+      familyOnly: true,
+      _matchSource: familyMatchType === "exact" ? "family-exact" : "family-partial",
+    });
+
+    console.log(
+      `🧭 [match-trace] ${mf.name} | case=2 | userMatch=none | familyMatch=${familyMatchType} → standalone (parent=${doc.name})`
+    );
+  }
+
+  // Skip adding the parent entirely for this case
+  continue;
+}
+
+        // log trace
+        console.log(
+          `🧭 [match-trace] ${doc.name} | case=${caseNum} | userMatch=${userMatchType} | familyMatch=${familyMatchType}`
+        );
+      }
+
+      // append map values
+      for (const u of userMap.values()) {
+        delete u._seenFamilyIds;
+        if (u.familyOnly) continue; // skip parents already represented by family-only results
+
+        unified.push(u);
+      }
+
+      console.groupCollapsed("📦 [searchUsers] ADMIN unified summary");
+      console.log("Query:", q, "| Clause:", clauseUsed);
+      for (const u of unified) {
+        console.log(
+          `👤 ${u.name || "(family)"} | familyOnly=${u.familyOnly} | famCount=${u.familyMembers?.length || 0}`
+        );
+        for (const f of u.familyMembers || []) {
+          console.log("   ↳ 👪", f.name, "|", f.email, "|", f.relation);
+        }
+      }
+      console.groupEnd();
+
+      return res.json(unified);
+    }
+
+    // ============================================================
+    // REGULAR USER — Own Family Only
+    // ============================================================
+    const me = await User.findById(req.user._id).select("familyMembers canCharge");
+    const family = me?.familyMembers || [];
+    const filtered = family
+      .filter(m =>
+        Object.values(m.toObject ? m.toObject() : m)
+          .some(val => val && String(val).toLowerCase().includes(q))
+      )
+      .map(m => ({ ...(m.toObject ? m.toObject() : m), canCharge: Boolean(me.canCharge) }));
+
+    const payload = [{ _id: req.user._id, canCharge: Boolean(me?.canCharge), familyMembers: filtered }];
+
+    console.groupCollapsed("🔎 [searchUsers] REGULAR");
+    console.log("user:", req.user._id, "query:", q, "results:", filtered.length);
+    console.table(filtered.map(f => ({ _id: String(f._id), name: f.name, email: f.email, relation: f.relation })));
+    console.groupEnd();
+
+    return res.json(payload);
+
+  } catch (err) {
+    console.error("❌ [searchUsers] Error:", err);
+    res.status(500).json({ message: "Server error performing hybrid search", error: err.message });
+  }
+};
+
+
 /* ============================================================
    🟢 Get current logged-in user
    ============================================================ */
@@ -17,15 +400,50 @@ exports.getMe = async (req, res) => {
   }
 };
 
+
 /* ============================================================
-   🟢 Get all users
+   📋 Get all users (admin only)
    ============================================================ */
+// controllers/userController.js (inside getAllUsers)
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select("-passwordHash -otpCode -otpAttempts");
-    res.json(users);
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit || "1000", 10), 5000);
+    // compact projection for the list
+    const projection = {
+      name: 1, email: 1, phone: 1, idNumber: 1, city: 1, birthDate: 1,
+      role: 1, canCharge: 1,
+      "familyMembers._id": 1,
+      "familyMembers.name": 1,
+      "familyMembers.email": 1,
+      "familyMembers.phone": 1,
+      "familyMembers.idNumber": 1,
+      "familyMembers.city": 1,
+      "familyMembers.birthDate": 1,
+      "familyMembers.relation": 1,
+    };
+
+    const users = await User.find({}, projection)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const enriched = users.map((u) => ({
+      ...u,
+      canCharge: Boolean(u.canCharge),
+      familyMembers: (u.familyMembers || []).map((f) => ({
+        ...f,
+        canCharge: Boolean(u.canCharge),
+      })),
+    }));
+
+    return res.json(enriched);
   } catch (err) {
-    res.status(500).json({ message: "Server error fetching users" });
+    console.error("❌ [getAllUsers] Error:", err);
+    return res.status(500).json({ message: "Server error loading users", error: err.message });
   }
 };
 
@@ -216,48 +634,42 @@ await Workshop.updateMany(
   }
 };
 
-/* ============================================================
-   🧾 Get workshops per user or family member
-   ============================================================ */
+
 /* ============================================================
    🧾 Get workshops per user or family member (Stable version)
    ============================================================ */
 exports.getUserWorkshopsList = async (req, res) => {
   try {
-    const { id } = req.params; // userId or familyMemberId
+    const { id } = req.params; // parentUserId
     const familyIdQuery = req.query.familyId || null;
 
-    // בדיקה אם זה בן משפחה
-    const user = await User.findById(id);
-    let parentUser = null;
-    let familyMember = null;
-
-    if (!user) {
-      parentUser = await User.findOne({ "familyMembers._id": id });
-      if (!parentUser)
-        return res.status(404).json({ message: "User or family member not found" });
-
-      familyMember = parentUser.familyMembers.id(id);
-      if (!familyMember)
-        return res.status(404).json({ message: "Family member not found" });
-    } else {
-      parentUser = user;
+    // Always treat `id` as the parent user ID.  This endpoint should be
+    // invoked as /api/users/:userId/workshops for the user themselves or
+    // /api/users/:parentUserId/workshops?familyId=:familyId for a specific
+    // family member.  Do not attempt to infer a family member from the
+    // route parameter.
+    const parentUser = await User.findById(id).select("familyMembers name email");
+    if (!parentUser) {
+      return res.status(404).json({ message: "User not found" });
     }
 
     const summaries = [];
 
-    // 🟢 Case 1: Regular user (not family)
-    if (user) {
+    // 🟢 Branch A: fetch summaries for the parent user and all family members
+    // if no specific familyId is requested.
+    if (!familyIdQuery) {
+      // Pull workshops where either the user or any of their family
+      // registrations exist.  Only project the fields we actually return.
       const workshops = await Workshop.find({
         $or: [
-          { participants: user._id },
-          { "familyRegistrations.parentUser": user._id },
+          { participants: parentUser._id },
+          { "familyRegistrations.parentUser": parentUser._id },
         ],
       }).select("title coach day hour participants familyRegistrations");
 
       workshops.forEach((w) => {
-        // סדנאות שבהן המשתמש עצמו רשום
-        if ((w.participants || []).map(String).includes(String(user._id))) {
+        // Add an entry for direct user registrations
+        if ((w.participants || []).map(String).includes(String(parentUser._id))) {
           summaries.push({
             workshopId: w._id,
             title: w.title,
@@ -267,73 +679,50 @@ exports.getUserWorkshopsList = async (req, res) => {
             relation: "self",
           });
         }
-
-        // סדנאות שבהן בן משפחה שלו רשום
-        (w.familyRegistrations || []).forEach((f) => {
-          if (String(f.parentUser) === String(user._id)) {
-            summaries.push({
-              workshopId: w._id,
-              title: w.title,
-              coach: w.coach,
-              day: w.day,
-              hour: w.hour,
-              relation: `${f.name || ""}${f.relation ? ` (${f.relation})` : ""}`,
-              familyMemberId: f.familyMemberId,
-            });
-          }
+        // Add entries for each of the parent's family registrations
+        (w.familyRegistrations || []).forEach((fr) => {
+          if (String(fr.parentUser) !== String(parentUser._id)) return;
+          summaries.push({
+            workshopId: w._id,
+            title: w.title,
+            coach: w.coach,
+            day: w.day,
+            hour: w.hour,
+            relation: `${fr.name || ""}${fr.relation ? ` (${fr.relation})` : ""}`,
+            familyMemberId: fr.familyMemberId,
+          });
         });
       });
+      return res.json(summaries);
     }
 
-    // 🟢 Case 2: family member directly
-    if (familyMember && parentUser) {
-      const workshops = await Workshop.find({
-        "familyRegistrations.familyMemberId": familyMember._id,
-        "familyRegistrations.parentUser": parentUser._id,
-      }).select("title coach day hour familyRegistrations");
+    // 🟢 Branch B: fetch only the workshops for a specific family member
+    const famId = familyIdQuery;
+    // Validate that this family member belongs to the parent user
+    const familyMember = parentUser.familyMembers.id(famId);
+    if (!familyMember) {
+      return res.status(404).json({ message: "Family member not found" });
+    }
+    const workshopsForFamily = await Workshop.find({
+      "familyRegistrations.parentUser": parentUser._id,
+      "familyRegistrations.familyMemberId": familyMember._id,
+    }).select("title coach day hour familyRegistrations");
 
-      workshops.forEach((w) => {
-        summaries.push({
-          workshopId: w._id,
-          title: w.title,
-          coach: w.coach,
-          day: w.day,
-          hour: w.hour,
-          relation: `${familyMember.name || ""}${
-            familyMember.relation ? ` (${familyMember.relation})` : ""
-          }`,
-          familyMemberId: familyMember._id,
-        });
+    workshopsForFamily.forEach((w) => {
+      summaries.push({
+        workshopId: w._id,
+        title: w.title,
+        coach: w.coach,
+        day: w.day,
+        hour: w.hour,
+        relation: `${familyMember.name || ""}${familyMember.relation ? ` (${familyMember.relation})` : ""}`,
+        familyMemberId: familyMember._id,
       });
-    }
-
-    // 🟡 Optional filter by ?familyId query param
-    if (familyIdQuery) {
-      return res.json(
-        summaries.filter(
-          (s) => String(s.familyMemberId || "") === String(familyIdQuery)
-        )
-      );
-    }
-
+    });
     return res.json(summaries);
   } catch (err) {
     console.error("❌ getUserWorkshopsList error:", err);
-    res
-      .status(500)
-      .json({ message: "Server error fetching workshops list", error: err.message });
+    res.status(500).json({ message: "Server error fetching workshops list", error: err.message });
   }
 };
 
-/* ============================================================
-   🟢 Delete user
-   ============================================================ */
-exports.deleteUser = async (req, res) => {
-  try {
-    const deleted = await User.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "User not found" });
-    res.json({ message: "User deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Server error deleting user" });
-  }
-};

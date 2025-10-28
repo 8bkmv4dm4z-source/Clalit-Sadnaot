@@ -33,6 +33,13 @@ router.get(
 // ✅ כל הסדנאות (כולל מידע אישי על המשתמש המחובר)
 router.get("/", workshopController.getAllWorkshops);
 
+// ✅ Smart search over workshops with filters
+// This endpoint performs an indexed text search (Atlas search) over
+// workshop fields (title, description, coach, type, city) and supports
+// additional filters such as city, day, hour, type, ageGroup, coach and availability.
+// It must appear before ":id" routes to avoid conflicting with numeric IDs.
+router.get("/search", workshopController.searchWorkshops);
+
 // ✅ רשימת הסדנאות שהמשתמש או אחד מבני משפחתו רשומים אליהן
 router.get("/registered", protect, workshopController.getRegisteredWorkshops);
 

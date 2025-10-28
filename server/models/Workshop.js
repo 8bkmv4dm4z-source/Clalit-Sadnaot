@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 
+/* ============================================================
+   🧱 Workshop Schema — Optimized for High-Performance Search
+   ============================================================ */
 const WorkshopSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
@@ -7,8 +10,8 @@ const WorkshopSchema = new mongoose.Schema(
     ageGroup: { type: String, default: "", trim: true },
 
     /** 📍 Location (Validated City + Address) */
-    city: { type: String, required: true, trim: true }, // ✅ חובה
-    address: { type: String, default: "", trim: true }, // ✅ כתובת נבדקת מול העיר
+    city: { type: String, required: true, trim: true },
+    address: { type: String, default: "", trim: true },
     studio: { type: String, default: "", trim: true },
     coach: { type: String, default: "", trim: true },
 
@@ -23,7 +26,7 @@ const WorkshopSchema = new mongoose.Schema(
     },
     hour: { type: String, default: "", trim: true },
     sessionsCount: { type: Number, default: 4, min: 1 },
-    startDate: { type: Date, required: false },
+    startDate: { type: Date },
     endDate: { type: Date },
     inactiveDates: { type: [Date], default: [] },
 
@@ -62,6 +65,7 @@ const WorkshopSchema = new mongoose.Schema(
     waitingListMax: { type: Number, default: 10, min: 0 },
     autoEnrollOnVacancy: { type: Boolean, default: false },
 
+    /** 📊 Counters */
     participantsCount: { type: Number, default: 0 },
     maxParticipants: { type: Number, default: 20, min: 0 },
   },
@@ -72,8 +76,8 @@ const WorkshopSchema = new mongoose.Schema(
    🧮 Middleware — Auto calculate endDate (with inactiveDates)
    ============================================================ */
 WorkshopSchema.pre("save", function (next) {
-  if (this.startDate && Array.isArray(this.days) && this.days.length > 0 && this.sessionsCount) {
-    try {
+  try {
+    if (this.startDate && Array.isArray(this.days) && this.days.length > 0 && this.sessionsCount) {
       const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const start = new Date(this.startDate);
       let sessions = 0;
@@ -90,22 +94,22 @@ WorkshopSchema.pre("save", function (next) {
         if (this.days.includes(dayName) && !inactiveSet.has(dateStr)) {
           sessions++;
         }
-
         current.setDate(current.getDate() + 1);
       }
 
       this.endDate = current;
-    } catch (err) {
-      console.warn("⚠️ Error calculating endDate:", err.message);
     }
+
+    // ✅ Auto update participant count
+    const familyCount = this.familyRegistrations?.length || 0;
+    const directCount = this.participants?.length || 0;
+    this.participantsCount = directCount + familyCount;
+
+    next();
+  } catch (err) {
+    console.warn("⚠️ Error calculating endDate:", err.message);
+    next();
   }
-
-  // ✅ update participantsCount
-  const familyCount = this.familyRegistrations?.length || 0;
-  const directCount = this.participants?.length || 0;
-  this.participantsCount = directCount + familyCount;
-
-  next();
 });
 
 /* ============================================================
@@ -116,5 +120,44 @@ WorkshopSchema.methods.canAddParticipant = function () {
   const total = (this.participants?.length || 0) + (this.familyRegistrations?.length || 0);
   return total < this.maxParticipants;
 };
+
+/* ============================================================
+   ⚙️ Index Layer — for Search & Filters
+   ============================================================ */
+
+// 🎯 Single-field indexes
+WorkshopSchema.index({ city: 1 });
+WorkshopSchema.index({ coach: 1 });
+WorkshopSchema.index({ type: 1 });
+WorkshopSchema.index({ available: 1 });
+WorkshopSchema.index({ startDate: 1 });
+
+// ⚙️ Compound index (used by admin dashboards & filters)
+WorkshopSchema.index({ city: 1, coach: 1, type: 1, available: 1 });
+
+// 📦 Multikey indexes for family registration lookups
+WorkshopSchema.index({ "familyRegistrations.familyMemberId": 1 });
+WorkshopSchema.index({ "familyRegistrations.idNumber": 1 });
+
+// 🧠 Weighted text index for smart search
+WorkshopSchema.index(
+  {
+    title: "text",
+    description: "text",
+    coach: "text",
+    type: "text",
+    city: "text",
+  },
+  {
+    weights: {
+      title: 5,
+      coach: 4,
+      type: 3,
+      city: 2,
+      description: 1,
+    },
+    name: "WorkshopTextIndex",
+  }
+);
 
 module.exports = mongoose.model("Workshop", WorkshopSchema);

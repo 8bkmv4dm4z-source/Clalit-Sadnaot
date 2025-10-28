@@ -14,6 +14,11 @@
     "@fullcalendar/interaction": "^6.1.19",
     "@fullcalendar/react": "^6.1.19",
     "@fullcalendar/timegrid": "^6.1.19",
+    "@react-spring/web": "^10.0.3",
+    "@tanstack/react-virtual": "^3.13.12",
+    "@use-gesture/react": "^10.3.1",
+    "framer-motion": "^12.23.24",
+    "panzoom": "^9.4.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.23.1"

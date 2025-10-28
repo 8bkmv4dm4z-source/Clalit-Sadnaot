@@ -1,10 +1,34 @@
 /**
- * WorkshopParticipantsModal.jsx — Full Server-Driven Version (Final)
+ * WorkshopParticipantsModal.jsx — Participant & Waitlist Management
  * -----------------------------------------------------------------
- * ✅ מציג משתתפים ורשימת המתנה
- * ✅ מאפשר עריכה, ביטול, הוספה, וקידום מרשימת המתנה
- * ✅ מונע קידום אם אין מקום
- * ✅ משתמש אך ורק ב-apiFetch (ללא props לוגיים)
+ * This modal allows administrators to view and manage the participants
+ * and waitlist of a specific workshop.  It leverages the
+ * WorkshopContext to perform all mutating actions (register,
+ * unregister, promote) so that after each operation the context
+ * refetches data from the server and updates the UI.  Direct
+ * apiFetch calls are only used to fetch the read-only lists of
+ * participants and waitlist entries; all writes go through
+ * WorkshopContext functions to enforce the invariant that the
+ * client never mutates state locally.
+ *
+ * Features:
+ * - Lists current participants and waitlist entries for the selected workshop.
+ * - Allows adding existing users/family members to a workshop via
+ *   the AllProfiles component.
+ * - Supports unregistering participants or waitlist entries and
+ *   promoting waitlisted entries into participants, with capacity
+ *   checks.
+ * - Provides CSV/Excel export of the lists (handled server-side).
+ *
+ * Data Flow:
+ * - Read operations (fetching participants/waitlist) call the server
+ *   directly via apiFetch.
+ * - Mutations (registering, unregistering, promoting) call helper
+ *   functions from WorkshopContext, which send the appropriate
+ *   request to the server and trigger a refetch of global workshop
+ *   data.  The modal itself then refreshes its own local lists.
+ *
+ * See README for more information about the overarching data flow.
  */
 
 import React, { useEffect, useState, useCallback } from "react";
@@ -141,7 +165,18 @@ function QuickEdit({ person, onClose, onSaved }) {
 
 /** 🔹 Main Modal */
 export default function WorkshopParticipantsModal({ workshop, onClose }) {
-  const { fetchWorkshops } = useWorkshops();
+  // Pull helpers from WorkshopContext.  We deliberately avoid
+  // performing workshop mutations via direct apiFetch calls so that
+  // the context can refetch and rebuild registration maps after each
+  // change.  fetchWorkshops is still used to refresh the global
+  // workshop list after operations complete.
+  const {
+    fetchWorkshops,
+    registerEntityToWorkshop,
+    unregisterEntityFromWorkshop,
+    registerToWaitlist,
+    unregisterFromWaitlist,
+  } = useWorkshops();
   const { refreshMe } = useAuth();
 
   const [participants, setParticipants] = useState([]);
@@ -181,16 +216,17 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const handleUnregister = async (person, fromWaitlist = false) => {
     if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
     try {
-      const payload = person.isFamily ? { familyId: person._id } : {};
-      const endpoint = fromWaitlist
-        ? `/api/workshops/${workshop._id}/waitlist-entity`
-        : `/api/workshops/${workshop._id}/unregister-entity`;
-      const res = await apiFetch(endpoint, {
-        method: "DELETE",
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "שגיאה בביטול");
+      const familyId = person.isFamily ? person._id : null;
+      // Use context helpers depending on whether we remove from waitlist or participants
+      let result;
+      if (fromWaitlist) {
+        result = await unregisterFromWaitlist(workshop._id, familyId);
+      } else {
+        result = await unregisterEntityFromWorkshop(workshop._id, familyId);
+      }
+      if (!result || result.success === false) {
+        throw new Error(result?.message || "שגיאה בביטול");
+      }
       setMessage("🚫 בוטל בהצלחה");
       await fetchAll();
       await fetchWorkshops();
@@ -202,8 +238,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   /** Promote from waitlist → participants */
   const handlePromote = async (wl) => {
     try {
-      const payload = wl.familyMemberId ? { familyId: wl.familyMemberId } : {};
-
+      const familyId = wl.familyMemberId || null;
       // בדיקת מקום
       const isFull =
         (workshop.participantsCount ??
@@ -214,21 +249,16 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         alert("❌ אין מקום פנוי לקידום משתתף זה.");
         return;
       }
-
-      // שלב 1: הסר מרשימת ההמתנה
-      await apiFetch(`/api/workshops/${workshop._id}/waitlist-entity`, {
-        method: "DELETE",
-        body: JSON.stringify(payload),
-      });
-
-      // שלב 2: רשום לרשימת המשתתפים
-      const res = await apiFetch(`/api/workshops/${workshop._id}/register-entity`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "שגיאה בקידום מהרשימה");
-
+      // שלב 1: הסר מרשימת ההמתנה באמצעות context
+      const unres = await unregisterFromWaitlist(workshop._id, familyId);
+      if (!unres || unres.success === false) {
+        throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
+      }
+      // שלב 2: רשום לרשימת המשתתפים באמצעות context
+      const regRes = await registerEntityToWorkshop(workshop._id, familyId);
+      if (!regRes || regRes.success === false) {
+        throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
+      }
       setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
       await fetchAll();
       await fetchWorkshops();
@@ -420,16 +450,11 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
               mode="select"
               onSelectUser={async (p) => {
                 try {
-                  const payload = p.isFamily ? { familyId: p._id } : {};
-                  const res = await apiFetch(
-                    `/api/workshops/${workshop._id}/register-entity`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify(payload),
-                    }
-                  );
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data.message || "שגיאה בהרשמה");
+                  const familyId = p.isFamily ? p._id : null;
+                  const res = await registerEntityToWorkshop(workshop._id, familyId);
+                  if (!res || res.success === false) {
+                    throw new Error(res?.message || "שגיאה בהרשמה");
+                  }
                   setShowProfiles(false);
                   await fetchAll();
                   await fetchWorkshops();

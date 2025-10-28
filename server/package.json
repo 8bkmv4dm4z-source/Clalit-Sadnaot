@@ -1,47 +1,45 @@
 {
   "name": "clalit-workshops-server",
   "version": "1.0.0",
-  "description": "Express server skeleton for the Clalit Workshops app with MongoDB integration.",
+  "private": true,
+  "description": "MERN backend for Clalit Workshops — Express + MongoDB Atlas",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "cross-env NODE_ENV=\"production\" node server.js",
-    "dev": "cross-env NODE_ENV=\"development\" nodemon server.js",
-    "server": "cd server && cross-env NODE_ENV=\"production\" node server.js",
-    "dev-server": "cd server && cross-env NODE_ENV=\"development\" npx nodemon server.js",
-    "loadtest": "cross-env NODE_ENV=\"loadtest\" node server.js",
-    "loadtest-dev": "cross-env NODE_ENV=\"loadtest\" nodemon server.js",
-    "scan:limiters": "node scripts/find-rate-limiters.js",
-    "scan:skips": "node scripts/find-skip.js",
-    "test:load": "cross-env NODE_ENV=\"loadtest\" k6 run tests/k6/03-scenario-auth-register.js --out json=tests/results/loadtest.ndjson --summary-export=tests/results/loadtest.json",
-    "test:report": "node scripts/generate-k6-report.js",
-    "test:e2e": "npx artillery run tests/artillery/e2e-multiuser.yaml",
-    "test:full": "npm run test:load && npm run test:report"
+    "start": "cross-env NODE_ENV=production node server.js",
+    "dev": "cross-env NODE_ENV=development nodemon server.js",
+    "loadtest": "cross-env NODE_ENV=loadtest node server.js",
+    "test": "node ./tests/testUserImport.js",
+    "k6": "k6 run tests/k6/scenarios.js",
+    "artillery": "artillery run tests/artillery/scenario.yaml",
+    "lint": "echo 'No linter configured'"
+  },
+  "engines": {
+    "node": ">=18.18.0"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "celebrate": "^15.0.3",
-    "compression": "^1.8.1",
-    "cookie-parser": "^1.4.7",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "dotenv": "^16.6.1",
+    "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
-    "express": "^4.21.2",
+    "express": "^4.19.2",
     "express-mongo-sanitize": "^2.2.0",
-    "express-rate-limit": "^8.1.0",
-    "helmet": "^8.1.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
     "hpp": "^0.2.3",
-    "joi": "^18.0.1",
+    "joi": "^17.12.3",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^7.3.4",
-    "nodemailer": "^7.0.9"
+    "mongoose": "^8.5.0",
+    "nodemailer": "^6.9.13",
+    "celebrate": "^15.0.3"
   },
   "devDependencies": {
-    "artillery": "^2.0.26",
-    "cross-env": "^10.1.0",
-    "k6-html-reporter": "^1.0.5",
-    "nodemon": "^3.1.10"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+    "artillery": "^2.0.0-34",
+    "k6": "^0.48.0",
+    "nodemon": "^3.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5",
+    "cross-env": "^7.0.3"
+  }
 }

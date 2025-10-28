@@ -7,6 +7,8 @@
  */
 
 import "./styles/index.css";
+// client/src/main.jsx (or App.jsx)
+import './styles/SimpleGCal.css';
 
 import React from "react";
 import ReactDOM from "react-dom/client";
