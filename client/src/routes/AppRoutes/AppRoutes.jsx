@@ -19,13 +19,12 @@ import Workshops from "../../pages/Workshops/Workshops";
 import EditWorkshop from "../../pages/EditWorkshop";
 import AllProfiles from "../../pages/AllProfiles";
 import EditProfile from "../../pages/EditProfile";
-import MyWorkshops from "../../pages/MyWorkshops/MyWorkshops"; // ✅ new
-import { useWorkshops } from "../../layouts/WorkshopContext";   // ✅ context access
+import MyWorkshopsSimpleGcal from '../../pages/MyWorkshops/MyWorkshopsSimpleGcal';
+import { useWorkshops } from "../../layouts/WorkshopContext";   
 
 // 🧭 Layouts
 import AppShell from "../../layouts/AppShell";
 import PublicLayout from "../../layouts/PublicLayout";
-import MyWorkshopWrapper from "../../layouts/MyWorkshopWrapper"; // ✅ wrapper
 
 /* ============================================================
    🔹 Main Routing Tree
@@ -47,7 +46,7 @@ export default function AppRoutes() {
       <Routes>
         <Route element={<AppShell />}>
           <Route path="/workshops" element={<Workshops />} />
-          <Route path="/myworkshops" element={<MyWorkshopWrapper />} /> {/* ✅ calendar */}
+          <Route path="/myworkshops" element={<MyWorkshopsSimpleGcal/>} /> {/* ✅ calendar */}
           <Route path="/profile" element={<Profile />} />
           {isAdmin && (
             <>

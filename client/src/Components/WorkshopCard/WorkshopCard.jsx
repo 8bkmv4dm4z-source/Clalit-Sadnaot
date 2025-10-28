@@ -1,28 +1,22 @@
 /**
- * WorkshopCard.jsx — Server-driven Logic + Modern Mobile UI (Full)
- * ----------------------------------------------------------------
- * ✅ SAME server API paths & button logic you asked for:
- *    - POST   /api/workshops/:id/register-entity        (body: {familyId?})
- *    - DELETE /api/workshops/:id/unregister-entity      (body: {familyId?})
- *    - POST   /api/workshops/:id/waitlist-entity        (body: {familyId?})
- *    - DELETE /api/workshops/:id/waitlist-entity        (body: {familyId?})
- * ✅ Props unchanged & supported: isLoggedIn, isAdmin, userFamilyRegistrations, searchQuery, etc.
- * ✅ Mobile-first design, compact and clean
- * ✅ Light gradient styling, aligned with your current palette
- * ✅ Type appears as a separate tag (not mixed with title)
- * ✅ Description opens in its own modal (no main header mix)
- * ✅ City + Address shown on one line
- * ✅ Days + Hour merged to one line (with icons)
- * ✅ Toggle between participants ↔ waitlist amounts (icons & numbers both change)
- * ✅ Admin actions in a compact kebab menu (edit/manage/delete)
- * ✅ Family modal intact (register/unregister/waitlist per member)
- * ✅ Search highlight preserved
+ * WorkshopCard.jsx — Robust Self/Family Registration Resolution + Logs
+ * --------------------------------------------------------------------
+ * Priority for SELF registered state:
+ *   1) registeredWorkshopIds.includes(_id)         ← Context strong signal
+ *   2) userWorkshopMap[_id] === true               ← Map from Context fetch
+ *   3) isRegistered (prop from page)               ← Optional server flag
+ *   4) participants includes userId                ← Fallback from payload
+ *
+ * Family registered state:
+ *   - familyWorkshopMap[_id] or userFamilyRegistrations (prop)
+ *
+ * Toggle logs:
+ *   localStorage.setItem("DEBUG_WS","1"); location.reload();
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-import { apiFetch } from "../../utils/apiFetch";
 import {
   MapPin,
   Users,
@@ -38,25 +32,33 @@ import {
   MoreVertical,
   User as UserIcon,
   Check,
-  X,
 } from "lucide-react";
 
-/* ===================== Tiny helpers ===================== */
+const dbg = (...args) => {
+  try {
+    if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
+      console.log("[WS-CARD]", ...args);
+    }
+  } catch (_) {}
+};
+
 const str = (v) => (v === 0 || v ? String(v) : "");
-const extractId = (obj) =>
-  str(
-    (obj &&
-      (obj._id ||
-        obj.id ||
-        obj.userId ||
-        obj.user_id ||
-        obj.familyMemberId ||
-        obj.memberId ||
-        obj.family_id ||
-        obj.entityId ||
-        obj.entity_id)) ||
-      (typeof obj === "string" || typeof obj === "number" ? obj : "")
-  );
+const extractId = (obj) => {
+  if (typeof obj === "string" || typeof obj === "number") return String(obj);
+  const direct =
+    obj?._id ||
+    obj?.id ||
+    obj?.userId ||
+    obj?.user_id ||
+    obj?.familyMemberId ||
+    obj?.memberId ||
+    obj?.family_id ||
+    obj?.entityId ||
+    obj?.entity_id;
+  if (direct) return String(direct);
+  if (obj && typeof obj.toString === "function") return String(obj.toString());
+  return "";
+};
 
 const hebDaysLetters = {
   Sunday: "א",
@@ -68,9 +70,8 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-/* ===================== Component ===================== */
 export default function WorkshopCard({
-  // core
+  // core props
   _id,
   title,
   type,
@@ -78,7 +79,7 @@ export default function WorkshopCard({
   ageGroup,
   coach,
   city,
-  address, // ✅ NEW: combined with city in UI
+  address,
   studio,
   days = [],
   hour,
@@ -87,7 +88,7 @@ export default function WorkshopCard({
   available,
   participants = [],
   waitingList = [],
-  waitingListMax = 0, // 0=∞
+  waitingListMax = 0,
   participantsCount = 0,
   maxParticipants = 0,
   startDate,
@@ -99,51 +100,64 @@ export default function WorkshopCard({
   isLoggedIn,
   isAdmin,
 
-  // admin actions (from parent)
+  // actions
   onDeleteWorkshop,
   onManageParticipants,
   onEditWorkshop,
 
-  // user-specific flags from server
+  // user-specific from page/server (optional)
   userFamilyRegistrations = [],
+  isRegistered, // optional server flag
 
-  // ux
+  // optional precomputed object
+  userFamilyWorkshopMap,
+
+  // search UX
   searchQuery = "",
 }) {
   const { user } = useAuth();
-  const { fetchWorkshops } = useWorkshops();
+  const {
+    fetchWorkshops,
+    registerEntityToWorkshop,
+    unregisterEntityFromWorkshop,
+    registerToWaitlist,
+    unregisterFromWaitlist,
 
-  /* ===================== Local UI state ===================== */
+    // ⬇️ We will use these as primary signals
+    registeredWorkshopIds,
+    userWorkshopMap,
+    familyWorkshopMap,
+  } = useWorkshops();
+
+  /* ---------------- Local state ---------------- */
   const [showFamilyModal, setShowFamilyModal] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-
   const adminMenuRef = useRef(null);
 
   useEffect(() => {
-    const clickOutside = (e) => {
+    const handleClick = (e) => {
       if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) {
         setAdminOpen(false);
       }
     };
-    document.addEventListener("mousedown", clickOutside);
-    return () => document.removeEventListener("mousedown", clickOutside);
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  /* ===================== Derived / Normalize ===================== */
+  /* ---------------- Derived data ---------------- */
   const userId = str(user?._id);
 
-  // normalize participants to ID set
+  // Normalize lists for checks
   const participantIdSet = useMemo(() => {
     const arr = Array.isArray(participants) ? participants : [];
     return new Set(arr.map(extractId).filter(Boolean));
   }, [participants]);
 
-  // waitlist entries normalized
-  const waitEntries = useMemo(() => {
+  const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
     return list.map((w) => ({
       parentUserId: str(w?.parentUser?._id || w?.parentUser || ""),
@@ -151,199 +165,172 @@ export default function WorkshopCard({
     }));
   }, [waitingList]);
 
-  // set of family members of current user registered (from server flag)
-  const familyRegisteredIdSet = useMemo(() => {
-    const arr = Array.isArray(userFamilyRegistrations)
-      ? userFamilyRegistrations
-      : [];
-    return new Set(arr.map(str).filter(Boolean));
-  }, [userFamilyRegistrations]);
+  const selfOnWaitlist = useMemo(
+    () => waitRows.some((e) => e.parentUserId === userId && !e.familyMemberId),
+    [waitRows, userId]
+  );
 
   const isWorkshopFull =
     Number(maxParticipants) > 0 &&
-    Number(participantsCount || 0) >= Number(maxParticipants);
+    Number(participantsCount || participants?.length || 0) >= Number(maxParticipants);
 
   const isWaitlistFull =
-    Number(waitingListMax) > 0 && waitEntries.length >= Number(waitingListMax);
-
-  const selfOnWaitlist = waitEntries.some(
-    (e) => e.parentUserId === userId && !e.familyMemberId
-  );
+    Number(waitingListMax) > 0 && waitRows.length >= Number(waitingListMax);
 
   const daysStr =
     (Array.isArray(days) && days.length
       ? days.map((d) => hebDaysLetters[d] || d).join(", ")
       : "—") || "—";
 
-  const waitCount = waitEntries.length;
-
-  const startDateStr = startDate
-    ? new Date(startDate).toLocaleDateString("he-IL")
-    : "";
+  const startDateStr = startDate ? new Date(startDate).toLocaleDateString("he-IL") : "";
   const endDateStr = endDate ? new Date(endDate).toLocaleDateString("he-IL") : "";
-
   const inactiveStr =
     Array.isArray(inactiveDates) && inactiveDates.length
-      ? inactiveDates
-          .map((d) => new Date(d).toLocaleDateString("he-IL"))
-          .join(", ")
+      ? inactiveDates.map((d) => new Date(d).toLocaleDateString("he-IL")).join(", ")
       : null;
 
-  /* ===================== Highlight (search) ===================== */
-  const highlight = (text = "") => {
-    if (!searchQuery?.trim()) return text;
-    const q = searchQuery.toLowerCase();
-    return String(text)
-      .split(new RegExp(`(${searchQuery})`, "gi"))
-      .map((part, i) =>
-        part.toLowerCase().includes(q) ? (
-          <mark key={i} className="bg-yellow-200 text-black rounded px-1">
-            {part}
-          </mark>
-        ) : (
-          part
-        )
-      );
-  };
+  // -------------- SELF registered resolution (priority chain) --------------
+  const isSelfRegistered = useMemo(() => {
+    // 1) registeredWorkshopIds (strong signal from /registered)
+    if (Array.isArray(registeredWorkshopIds) && _id) {
+      if (registeredWorkshopIds.includes(_id)) {
+        return true;
+      }
+    }
+    // 2) userWorkshopMap
+    const mapVal = userWorkshopMap ? userWorkshopMap[_id] : undefined;
+    if (typeof mapVal === "boolean") return mapVal;
 
-  /* ===================== Server calls ===================== */
-  const apiRegister = async (familyId) => {
-    const res = await apiFetch(`/api/workshops/${_id}/register-entity`, {
-      method: "POST",
-      body: JSON.stringify(familyId ? { familyId } : {}),
+    // 3) explicit prop
+    if (typeof isRegistered === "boolean") return isRegistered;
+
+    // 4) participants payload fallback
+    if (userId) return participantIdSet.has(userId);
+
+    return false;
+  }, [registeredWorkshopIds, userWorkshopMap, _id, isRegistered, participantIdSet, userId]);
+
+  // -------------- FAMILY registered --------------
+  const familyRegisteredIdSet = useMemo(() => {
+    const fromMap = familyWorkshopMap && Array.isArray(familyWorkshopMap[_id])
+      ? familyWorkshopMap[_id]
+      : undefined;
+    const src = fromMap ?? userFamilyRegistrations ?? [];
+    return new Set((src || []).map(str));
+  }, [familyWorkshopMap, userFamilyRegistrations, _id]);
+
+  // logs on mount + decisions
+  useEffect(() => {
+    dbg("mount", { wid: _id, title, userId });
+  }, [_id]);
+
+  useEffect(() => {
+    dbg("decision:self", {
+      wid: _id,
+      registeredWorkshopIds_contains: Array.isArray(registeredWorkshopIds) ? registeredWorkshopIds.includes(_id) : null,
+      userWorkshopMap_val: userWorkshopMap ? userWorkshopMap[_id] : undefined,
+      isRegistered_prop: isRegistered,
+      inParticipants: userId ? participantIdSet.has(userId) : null,
+      decided_isSelfRegistered: isSelfRegistered,
     });
-    const data = await res.json();
-    if (!res.ok || data?.success === false)
-      throw new Error(data?.message || "Register failed");
-    return data;
-  };
+  }, [registeredWorkshopIds, userWorkshopMap, _id, isRegistered, participantIdSet, userId, isSelfRegistered]);
 
-  const apiUnregister = async (familyId) => {
-    const res = await apiFetch(`/api/workshops/${_id}/unregister-entity`, {
-      method: "DELETE",
-      body: JSON.stringify(familyId ? { familyId } : {}),
+  useEffect(() => {
+    dbg("decision:family", {
+      wid: _id,
+      familyRegistered: Array.from(familyRegisteredIdSet || []),
+      waitRows,
     });
-    const data = await res.json();
-    if (!res.ok || data?.success === false)
-      throw new Error(data?.message || "Unregister failed");
-    return data;
-  };
+  }, [familyRegisteredIdSet, waitRows, _id]);
 
-  const apiAddToWaitlist = async (familyId) => {
-    const res = await apiFetch(`/api/workshops/${_id}/waitlist-entity`, {
-      method: "POST",
-      body: JSON.stringify(familyId ? { familyId } : {}),
-    });
-    const data = await res.json();
-    if (!res.ok || data?.success === false)
-      throw new Error(data?.message || "Waitlist failed");
-    return data;
-  };
-
-  const apiRemoveFromWaitlist = async (familyId) => {
-    const res = await apiFetch(`/api/workshops/${_id}/waitlist-entity`, {
-      method: "DELETE",
-      body: JSON.stringify(familyId ? { familyId } : {}),
-    });
-    const data = await res.json();
-    if (!res.ok || data?.success === false)
-      throw new Error(data?.message || "Unwaitlist failed");
-    return data;
-  };
-
-  /* ===================== Button logic (self + family) ===================== */
-  /**
-   * entity:
-   * - userId (string) for the main user
-   * - member object (with _id) for a family member
-   */
+  // ---------------- Button factory ----------------
   const getEntityButton = (entity) => {
-    const familyId = typeof entity === "object" ? str(entity?._id) : ""; // family only
+    const familyId = typeof entity === "object" ? str(entity?._id) : "";
     const isSelf = !familyId;
 
-    // registered?
-    const isSelfRegistered = participantIdSet.has(userId);
-    const isMemberRegistered = familyId
-      ? familyRegisteredIdSet.has(familyId)
+    const memberRegistered = familyId ? familyRegisteredIdSet.has(familyId) : false;
+    const memberOnWaitlist = familyId
+      ? waitRows.some((e) => e.parentUserId === userId && e.familyMemberId === familyId)
       : false;
 
-    // on waitlist?
-    const isMemberOnWaitlist = familyId
-      ? waitEntries.some(
-          (e) => e.parentUserId === userId && e.familyMemberId === familyId
-        )
-      : false;
+    const registered = isSelf ? isSelfRegistered : memberRegistered;
+    const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
 
-    // 1) unavailable
+    dbg("button-decision", {
+      wid: _id,
+      who: isSelf ? "self" : `family:${familyId}`,
+      available,
+      isWorkshopFull,
+      isWaitlistFull,
+      registered,
+      onWaitlist,
+      counts: {
+        participants: Number(participantsCount || participants?.length || 0),
+        maxParticipants,
+        waitCount: waitRows.length,
+        waitingListMax,
+      },
+    });
+
     if (!available) {
       return {
         label: "לא ניתן להירשם",
-        color:
-          "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
+        color: "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
         action: null,
       };
     }
 
-    // 2) registered → can unregister
-    if (isSelf ? isSelfRegistered : isMemberRegistered) {
+    if (registered) {
       return {
         label: "בטל הרשמה",
-        color:
-          "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: async () => apiUnregister(familyId || undefined),
+        color: "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
+        action: async () => unregisterEntityFromWorkshop(_id, familyId || undefined),
       };
     }
 
-    // 3) on waitlist → can remove from waitlist
-    if (isSelf ? selfOnWaitlist : isMemberOnWaitlist) {
+    if (onWaitlist) {
       return {
         label: "בטל רשימת המתנה",
-        color:
-          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => apiRemoveFromWaitlist(familyId || undefined),
+        color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
+        action: async () => unregisterFromWaitlist(_id, familyId || undefined),
       };
     }
 
-    // 4) not registered → check capacity
     if (isWorkshopFull) {
-      // full → is waitlist full?
       if (isWaitlistFull) {
         return {
           label: "לא ניתן להירשם",
-          color:
-            "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
+          color: "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
           action: null,
         };
       }
       return {
         label: "הצטרף לרשימת המתנה",
-        color:
-          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => apiAddToWaitlist(familyId || undefined),
+        color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
+        action: async () => registerToWaitlist(_id, familyId || undefined),
       };
     }
 
-    // 5) register normally
     return {
       label: "הירשם",
-      color:
-        "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: async () => apiRegister(familyId || undefined),
+      color: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
+      action: async () => registerEntityToWorkshop(_id, familyId || undefined),
     };
   };
 
-  /* ===================== Run action (with refresh + feedback) ===================== */
   const runEntityAction = async (entity) => {
     const btn = getEntityButton(entity);
     if (loading || !btn?.action) return;
+    const who = typeof entity === "object" ? `family:${str(entity?._id)}` : "self";
     setLoading(true);
+    dbg("action-start", { wid: _id, who, label: btn.label });
     try {
       await btn.action();
-      setFeedback(
-        `✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`
-      );
-      await fetchWorkshops();
+      dbg("action-success", { wid: _id, who, label: btn.label });
+      setFeedback(`✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`);
+      dbg("refetched-after-action", { wid: _id });
     } catch (e) {
+      dbg("action-error", { wid: _id, who, error: e?.message });
       setFeedback(`❌ ${e?.message || "שגיאה בביצוע פעולה"}`);
     } finally {
       setLoading(false);
@@ -351,23 +338,16 @@ export default function WorkshopCard({
     }
   };
 
-  /* ===================== UI ===================== */
+  /* ---------------- UI ---------------- */
   return (
     <>
-      {/* Card wrapper with subtle gradient (mobile-first) */}
       <div
         className="
-          relative
-          rounded-2xl
-          border border-indigo-100
-          shadow-sm
-          overflow-hidden
+          relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden
           bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white
-          hover:shadow-indigo-200 hover:-translate-y-[2px]
-          transition-all
-          "
+          hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all"
       >
-        {/* 💰 Price tag (floating) */}
+        {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
           <div className="absolute top-3 left-3 z-10">
             <div className="bg-indigo-600/95 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">
@@ -379,7 +359,7 @@ export default function WorkshopCard({
           </div>
         )}
 
-        {/* 🖼 Image */}
+        {/* Image */}
         <div className="relative h-44 w-full overflow-hidden">
           {image ? (
             <img
@@ -400,15 +380,13 @@ export default function WorkshopCard({
           )}
         </div>
 
-        {/* 📦 Content */}
+        {/* Content */}
         <div className="p-4 flex flex-col gap-3 text-right">
-          {/* Title row (no mixing with type) + Admin kebab */}
           <div className="flex items-center gap-2">
             <h3 className="text-base font-bold text-indigo-800 truncate flex-1">
-              {highlight(title)}
+              {highlight(title, searchQuery)}
             </h3>
 
-            {/* Admin compact menu */}
             {isAdmin && (
               <div className="relative" ref={adminMenuRef}>
                 <button
@@ -420,10 +398,7 @@ export default function WorkshopCard({
                 </button>
 
                 {adminOpen && (
-                  <div
-                    className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden"
-                    role="menu"
-                  >
+                  <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
                     <button
                       onClick={() => {
                         setAdminOpen(false);
@@ -457,61 +432,44 @@ export default function WorkshopCard({
             )}
           </div>
 
-          {/* Type chip (separate line) */}
           {type && (
             <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-100 rounded-full px-3 py-1 w-max ml-auto shadow-sm">
-              {highlight(type)}
+              {highlight(type, searchQuery)}
             </div>
           )}
 
-          {/* Key info rows (mobile-optimized, single-line content on the right) */}
+          {/* Info rows */}
           <div className="flex flex-col gap-2 mt-1 text-sm">
+            {/* Address */}
+            <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
+              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+                <MapPin size={16} />
+                כתובת
+              </span>
 
-            
-            {/* Address with clickable Google Maps icon */}
-<div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
-  <span className="flex items-center gap-1.5 font-bold text-indigo-900">
-    <MapPin size={16} />
-    כתובת
-  </span>
+              <span className="flex items-center gap-2 text-gray-800 truncate max-w-[65%] text-right">
+                {highlight(
+                  city && address ? `${city}, ${address}` : city || address || "—",
+                  searchQuery
+                )}
 
-  <span className="flex items-center gap-2 text-gray-800 truncate max-w-[65%] text-right">
-    {/* Text */}
-    {highlight(
-      city && address ? `${city}, ${address}` : city || address || "—"
-    )}
+                {(city || address) && (
+                  <a
+                    href={`https://www.google.com/maps?q=${encodeURIComponent(
+                      `${address || ""}, ${city || ""}`.trim()
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="פתח במפות Google"
+                    className="text-indigo-500 hover:text-indigo-700 transition-colors shrink-0"
+                  >
+                    🌍
+                  </a>
+                )}
+              </span>
+            </div>
 
-    {/* 🌍 Planet icon (opens Google Maps) */}
-    {(city || address) && (
-      <a
-        href={`https://www.google.com/maps?q=${encodeURIComponent(
-          `${address || ""}, ${city || ""}`.trim()
-        )}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        title="פתח במפות Google"
-        className="text-indigo-500 hover:text-indigo-700 transition-colors shrink-0"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
-          stroke="currentColor"
-          className="w-5 h-5"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 3.75c4.556 0 8.25 3.694 8.25 8.25S16.556 20.25 12 20.25 3.75 16.556 3.75 12 7.444 3.75 12 3.75zm0 0v4.5m0 0a3 3 0 11-3 3m3-3a3 3 0 013 3m-3 7.5v-4.5"
-          />
-        </svg>
-      </a>
-    )}
-  </span>
-</div>
-
-            {/* Coach & Studio  */}
+            {/* Coach & Studio */}
             <div className="grid grid-cols-1 gap-2">
               <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
                 <span className="flex items-center gap-1.5 font-bold text-indigo-900">
@@ -519,7 +477,7 @@ export default function WorkshopCard({
                   מאמן
                 </span>
                 <span className="text-gray-800 truncate max-w-[65%] text-right">
-                  {highlight(coach || "—")}
+                  {highlight(coach || "—", searchQuery)}
                 </span>
               </div>
 
@@ -529,26 +487,26 @@ export default function WorkshopCard({
                   סטודיו
                 </span>
                 <span className="text-gray-800 truncate max-w-[65%] text-right">
-                  {highlight(studio || "—")}
+                  {highlight(studio || "—", searchQuery)}
                 </span>
               </div>
             </div>
 
-            {/* Days + Hour combined */}
+            {/* Days + Hour */}
             <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 <Calendar size={16} />
                 ימים ושעה
               </span>
-              <span className="text-gray-800 truncate max-w-[65%] text-right inline-flex items-center gap-1">
-                {highlight(daysStr)}
+              <span className="text-gray-800 truncate max-w-[65%] inline-flex items-center gap-1">
+                {highlight(daysStr, searchQuery)}
                 <span className="text-gray-400">|</span>
                 <Clock size={14} className="text-gray-500 shrink-0" />
-                {highlight(hour || "—")}
+                {highlight(hour || "—", searchQuery)}
               </span>
             </div>
 
-            {/* Participants ↔ Waitlist toggle row */}
+            {/* Participants ↔ Waitlist toggle */}
             <button
               type="button"
               onClick={() => setShowWaitlist((p) => !p)}
@@ -564,12 +522,8 @@ export default function WorkshopCard({
                 {showWaitlist ? (
                   <>
                     <Hourglass size={16} className="text-amber-600" />
-                    {`${waitCount}/${waitingListMax || "∞"}`}
-                    {showWaitlist ? (
-                      <ChevronUp size={16} />
-                    ) : (
-                      <ChevronDown size={16} />
-                    )}
+                    {`${waitRows.length}/${waitingListMax || "∞"}`}
+                    {showWaitlist ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </>
                 ) : (
                   <>
@@ -577,43 +531,44 @@ export default function WorkshopCard({
                     {`${Number(
                       participantsCount || participants?.length || 0
                     )}/${maxParticipants || "∞"}`}
-                    {showWaitlist ? (
-                      <ChevronUp size={16} />
-                    ) : (
-                      <ChevronDown size={16} />
-                    )}
+                    {showWaitlist ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </>
                 )}
               </span>
             </button>
           </div>
 
-          {/* Description CTA (separate — not mixed into title) */}
+          {/* Description CTA */}
           {description && (
             <button
               onClick={() => setShowDescriptionModal(true)}
               className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
-              title="קרא תיאור"
             >
-              <Info size={16} />
-              קרא עוד על הסדנה
+              <Info size={16} /> קרא עוד על הסדנה
             </button>
           )}
 
           {/* Primary action (self) */}
           {isLoggedIn && (
-            <button
-              onClick={() => runEntityAction(userId)}
-              disabled={loading || !getEntityButton(userId)?.action}
-              className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${getEntityButton(
-                userId
-              ).color}`}
-            >
-              {loading ? "..." : getEntityButton(userId).label}
-            </button>
+            <>
+              {dbg("render-self-button", {
+                wid: _id,
+                finalLabel: getEntityButton(userId)?.label,
+                finalHasAction: !!getEntityButton(userId)?.action,
+              })}
+              <button
+                onClick={() => runEntityAction(userId)}
+                disabled={loading || !getEntityButton(userId)?.action}
+                className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
+                  getEntityButton(userId).color
+                }`}
+              >
+                {loading ? "..." : getEntityButton(userId).label}
+              </button>
+            </>
           )}
 
-          {/* Family register modal trigger */}
+          {/* Family modal trigger */}
           {user?.familyMembers?.length > 0 && (
             <button
               onClick={() => setShowFamilyModal(true)}
@@ -636,7 +591,7 @@ export default function WorkshopCard({
         </div>
       </div>
 
-      {/* 👨‍👩‍👧 Family Modal */}
+      {/* Family Modal */}
       {showFamilyModal && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
           <div className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-md text-right">
@@ -646,17 +601,14 @@ export default function WorkshopCard({
 
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1.5">
               {(user?.familyMembers || []).map((member) => {
-                const btn = getEntityButton(member);
                 const key = str(member?._id);
-                const isActionable = !!btn?.action;
-
-                // Derive small status chip: registered / waitlist / none
-                const isRegistered = familyRegisteredIdSet.has(str(member?._id));
-                const isWL = waitEntries.some(
-                  (e) =>
-                    e.parentUserId === userId &&
-                    e.familyMemberId === str(member?._id)
+                const familyId = key;
+                const isRegisteredFamily = familyRegisteredIdSet.has(familyId);
+                const isWL = waitRows.some(
+                  (e) => e.parentUserId === userId && e.familyMemberId === familyId
                 );
+                const btn = getEntityButton(member);
+                const isActionable = !!btn?.action;
 
                 return (
                   <div
@@ -675,16 +627,14 @@ export default function WorkshopCard({
                           {member.relation && (
                             <span className="truncate">{member.relation}</span>
                           )}
-                          {isRegistered && (
+                          {isRegisteredFamily && (
                             <span className="inline-flex items-center gap-1 text-green-700">
-                              <Check size={12} />
-                              רשום
+                              <Check size={12} /> רשום
                             </span>
                           )}
-                          {!isRegistered && isWL && (
+                          {!isRegisteredFamily && isWL && (
                             <span className="inline-flex items-center gap-1 text-amber-600">
-                              <Hourglass size={12} />
-                              ממתין
+                              <Hourglass size={12} /> ממתין
                             </span>
                           )}
                         </div>
@@ -715,7 +665,7 @@ export default function WorkshopCard({
         </div>
       )}
 
-      {/* 📖 Description Modal */}
+      {/* Description Modal */}
       {showDescriptionModal && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
           <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-lg w-[92%] text-right relative">
@@ -762,4 +712,24 @@ export default function WorkshopCard({
       )}
     </>
   );
+}
+
+/* ---------- small util ---------- */
+function highlight(text = "", query = "") {
+  if (!query?.trim()) return text;
+  const q = query.toLowerCase();
+  return String(text)
+    .split(new RegExp(`(${escapeRegExp(query)})`, "gi"))
+    .map((part, i) =>
+      part.toLowerCase().includes(q) ? (
+        <mark key={i} className="bg-yellow-200 text-black rounded px-1">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+}
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

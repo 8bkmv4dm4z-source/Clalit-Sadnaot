@@ -1,17 +1,44 @@
 /**
- * EditWorkshop.jsx — Multi-Sessions Admin Form (Create + Edit + Address Support)
+ * EditWorkshop.jsx — Multi-Sessions Admin Form (Create + Edit)
  * -----------------------------------------------------------------------------
- * ✓ תואם לסכמה החדשה (days[], sessionsCount, inactiveDates[], וכו')
- * ✓ תומך גם בנתונים ישנים (day, weeksDuration)
- * ✓ מציג ומעדכן city + address (כולל ולידציה רכה)
- * ✓ כולל חישוב endDate חיה ו־UI מלא
- * ✓ שימוש ב־apiFetch עם רענון טוקן אוטומטי
+ * This page provides a rich form for administrators to create or edit
+ * workshop records.  It supports multiple sessions, recurring days,
+ * inactive dates (holidays), soft address validation, live end-date
+ * previews, capacity settings, waitlist options and more.  The form
+ * works in both create (new workshop) and edit modes.
+ *
+ * Key Features:
+ * - Compatible with the new workshop schema (days[], sessionsCount,
+ *   inactiveDates[] and other fields) and gracefully handles legacy
+ *   data (day, weeksDuration).
+ * - Soft validation of address via the validateAddress helper from
+ *   WorkshopContext; debounced to reduce server load.
+ * - Fetches the list of available cities via fetchAvailableCities
+ *   from WorkshopContext, falling back to free text entry.
+ * - Automatically calculates and displays the expected end date based
+ *   on the start date, chosen days and session count.
+ * - Uses createWorkshop and updateWorkshop helpers from
+ *   WorkshopContext for all mutations, ensuring that after a save the
+ *   latest workshop data is refetched and the UI remains consistent.
+ *
+ * Data Flow:
+ * - On mount, the component obtains helper functions and the current
+ *   list of workshops from WorkshopContext.  It never calls apiFetch
+ *   directly for workshop mutations, instead delegating to context
+ *   methods which handle server interaction and state refresh.
+ * - City lists and address validation are also sourced from context.
+ * - After a successful save, navigation back to the workshops
+ *   listing occurs to show the updated data.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-import { apiFetch } from "../../utils/apiFetch";
+// apiFetch is intentionally not imported here.  All server
+// communication should be performed via functions provided by
+// WorkshopContext (createWorkshop, updateWorkshop, fetchAvailableCities,
+// validateAddress).  This ensures the client never bypasses the
+// central context and always refreshes local state after mutations.
 
 // === Day labels & mapping ===
 const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -69,7 +96,17 @@ export default function EditWorkshop() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { workshops, addWorkshopLocal, updateWorkshopLocal } = useWorkshops();
+  // Pull workshops and admin mutation helpers from context.  The
+  // client never mutates workshop state locally; instead it calls the
+  // provided create/update functions which talk to the server and
+  // trigger a refetch.
+  const {
+    workshops,
+    createWorkshop,
+    updateWorkshop,
+    fetchAvailableCities,
+    validateAddress: validateWorkshopAddress,
+  } = useWorkshops();
 
   const [form, setForm] = useState({
     title: "",
@@ -104,15 +141,18 @@ export default function EditWorkshop() {
   const existing = id ? workshops.find((w) => w?._id === id) : null;
 
   // --- fetch cities if not provided via navigation state
+  // Always use the fetchAvailableCities helper from WorkshopContext to
+  // retrieve the list of known cities.  This ensures that the data
+  // comes from a single source and that any server-side validation
+  // rules are applied uniformly.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       if (cities.length) return;
       try {
-        const res = await apiFetch("/api/workshops/cities"); // controller: getAvailableCities
-        const data = await res.json();
-        if (!cancelled && data?.success && Array.isArray(data.cities)) {
-          setCities(data.cities);
+        const list = await fetchAvailableCities();
+        if (!cancelled && Array.isArray(list) && list.length) {
+          setCities(list);
         }
       } catch (e) {
         // silent fallback
@@ -242,23 +282,25 @@ export default function EditWorkshop() {
 
   // === Soft address validation (debounced) ===
   useEffect(() => {
+    // If either city or address is empty, clear validation state and exit.
     if (!form.city || !form.address) {
       setAddrValid({ status: "idle", message: "" });
       return;
     }
+    // Debounce the validation to avoid spamming the server on every keystroke.
     let t = setTimeout(async () => {
       try {
         setAddrValid({ status: "checking", message: "" });
-        const url = `/api/workshops/meta/validate-address?city=${encodeURIComponent(form.city)}&address=${encodeURIComponent(form.address)}`;
-        const res = await apiFetch(url);
-        const data = await res.json();
-        if (data?.success) {
+        const result = await validateWorkshopAddress(form.city, form.address);
+        // result may include { success, valid, message }; fall back sensibly
+        if (result && result.success !== false) {
+          const isValid = result.valid === undefined ? !!result.success : !!result.valid;
           setAddrValid({
-            status: data.valid ? "ok" : "warn",
-            message: data.valid ? "הכתובת תואמת לעיר" : "לא נמצאה התאמה חד משמעית לעיר הזאת",
+            status: isValid ? "ok" : "warn",
+            message: isValid ? "הכתובת תואמת לעיר" : "לא נמצאה התאמה חד משמעית לעיר הזאת",
           });
         } else {
-          setAddrValid({ status: "err", message: "שגיאה בבדיקת הכתובת" });
+          setAddrValid({ status: "err", message: result?.message || "שגיאה בבדיקת הכתובת" });
         }
       } catch (e) {
         setAddrValid({ status: "err", message: "שירות בדיקת כתובת לא זמין" });
@@ -297,64 +339,54 @@ export default function EditWorkshop() {
 
   // === Save ===
   const handleSave = async () => {
-  if (!validate()) return;
-  setSaving(true);
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        title: sanitize(form.title),
+        type: sanitize(form.type),
+        ageGroup: sanitize(form.ageGroup),
+        city: sanitize(form.city),
+        address: sanitize(form.address),
+        studio: sanitize(form.studio),
+        coach: sanitize(form.coach),
+        days: (form.days || []).map((d) => HE_TO_EN[d] || d),
+        hour: sanitize(form.hour),
+        sessionsCount: Number(form.sessionsCount),
+        startDate: form.startDate || null,
+        inactiveDates: form.inactiveDates || [],
+        available: !!form.available,
+        description: sanitize(form.description),
+        price: form.price === "" ? 0 : Number(form.price),
+        image: preview || "",
+        maxParticipants: Number(form.maxParticipants) || 0,
+        waitingListMax: Number(form.waitingListMax) || 0,
+        autoEnrollOnVacancy: !!form.autoEnrollOnVacancy,
+      };
 
-  try {
-    const payload = {
-      title: sanitize(form.title),
-      type: sanitize(form.type),
-      ageGroup: sanitize(form.ageGroup),
-      city: sanitize(form.city),
-      address: sanitize(form.address),
-      studio: sanitize(form.studio),
-      coach: sanitize(form.coach),
-      days: (form.days || []).map((d) => HE_TO_EN[d] || d),
-      hour: sanitize(form.hour),
-      sessionsCount: Number(form.sessionsCount),
-      startDate: form.startDate || null,
-      inactiveDates: form.inactiveDates || [],
-      available: !!form.available,
-      description: sanitize(form.description),
-      price: form.price === "" ? 0 : Number(form.price),
-      image: preview || "",
-      maxParticipants: Number(form.maxParticipants) || 0,
-      waitingListMax: Number(form.waitingListMax) || 0,
-      autoEnrollOnVacancy: !!form.autoEnrollOnVacancy,
-    };
-
-    const endpoint = isNew ? "/api/workshops" : `/api/workshops/${form._id}`;
-    const method = isNew ? "POST" : "PUT";
-    console.log("🧩 Saving workshop to:", endpoint, "\nPayload:", payload);
-
-    const res = await apiFetch(endpoint, { method, body: JSON.stringify(payload) });
-    const contentType = res.headers.get("content-type") || "";
-
-    // 🧠 אם זה לא JSON — קרא כטקסט כדי למנוע SyntaxError
-    const data = contentType.includes("application/json")
-      ? await res.json()
-      : { message: await res.text() };
-
-    if (!res.ok) {
-      // ✅ אם השרת מחזיר הודעת שגיאה קריאה
-      const msg =
-        data?.message ||
-        (typeof data === "string" ? data : "שמירה נכשלה, בדוק את הנתונים שהוזנו.");
-      throw new Error(msg);
+      // Use context-provided helpers to save workshops.  These
+      // functions handle server requests and refetch the latest
+      // workshop list on success.  They return objects with
+      // success/data/message fields for error handling.
+      let result;
+      if (isNew) {
+        result = await createWorkshop(payload);
+      } else {
+        result = await updateWorkshop(form._id, payload);
+      }
+      if (!result || result.success === false) {
+        const msg = result?.message || "שמירה נכשלה, בדוק את הנתונים שהוזנו.";
+        throw new Error(msg);
+      }
+      // On success, navigate back to workshops listing
+      navigate("/workshops");
+    } catch (err) {
+      console.error("❌ save error:", err);
+      alert(err.message || "שגיאה בשמירה");
+    } finally {
+      setSaving(false);
     }
-
-    const saved = data.workshop || data;
-    if (isNew) addWorkshopLocal(saved);
-    else updateWorkshopLocal(saved);
-
-    navigate("/workshops");
-  } catch (err) {
-    console.error("❌ save error:", err);
-    alert(err.message || "שגיאה בשמירה");
-  } finally {
-    setSaving(false);
-  }
-};
+  };
 
 
   // === Render ===

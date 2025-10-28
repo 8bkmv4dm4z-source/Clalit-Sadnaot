@@ -3,7 +3,22 @@ const Workshop = require("../models/Workshop");
 const User = require("../models/User");
 const ExcelJS = require("exceljs");
 const nodemailer = require("nodemailer");
+const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop ,registerFamilyToWorkshop,registerUserToWorkshop} =
+  require("../services/workshopRegistration");
+const mongoose = require("mongoose");
 
+/* ============================================================
+   🔍 Workshop Search Helpers
+   ============================================================ */
+
+
+// Normalize the search query: lowercase, trim and remove unwanted chars
+function normalizeWorkshopQuery(q) {
+  return String(q || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w@.\s\u0590-\u05FF]/g, "");
+}
 /* ------------------------------------------------------------
    🔧 Internal helper: automatically promote from the waiting list
 ------------------------------------------------------------ */
@@ -62,115 +77,139 @@ async function attachUserIfPresent(req) {
     const user = await User.findById(userId).select("_id role name email");
     if (user) req.user = user;
   } catch (err) {
-    // לא חובה לזרוק שגיאה – אם אין טוקן, פשוט ממשיכים כאורח
   }
 }
 
-/* ------------------------------------------------------------
-   🟢 GET /api/workshops — עם מידע למשתמש המחובר
------------------------------------------------------------- */
-/* ------------------------------------------------------------
-   🟢 GET /api/workshops — עם מידע למשתמש המחובר
------------------------------------------------------------- */
+
+
+// controllers/workshopController.js
+const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 exports.getAllWorkshops = async (req, res) => {
-  console.log("➡️  GET /api/workshops hit at", new Date().toISOString());
-
   try {
-    await attachUserIfPresent(req);
+    // If this route can be called without auth, but you still want per-user flags:
+    // await attachUserIfPresent(req); // uncomment if not already attached by middleware
 
-    const { q, field, ...others } = req.query;
-    const filter = {};
+    // --- pagination ---
+    const page  = Math.max(1, parseInt(req.query.page  || "1", 10));
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit || "60", 10), 200));
+    const skip  = (page - 1) * limit;
 
-    if (q) {
-      const allowed = [
-        "title", "type", "ageGroup", "city",
-        "coach", "day", "hour", "description",
-      ];
-      const regex = new RegExp(String(q), "i");
-      if (field && allowed.includes(field) && field !== "all") {
-        filter[field] = { $regex: regex };
-      } else {
-        filter.$or = allowed.map((f) => ({ [f]: { $regex: regex } }));
-      }
+    const amount       = parseInt(req.query.amount || "0", 10);
+    const previewLimit = amount > 0 ? Math.min(amount, 12) : null;
+    const limitToUse   = previewLimit || limit;
+    const skipToUse    = previewLimit ? 0 : skip;
+
+    // --- filters (USE THIS ONE VARIABLE EVERYWHERE) ---
+    const filters = {};
+    if (req.query.city)     filters.city     = { $regex: new RegExp(escapeRegex(req.query.city), "i") };
+    if (req.query.type)     filters.type     = req.query.type;
+    if (req.query.coach)    filters.coach    = { $regex: new RegExp(escapeRegex(req.query.coach), "i") };
+    if (req.query.ageGroup) filters.ageGroup = req.query.ageGroup;
+    if (req.query.day)      filters.days     = req.query.day;
+    if (req.query.available !== undefined) {
+      const v = String(req.query.available).toLowerCase();
+      if (v === "true" || v === "false") filters.available = (v === "true");
     }
 
-    const whitelist = ["type", "ageGroup", "city", "coach", "day", "hour", "available"];
-    Object.entries(others).forEach(([k, v]) => {
-      if (whitelist.includes(k) && v !== "") {
-        filter[k] = k === "available" ? String(v).toLowerCase() === "true" : v;
-      }
+    // --- projection: include everything WorkshopCard / page needs ---
+    const projection = {
+      title: 1,
+      type: 1,
+      ageGroup: 1,
+      city: 1,
+      address: 1,
+      studio: 1,
+      coach: 1,
+      days: 1,
+      hour: 1,
+      sessionsCount: 1,
+      startDate: 1,
+      endDate: 1,
+      inactiveDates: 1,
+      available: 1,
+      description: 1,
+      price: 1,
+      image: 1,
+      participants: 1,
+      familyRegistrations: 1,
+      waitingList: 1,
+      waitingListMax: 1,
+      participantsCount: 1,
+      maxParticipants: 1,
+    };
+
+    const [docs, totalCount] = await Promise.all([
+      Workshop.find(filters)
+        .select(projection)
+        .sort({ startDate: 1 })
+        .skip(skipToUse)
+        .limit(limitToUse)
+        .lean(),
+      Workshop.countDocuments(filters),
+    ]);
+
+    // --- enrich with per-user flags if authenticated ---
+    const userId = req.user?._id?.toString?.();
+    const enriched = userId
+      ? docs.map((w) => {
+          const participants = Array.isArray(w.participants) ? w.participants : [];
+          const familyRegs   = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
+
+          const direct    = participants.some((p) => p?.toString?.() === userId);
+          const viaFamily = familyRegs.some((fr) => fr?.parentUser?.toString?.() === userId);
+
+          const userFamilyRegistrations = familyRegs
+            .filter((fr) => fr?.parentUser?.toString?.() === userId)
+            .map((fr) => fr?.familyMemberId?.toString?.())
+            .filter(Boolean);
+
+          const participantsCount =
+            typeof w.participantsCount === "number"
+              ? w.participantsCount
+              : (participants.length + familyRegs.length);
+
+          return {
+            ...w,
+            // safe defaults
+            address: w.address || "",
+            city: w.city || "",
+            studio: w.studio || "",
+            coach: w.coach || "",
+            waitingList: Array.isArray(w.waitingList) ? w.waitingList : [],
+            maxParticipants: Number(w.maxParticipants ?? 0),
+            waitingListMax: Number(w.waitingListMax ?? 0),
+            participantsCount,
+            isUserRegistered: Boolean(direct || viaFamily),
+            userFamilyRegistrations,
+          };
+        })
+      : docs;
+
+    // --- meta ---
+    const totalPages = Math.ceil(totalCount / limit);
+    const baseUrl =
+      process.env.FRONTEND_BASE_URL ||
+      `${req.protocol}://${req.get("host")}${req.baseUrl || "/api/workshops"}`;
+
+    return res.json({
+      meta: {
+        totalCount,
+        totalPages,
+        currentPage: page,
+        limit,
+        returned: enriched.length,
+        preview: Boolean(previewLimit),
+        nextPage: page < totalPages ? `${baseUrl}?page=${page + 1}&limit=${limit}` : null,
+        prevPage: page > 1 ? `${baseUrl}?page=${page - 1}&limit=${limit}` : null,
+      },
+      data: enriched,
     });
-
-    const workshops = await Workshop.find(filter)
-      .populate("participants", "name email idNumber")
-      .populate("familyRegistrations.parentUser", "name email idNumber")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate");
-
-    console.log("📦 getAllWorkshops -> workshops count:", workshops.length);
-
-    const userId = req.user?._id?.toString();
-
-    const workshopsWithFlags = workshops.map((ws) => {
-  const wsObj = ws.toObject();
-
-  // ✅ Ensure address & city exist even in old documents
-  wsObj.city = wsObj.city || "";
-  wsObj.address = wsObj.address || "";
-
-  console.log("🔍 Raw familyRegistrations for", ws.title);
-  ws.familyRegistrations.forEach((f, i) => {
-    console.log(i, {
-      parentUser: f.parentUser,
-      familyMemberId: f.familyMemberId,
-      name: f.name,
-    });
-  });
-
-  const userFamilyRegistrations = ws.familyRegistrations
-    .filter((f) => f.parentUser?._id?.toString() === userId)
-    .map((f) => {
-      const id =
-        f.familyMemberId?._id?.toString() ||
-        (typeof f.familyMemberId === "string" ? f.familyMemberId : null);
-      return id;
-    })
-    .filter(Boolean);
-
-  const isUserRegistered = ws.participants.some(
-    (p) => p._id.toString() === userId
-  );
-
-  console.log("📋 Workshop:", {
-    title: ws.title,
-    isUserRegistered,
-    familyIds: userFamilyRegistrations,
-  });
-
-  return {
-    ...wsObj,
-    userFamilyRegistrations,
-    isUserRegistered,
-  };
-});
-
-
-    console.log(
-      "✅ Final workshopsWithFlags table:",
-      workshopsWithFlags.map((w) => ({
-        _id: w._id,
-        title: w.title,
-        isUserRegistered: w.isUserRegistered,
-        familyIds: w.userFamilyRegistrations,
-      }))
-    );
-
-    res.json(workshopsWithFlags);
   } catch (err) {
-    console.error("❌ Error fetching workshops:", err);
-    res.status(500).json({ message: "Server error fetching workshops" });
+    console.error("❌ [getAllWorkshops] Error:", err);
+    res.status(500).json({ message: "Server error fetching workshops", error: err.message });
   }
 };
-
 
 /* ------------------------------------------------------------
    🧩 GET /api/workshops/registered
@@ -217,22 +256,59 @@ exports.getRegisteredWorkshops = async (req, res) => {
 /* ------------------------------------------------------------
    🟢 GET /api/workshops/:id
 ------------------------------------------------------------ */
+/**
+ * @desc Get a single workshop by ID (populated & lean)
+ * @route GET /api/workshops/:id
+ * @access Authenticated (admin or user)
+ */
 exports.getWorkshopById = async (req, res) => {
   try {
-    const ws = await Workshop.findById(req.params.id).populate("participants", "name email idNumber");
-    console.log("📋 RAW familyRegistrations:",
-  JSON.stringify(ws.familyRegistrations, null, 2));
+    const { id } = req.params;
+    if (!id || !mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
 
-    if (!ws) return res.status(404).json({ message: "Workshop not found" });
-    res.json(ws);
-  } catch {
-    res.status(400).json({ message: "Invalid workshop ID" });
+    const workshop = await Workshop.findById(id)
+      .populate("participants", "name email idNumber phone city")
+      .populate("familyRegistrations.parentUser", "name email idNumber phone city")
+      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate city")
+      .populate("waitingList.parentUser", "name email")
+      .lean();
+
+    if (!workshop) {
+      return res.status(404).json({ message: "Workshop not found" });
+    }
+
+    // 🧩 Normalize optional fields to prevent UI crashes
+    const normalized = {
+      ...workshop,
+      address: workshop.address || "",
+      city: workshop.city || "",
+      studio: workshop.studio || "",
+      coach: workshop.coach || "",
+      participantsCount:
+        workshop.participantsCount ??
+        ((workshop.participants?.length || 0) +
+          (workshop.familyRegistrations?.length || 0)),
+    };
+
+    // 🕓 Attach derived meta info
+    normalized.meta = {
+      totalParticipants: normalized.participantsCount,
+      waitingListCount: workshop.waitingList?.length || 0,
+      isAvailable: !!workshop.available,
+    };
+
+    // ✅ Return clean normalized payload
+    return res.json({ success: true, data: normalized });
+  } catch (err) {
+    console.error("❌ [getWorkshopById] Error:", err.message);
+    return res.status(500).json({ message: "Server error fetching workshop" });
   }
 };
 
-/* ------------------------------------------------------------
-   🟡 POST /api/workshops  (Admin)
------------------------------------------------------------- */
+
+
 /* ------------------------------------------------------------
    🟡 POST /api/workshops  (Admin)
    ------------------------------------------------------------
@@ -242,13 +318,26 @@ exports.getWorkshopById = async (req, res) => {
    - Auto-calculated endDate based on sessionsCount & startDate
    - Optional inactiveDates (holidays)
 ------------------------------------------------------------ */
+/**
+ * @desc Update a workshop (with auto endDate + safe address validation)
+ * @route PUT /api/workshops/:id
+ * @access Admin only
+ */
 exports.updateWorkshop = async (req, res) => {
   try {
-    const existing = await Workshop.findById(req.params.id);
-    if (!existing)
-      return res.status(404).json({ message: "Workshop not found" });
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
 
-    // ✅ Allowed fields for update
+    const existing = await Workshop.findById(id);
+    if (!existing) {
+      return res.status(404).json({ message: "Workshop not found" });
+    }
+
+    /* ============================================================
+       🧩 Define allowed fields for update
+       ============================================================ */
     const allowed = [
       "title", "type", "ageGroup", "city", "address", "studio", "coach",
       "days", "hour", "available", "description", "price",
@@ -261,7 +350,9 @@ exports.updateWorkshop = async (req, res) => {
       if (key in req.body) updates[key] = req.body[key];
     }
 
-    // ✅ If city or address were changed → soft validation only
+    /* ============================================================
+       🌍 Address validation (non-blocking)
+       ============================================================ */
     if ("city" in updates || "address" in updates) {
       const city = updates.city ?? existing.city;
       const address = updates.address ?? existing.address;
@@ -272,181 +363,260 @@ exports.updateWorkshop = async (req, res) => {
         });
       }
 
-      try {
-        const validationUrl = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
-          city
-        )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
+      const checkAddress = async () => {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2500);
+          const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
+            city
+          )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
 
-        const resp = await fetch(validationUrl, {
-          headers: { "User-Agent": "Clalit-Workshops-App" },
-        });
-        const result = await resp.json();
+          const resp = await fetch(url, {
+            signal: controller.signal,
+            headers: { "User-Agent": "Clalit-Workshops-App" },
+          });
+          clearTimeout(timeout);
+          const result = await resp.json();
 
-        if (!Array.isArray(result) || result.length === 0) {
-          console.warn(`⚠ Address not found for city "${city}" — saving anyway`);
-          // לא מחזירים שגיאה — רק רושמים אזהרה
+          if (!Array.isArray(result) || result.length === 0) {
+            console.warn(`⚠ Address not found for city "${city}" — saving anyway`);
+          }
+        } catch (err) {
+          console.warn("⚠ Address validation service unavailable — skipping check");
         }
-      } catch (e) {
-        console.warn("⚠ Address validation service unavailable — skipping check");
-      }
+      };
+      checkAddress().catch(() => {});
     }
 
-    // ✅ Normalize days and inactiveDates
+    /* ============================================================
+       🗓 Days + inactiveDates normalization
+       ============================================================ */
     const daysMap = {
-      "ראשון": "Sunday",
-      "שני": "Monday",
-      "שלישי": "Tuesday",
-      "רביעי": "Wednesday",
-      "חמישי": "Thursday",
-      "שישי": "Friday",
-      "שבת": "Saturday",
+      ראשון: "Sunday",
+      שני: "Monday",
+      שלישי: "Tuesday",
+      רביעי: "Wednesday",
+      חמישי: "Thursday",
+      שישי: "Friday",
+      שבת: "Saturday",
     };
 
     if (updates.days) {
-      if (!Array.isArray(updates.days)) updates.days = [updates.days];
-      updates.days = updates.days.map((d) => daysMap[d] || d);
-    }
-
-    if (updates.sessionsCount && isNaN(updates.sessionsCount)) {
-      return res.status(400).json({ message: "sessionsCount must be a number" });
+      updates.days = Array.isArray(updates.days) ? updates.days : [updates.days];
+      updates.days = updates.days
+        .map((d) => daysMap[d] || d)
+        .filter((d) =>
+          ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].includes(d)
+        );
     }
 
     if (updates.inactiveDates) {
-      if (!Array.isArray(updates.inactiveDates)) {
-        updates.inactiveDates = [updates.inactiveDates];
-      }
+      updates.inactiveDates = Array.isArray(updates.inactiveDates)
+        ? updates.inactiveDates
+        : [updates.inactiveDates];
       updates.inactiveDates = updates.inactiveDates
         .map((d) => new Date(d))
         .filter((d) => !isNaN(d.getTime()));
     }
 
-    // ✅ Apply updates
+    if (updates.sessionsCount && isNaN(updates.sessionsCount)) {
+      return res.status(400).json({ message: "sessionsCount must be numeric" });
+    }
+
+    /* ============================================================
+       💾 Apply update and re-run schema hooks (for endDate)
+       ============================================================ */
     Object.assign(existing, updates);
 
-    existing.markModified("days");
-    existing.markModified("inactiveDates");
-    existing.markModified("startDate");
-    existing.markModified("sessionsCount");
+    // Force recalculation of endDate if key fields changed
+    if ("startDate" in updates || "days" in updates || "sessionsCount" in updates) {
+      existing.markModified("startDate");
+      existing.markModified("days");
+      existing.markModified("sessionsCount");
+    }
 
     await existing.save();
 
-    // ✅ Return updated populated workshop
+    /* ============================================================
+       📦 Reload normalized + populated data
+       ============================================================ */
     const ws = await Workshop.findById(existing._id)
-      .populate("participants", "name email idNumber")
-      .populate("familyRegistrations.parentUser", "name email idNumber")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
-      .populate("waitingList.parentUser", "name email");
+      .populate("participants", "name email idNumber phone city")
+      .populate("familyRegistrations.parentUser", "name email idNumber phone city")
+      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate city")
+      .populate("waitingList.parentUser", "name email")
+      .lean();
 
-    console.log("📅 Workshop updated:", {
+    const normalized = {
+      ...ws,
+      address: ws.address || "",
+      city: ws.city || "",
+      studio: ws.studio || "",
+      coach: ws.coach || "",
+    };
+
+    const meta = {
+      totalParticipants:
+        (ws.participants?.length || 0) + (ws.familyRegistrations?.length || 0),
+      waitingListCount: ws.waitingList?.length || 0,
+      available: !!ws.available,
+    };
+
+    console.log("✅ Workshop updated:", {
       title: ws.title,
       city: ws.city,
-      address: ws.address,
-      days: ws.days,
-      sessionsCount: ws.sessionsCount,
       startDate: ws.startDate,
       endDate: ws.endDate,
     });
 
-    res.json({
+    return res.json({
+      success: true,
       message: "Workshop updated successfully",
-      workshop: ws,
+      data: normalized,
+      meta,
     });
   } catch (err) {
-    console.error("❌ Error updating workshop:", err);
-    res.status(400).json({ message: "Failed to update workshop" });
+    console.error("❌ [updateWorkshop] Error:", err);
+    return res.status(500).json({
+      message: err.message || "Failed to update workshop",
+    });
   }
 };
 
 
 
-/* ============================================================
-   🆕 Create a new workshop
-   ============================================================ */
+/**
+ * @desc Create a new workshop (with non-blocking address validation)
+ * @route POST /api/workshops
+ * @access Admin only
+ */
 exports.createWorkshop = async (req, res) => {
   try {
     const data = { ...req.body };
 
-    // ✅ Validate required fields
+    // 🧩 Required field check
     if (!data.city || !data.address) {
       return res.status(400).json({ message: "City and address are required" });
     }
 
-    // ✅ Soft validate the address using OpenStreetMap
-    try {
+    /* ============================================================
+       🌍 Soft address validation — non-blocking (Promise.race)
+       ============================================================ */
+    const validateAddress = async () => {
       const validationUrl = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
         data.city
       )}&street=${encodeURIComponent(data.address)}&country=Israel&format=json`;
 
-      const response = await fetch(validationUrl, {
-        headers: { "User-Agent": "Clalit-Workshops-App" },
-      });
-      const validationData = await response.json();
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2500);
 
-      if (!Array.isArray(validationData) || validationData.length === 0) {
-        console.warn(`⚠ Address not found for city "${data.city}" — saving anyway`);
-        // לא חוסמים שמירה
+        const response = await fetch(validationUrl, {
+          signal: controller.signal,
+          headers: { "User-Agent": "Clalit-Workshops-App" },
+        });
+        clearTimeout(timeout);
+
+        const validationData = await response.json();
+        if (!Array.isArray(validationData) || validationData.length === 0) {
+          console.warn(`⚠ Address not found in ${data.city} — saving anyway.`);
+        }
+      } catch (err) {
+        console.warn(`⚠ Address validation skipped: ${err.message}`);
       }
-    } catch (e) {
-      console.warn("⚠ Address validation service unavailable — skipping check");
-    }
-
-    // ✅ Normalize and validate other fields
-    const daysMap = {
-      "ראשון": "Sunday",
-      "שני": "Monday",
-      "שלישי": "Tuesday",
-      "רביעי": "Wednesday",
-      "חמישי": "Thursday",
-      "שישי": "Friday",
-      "שבת": "Saturday",
     };
 
-    if (!Array.isArray(data.days)) {
-      data.days = data.days ? [data.days] : [];
-    }
-    data.days = data.days.map((d) => daysMap[d] || d);
+    // Fire without blocking save
+    validateAddress().catch(() => {});
+
+    /* ============================================================
+       🧮 Days normalization
+       ============================================================ */
+    const daysMap = {
+      ראשון: "Sunday",
+      שני: "Monday",
+      שלישי: "Tuesday",
+      רביעי: "Wednesday",
+      חמישי: "Thursday",
+      שישי: "Friday",
+      שבת: "Saturday",
+    };
+
+    if (!Array.isArray(data.days)) data.days = data.days ? [data.days] : [];
+    data.days = data.days
+      .map((d) => daysMap[d] || d)
+      .filter((d) =>
+        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].includes(d)
+      );
 
     if (data.days.length === 0) {
       return res.status(400).json({ message: "At least one valid day is required" });
     }
 
+    /* ============================================================
+       🗓 Validate core session info
+       ============================================================ */
     if (!data.startDate) {
       return res.status(400).json({ message: "startDate is required" });
     }
 
-    if (!data.sessionsCount || isNaN(data.sessionsCount)) {
-      return res.status(400).json({ message: "sessionsCount must be a valid number" });
+    data.startDate = new Date(data.startDate);
+    if (isNaN(data.startDate.getTime())) {
+      return res.status(400).json({ message: "Invalid startDate" });
     }
 
-    if (data.inactiveDates) {
-      if (!Array.isArray(data.inactiveDates)) {
-        data.inactiveDates = [data.inactiveDates];
-      }
-      data.inactiveDates = data.inactiveDates
-        .map((d) => new Date(d))
-        .filter((d) => !isNaN(d.getTime()));
-    } else {
-      data.inactiveDates = [];
+    const count = parseInt(data.sessionsCount, 10);
+    if (isNaN(count) || count < 1) {
+      return res.status(400).json({ message: "sessionsCount must be a positive number" });
     }
+    data.sessionsCount = count;
 
-    // ✅ Save to DB
+    /* ============================================================
+       💤 Normalize inactive dates
+       ============================================================ */
+    if (!Array.isArray(data.inactiveDates)) {
+      data.inactiveDates = data.inactiveDates ? [data.inactiveDates] : [];
+    }
+    data.inactiveDates = data.inactiveDates
+      .map((d) => new Date(d))
+      .filter((d) => !isNaN(d.getTime()));
+
+    /* ============================================================
+       💾 Save + auto endDate (triggered by schema pre('save'))
+       ============================================================ */
     const ws = await Workshop.create(data);
 
-    console.log("📅 Workshop created:", {
+    /* ============================================================
+       📦 Normalize & respond
+       ============================================================ */
+    const normalized = {
+      ...ws.toObject(),
+      address: ws.address || "",
+      city: ws.city || "",
+      studio: ws.studio || "",
+      coach: ws.coach || "",
+    };
+
+    const meta = {
+      totalParticipants:
+        (ws.participants?.length || 0) + (ws.familyRegistrations?.length || 0),
+      waitingListCount: ws.waitingList?.length || 0,
+      available: !!ws.available,
+    };
+
+    console.log("✅ Workshop created:", {
       title: ws.title,
       city: ws.city,
-      address: ws.address,
       days: ws.days,
-      sessionsCount: ws.sessionsCount,
       startDate: ws.startDate,
       endDate: ws.endDate,
     });
 
-    res.status(201).json(ws);
+    return res.status(201).json({ success: true, data: normalized, meta });
   } catch (err) {
-    console.error("❌ Error creating workshop:", err);
-    res
-      .status(400)
+    console.error("❌ [createWorkshop] Error:", err);
+    return res
+      .status(500)
       .json({ message: err.message || "Failed to create workshop" });
   }
 };
@@ -530,13 +700,13 @@ exports.getWorkshopParticipants = async (req, res) => {
     res.status(500).json({ message: "Server error fetching participants" });
   }
 };
-
-/* ============================================================
-   🧩 UNIFIED REGISTRATION HANDLERS (User + Family)
-============================================================ */
-
 /**
- * POST /api/workshops/:id/register-entity
+ * registerEntityToWorkshop
+ * --------------------------------------------------------------------------
+ * Registers either a user or one of their family members to a workshop.
+ * - Adds to waiting list if full.
+ * - Syncs User.userWorkshopMap / User.familyWorkshopMap.
+ * - Uses shared services for consistency.
  */
 exports.registerEntityToWorkshop = async (req, res) => {
   console.log("📩 [registerEntityToWorkshop] body:", req.body);
@@ -544,89 +714,73 @@ exports.registerEntityToWorkshop = async (req, res) => {
 
   try {
     const { familyId } = req.body;
-    const workshop = await Workshop.findById(req.params.id);
+    let workshop = await Workshop.findById(req.params.id);
     if (!workshop)
       return res.status(404).json({ message: "Workshop not found" });
 
-    // Determine if this is a family registration
     const isFamily = Boolean(familyId);
-
-    // Resolve user and member objects up front
     const parentUser = await User.findById(req.user._id);
-    if (!parentUser) return res.status(404).json({ message: "User not found" });
+    if (!parentUser)
+      return res.status(404).json({ message: "User not found" });
 
     let member = null;
     if (isFamily) {
       member = parentUser.familyMembers.id(familyId);
       if (!member) {
-        console.warn("⚠️ Family member not found in parent:", familyId);
+        console.warn("⚠️ Family member not found:", familyId);
         return res.status(404).json({ message: "Family member not found" });
       }
     }
 
-    // Check duplicates in participants/familyRegistrations
+    /* ============================================================
+       🚫 Prevent duplicates
+       ============================================================ */
     if (isFamily) {
-      // Prevent duplicate family registration
       const alreadyRegistered = workshop.familyRegistrations.some(
         (r) =>
-          r.familyMemberId?.toString() === familyId.toString() &&
-          r.parentUser?.toString() === req.user._id.toString()
+          String(r.familyMemberId) === String(familyId) &&
+          String(r.parentUser) === String(req.user._id)
       );
-      if (alreadyRegistered) {
-        return res.status(400).json({
-          success: false,
-          message: "Family member already registered to this workshop",
-        });
-      }
-      // Prevent duplicate in waiting list
       const alreadyQueued = (workshop.waitingList || []).some(
         (w) =>
           w.familyMemberId &&
-          w.familyMemberId.toString() === familyId.toString() &&
-          w.parentUser &&
-          w.parentUser.toString() === req.user._id.toString()
+          String(w.familyMemberId) === String(familyId) &&
+          String(w.parentUser) === String(req.user._id)
       );
-      if (alreadyQueued) {
-        return res.status(400).json({
-          success: false,
-          message: "Family member already in waiting list for this workshop",
-        });
-      }
+      if (alreadyRegistered)
+        return res.status(400).json({ success: false, message: "Family member already registered" });
+      if (alreadyQueued)
+        return res.status(400).json({ success: false, message: "Family member already in waiting list" });
     } else {
       const alreadyUser = workshop.participants.some(
-        (p) => p.toString() === req.user._id.toString()
+        (p) => String(p) === String(req.user._id)
       );
-      if (alreadyUser) {
-        return res.status(400).json({
-          success: false,
-          message: "User already registered to this workshop",
-        });
-      }
       const alreadyQueued = (workshop.waitingList || []).some(
         (w) =>
           !w.familyMemberId &&
-          w.parentUser &&
-          w.parentUser.toString() === req.user._id.toString()
+          String(w.parentUser) === String(req.user._id)
       );
-      if (alreadyQueued) {
-        return res.status(400).json({
-          success: false,
-          message: "User already in waiting list for this workshop",
-        });
-      }
+      if (alreadyUser)
+        return res.status(400).json({ success: false, message: "User already registered" });
+      if (alreadyQueued)
+        return res.status(400).json({ success: false, message: "User already in waiting list" });
     }
 
-    // Determine if the workshop has capacity
+    /* ============================================================
+       📋 Capacity + waiting list
+       ============================================================ */
     const hasSpace = workshop.canAddParticipant();
     if (!hasSpace) {
-      // Handle waiting list
-      if (workshop.waitingListMax > 0 && workshop.waitingList.length >= workshop.waitingListMax) {
+      if (
+        workshop.waitingListMax > 0 &&
+        workshop.waitingList.length >= workshop.waitingListMax
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Workshop is full and the waiting list is at capacity",
+          message: "Workshop is full and waiting list is full",
         });
       }
-      // Build entry for waitlist
+
       const entry = {
         parentUser: parentUser._id,
         familyMemberId: isFamily ? member._id : undefined,
@@ -638,15 +792,17 @@ exports.registerEntityToWorkshop = async (req, res) => {
       };
       workshop.waitingList.push(entry);
       await workshop.save();
-      const position = workshop.waitingList.length;
+
       return res.json({
         success: true,
         message: "Added to waiting list",
-        position,
+        position: workshop.waitingList.length,
       });
     }
 
-    // There is space → proceed with normal registration
+    /* ============================================================
+       ✅ Normal registration
+       ============================================================ */
     if (isFamily) {
       workshop.familyRegistrations.push({
         parentUser: parentUser._id,
@@ -657,118 +813,105 @@ exports.registerEntityToWorkshop = async (req, res) => {
         phone: member.phone,
         birthDate: member.birthDate,
       });
+
+      // update familyWorkshopMap
+      const existing = parentUser.familyWorkshopMap.find(f =>
+        String(f.familyMemberId) === String(member._id)
+      );
+      if (existing) {
+        if (!existing.workshops.some(wid => String(wid) === String(workshop._id)))
+          existing.workshops.push(workshop._id);
+      } else {
+        parentUser.familyWorkshopMap.push({
+          familyMemberId: member._id,
+          workshops: [workshop._id],
+        });
+      }
     } else {
       workshop.participants.push(req.user._id);
+      if (!parentUser.userWorkshopMap.includes(workshop._id))
+        parentUser.userWorkshopMap.push(workshop._id);
     }
-    await workshop.save();
 
-    // Populate and return updated workshop
+    await workshop.save();
+    await parentUser.save();
+
+    /* ============================================================
+       🎯 Return populated
+       ============================================================ */
     const populated = await Workshop.findById(workshop._id)
       .populate("participants", "name email idNumber")
-      .populate(
-        "familyRegistrations.familyMemberId",
-        "name relation idNumber phone birthDate"
-      )
       .populate("familyRegistrations.parentUser", "name email idNumber")
+      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
       .populate("waitingList.parentUser", "name email");
 
-    return res.json({ success: true, workshop: populated });
+    res.json({ success: true, workshop: populated });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
-    res.status(500).json({ message: "Server error during registration" });
+    res.status(500).json({ message: "Server error during registration", error: err.message });
   }
 };
 
 
 /**
- * DELETE /api/workshops/:id/unregister-entity
+ * unregisterEntityFromWorkshop
+ * --------------------------------------------------------------------------
+ * Removes either a user or a family member from a workshop.
+ * Keeps Workshop and User mappings in sync.
  */
 exports.unregisterEntityFromWorkshop = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { familyId } = req.body;
-    const userId = req.user._id;
+    const { id } = req.params; // workshopId
+    const { familyId, userId: overrideUserId, parentUserId } = req.body;
+    const isAdmin = req.user?.role === "admin";
+
+    const actingUserId  = isAdmin && overrideUserId ? overrideUserId : req.user._id;
+    const actingParentId = isAdmin && parentUserId ? parentUserId : req.user._id;
+
+    const parentUser = await User.findById(actingParentId);
+    if (!parentUser) return res.status(404).json({ message: "User not found" });
 
     const workshop = await Workshop.findById(id);
-    if (!workshop)
-      return res
-        .status(404)
-        .json({ success: false, message: "Workshop not found" });
+    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
-    // 🧩 Case 1: Main user unregister
-    if (!familyId) {
+    let changed = false;
+    if (familyId) {
+      const before = workshop.familyRegistrations.length;
+      workshop.familyRegistrations = workshop.familyRegistrations.filter(f =>
+        !(String(f.familyMemberId) === String(familyId) && String(f.parentUser) === String(actingParentId))
+      );
+      changed = before !== workshop.familyRegistrations.length;
+
+      // sync familyWorkshopMap
+      const mapEntry = parentUser.familyWorkshopMap.find(f =>
+        String(f.familyMemberId) === String(familyId)
+      );
+      if (mapEntry) {
+        mapEntry.workshops = mapEntry.workshops.filter(wid => String(wid) !== String(id));
+      }
+    } else {
       const before = workshop.participants.length;
-      workshop.participants = workshop.participants.filter(
-        (u) => u.toString() !== userId.toString()
-      );
+      workshop.participants = workshop.participants.filter(u => String(u) !== String(actingUserId));
+      changed = before !== workshop.participants.length;
 
-      if (before === workshop.participants.length) {
-        return res
-          .status(400)
-          .json({ success: false, message: "User was not registered" });
-      }
+      // sync userWorkshopMap
+      parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(wid => String(wid) !== String(id));
     }
 
-    // 🧩 Case 2: Family member unregister
-    else {
-      // Find matching family registration owned by this user
-      const familyRegs = workshop.familyRegistrations.filter(
-        (f) =>
-          f.familyMemberId?.toString() === familyId.toString() &&
-          f.parentUser?.toString() === userId.toString()
-      );
-
-      if (familyRegs.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "Family registration not found or not owned by user",
-        });
-      }
-
-      // Remove all matching duplicates just in case
-      workshop.familyRegistrations = workshop.familyRegistrations.filter(
-        (f) =>
-          !(
-            f.familyMemberId?.toString() === familyId.toString() &&
-            f.parentUser?.toString() === userId.toString()
-          )
-      );
+    if (changed) {
+      workshop.participantsCount =
+        (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0);
+      await workshop.save();
+      await parentUser.save();
     }
 
-    // ✅ Update counts safely
-    workshop.participantsCount =
-      (workshop.participants?.length || 0) +
-      (workshop.familyRegistrations?.length || 0);
-
-    await workshop.save();
-
-    // Auto promote from waitlist if enabled
-    if (workshop.autoEnrollOnVacancy) {
-      await autoPromoteFromWaitlist(workshop);
-    }
-
-    const populated = await Workshop.findById(id)
-      .populate("participants", "name email idNumber")
-      .populate(
-        "familyRegistrations.familyMemberId",
-        "name relation idNumber phone birthDate"
-      )
-      .populate("familyRegistrations.parentUser", "name email idNumber")
-      .populate("waitingList.parentUser", "name email");
-
-    res.json({
-      success: true,
-      message: "Entity unregistered successfully",
-      workshop: populated,
-    });
+    return res.json({ success: true, changed, message: "Entity unregistered successfully" });
   } catch (err) {
-    console.error("🔥 unregisterEntityFromWorkshop error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Server error during unregistration",
-    });
+    console.error("❌ unregisterEntityFromWorkshop error:", err);
+    res.status(500).json({ success: false, message: "Server error during unregistration" });
   }
 };
+
 
 
 
@@ -902,13 +1045,10 @@ exports.removeEntityFromWaitlist = async (req, res) => {
    מייצר קובץ אקסל עם רשימת המשתתפים ושולח למייל של המנהל
 ------------------------------------------------------------ */
 
-// serv
-
 /**
  * Export full workshop participants (and waiting list) to Excel
  * Admin-only access
  */
-// controllers/workshopController.js
 exports.exportWorkshopExcel = async (req, res) => {
   try {
     const admin = req.user;
@@ -918,7 +1058,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     const workshopId = req.params.id;
 
-    // 🧩 Utilities
+    // Helpers
     const pad = (n) => String(n).padStart(2, "0");
     const toHebDate = (d) => {
       if (!d) return "";
@@ -937,7 +1077,7 @@ exports.exportWorkshopExcel = async (req, res) => {
       return a;
     };
 
-    // 🧩 Fetch workshop
+    // Fetch workshop + relations
     const workshop = await Workshop.findById(workshopId)
       .populate("participants", "name email phone city birthDate idNumber canCharge")
       .populate("familyRegistrations.parentUser", "name email phone city canCharge")
@@ -947,7 +1087,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
-    // 🧩 Handle default values
+    // Defaults
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
     const periodDays = Number(workshop.timePeriod) || 30;
     const endDate = new Date(startDate.getTime() + periodDays * 24 * 60 * 60 * 1000);
@@ -955,19 +1095,25 @@ exports.exportWorkshopExcel = async (req, res) => {
     const startDateStr = toHebDate(startDate);
     const endDateStr = toHebDate(endDate);
 
-    // 🧾 Determine which sections to include based on query param
-    const exportType = String(req.query.type || '').toLowerCase();
-    const includeParticipants = !exportType || exportType === 'current';
-    const includeWaitlist = !exportType || exportType === 'waitlist';
+    // Which sections to include
+    const exportType = String(req.query.type || "").toLowerCase();
+    const includeParticipants = !exportType || exportType === "current";
+    const includeWaitlist = !exportType || exportType === "waitlist";
 
-    // 🧾 Create Excel file (participants and/or waitlist)
+    // ---------------- Excel (RTL) ----------------
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("דו\"ח משתתפים", { views: [{ rightToLeft: true }] });
+    const sheet = workbook.addWorksheet("דו\"ח משתתפים", {
+      views: [{ rightToLeft: true }], // RTL view
+    });
 
+    // (extra safety) some office builds respect this after creation:
+    sheet.views = [{ rightToLeft: true }];
+
+    // Define columns
     sheet.columns = [
       { header: "שם משתתף", key: "p_name", width: 25 },
       { header: "קרבה", key: "p_relation", width: 15 },
-      { header: "אימייל", key: "p_email", width: 25 },
+      { header: "אימייל", key: "p_email", width: 28 },
       { header: "טלפון", key: "p_phone", width: 16 },
       { header: "תעודת זהות", key: "p_id", width: 16 },
       { header: "תאריך לידה", key: "p_birth", width: 15 },
@@ -976,14 +1122,36 @@ exports.exportWorkshopExcel = async (req, res) => {
       { header: "מקור", key: "origin", width: 16 },
     ];
 
+    // Header styling: bold + centered (in RTL sheet it still renders correctly)
     const header = sheet.getRow(1);
     header.font = { bold: true };
-    header.alignment = { horizontal: "center" };
+    header.alignment = { horizontal: "center", vertical: "middle" };
 
-    // ✅ Participants (main users)
+    // Rows adder with RTL alignment:
+    // - Strings right-aligned
+    // - Numbers/booleans centered
+    const addRowRTL = (rowObj) => {
+      const r = sheet.addRow(rowObj);
+      // align cells per type
+      r.eachCell((cell, colNumber) => {
+        const key = sheet.columns[colNumber - 1].key;
+        const val = rowObj[key];
+
+        // Center some known numeric/boolean columns
+        if (key === "p_age" || key === "p_cancharge") {
+          cell.alignment = { horizontal: "center", vertical: "middle" };
+        } else {
+          // Everything else right-aligned for Hebrew
+          cell.alignment = { horizontal: "right", vertical: "middle" };
+        }
+      });
+      return r;
+    };
+
+    // Participants (main users)
     if (includeParticipants) {
       (workshop.participants || []).forEach((p) => {
-        sheet.addRow({
+        addRowRTL({
           p_name: p.name || "",
           p_relation: "עצמי",
           p_email: p.email || "",
@@ -996,14 +1164,14 @@ exports.exportWorkshopExcel = async (req, res) => {
         });
       });
 
-      // ✅ Family members (participants)
+      // Family members (participants)
       (workshop.familyRegistrations || []).forEach((fr) => {
         const fm = fr.familyMemberId || {};
         const parent = fr.parentUser || {};
         const email = fm.email || parent.email || "";
         const phone = fm.phone || parent.phone || "";
         const canCharge = parent.canCharge ? "כן" : "לא";
-        sheet.addRow({
+        addRowRTL({
           p_name: fm.name || fr.name || "",
           p_relation: fm.relation || fr.relation || "בן משפחה",
           p_email: email,
@@ -1017,24 +1185,24 @@ exports.exportWorkshopExcel = async (req, res) => {
       });
     }
 
-    // 🔹 Add separator if both participants and waitlist are included
+    // Separator if both sections exist
     if (includeParticipants && includeWaitlist) {
       const sepRowIdx = sheet.lastRow.number + 2;
       sheet.mergeCells(sepRowIdx, 1, sepRowIdx, sheet.columnCount);
       const sep = sheet.getCell(sepRowIdx, 1);
       sep.value = "— רשימת המתנה —";
-      sep.alignment = { horizontal: "center" };
+      sep.alignment = { horizontal: "center", vertical: "middle" };
       sheet.getRow(sepRowIdx).font = { bold: true };
     }
 
-    // ✅ Waiting list
+    // Waiting list
     if (includeWaitlist) {
       (workshop.waitingList || []).forEach((wl) => {
         const parent = wl.parentUser || {};
         const email = wl.email || parent.email || "";
         const phone = wl.phone || parent.phone || "";
         const canCharge = parent.canCharge ? "כן" : "לא";
-        sheet.addRow({
+        addRowRTL({
           p_name: wl.name || "",
           p_relation: wl.relation || (wl.familyMemberId ? "בן משפחה" : "עצמי"),
           p_email: email,
@@ -1050,13 +1218,28 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // 🧩 Build RTL Hebrew email body
-    const statsLine = `${(workshop.participantsCount ??
-      (workshop.participants?.length || 0) +
-        (workshop.familyRegistrations?.length || 0))} מתוך ${
-      workshop.maxParticipants ?? 0
-    }`;
+    // ---------------- Email (RTL) ----------------
+    const maxCap = Number(workshop.maxParticipants ?? 0);
+    const capStr = maxCap === 0 ? "∞" : String(maxCap);
+    const statsLine = `${
+      workshop.participantsCount ??
+      ((workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0))
+    } מתוך ${capStr}`;
     const waitCount = workshop.waitingList?.length || 0;
+
+    const hebLetters = {
+      Sunday: "א",
+      Monday: "ב",
+      Tuesday: "ג",
+      Wednesday: "ד",
+      Thursday: "ה",
+      Friday: "ו",
+      Saturday: "ש",
+    };
+    const daysStr = Array.isArray(workshop.days) && workshop.days.length
+      ? workshop.days.map((d) => hebLetters[d] || d).join(", ")
+      : "-";
+    const hourStr = workshop.hour || "-";
 
     const plainBody = `
 שלום ${admin.name},
@@ -1068,8 +1251,8 @@ exports.exportWorkshopExcel = async (req, res) => {
 • מאמן: ${workshop.coach || "-"}
 • סטודיו: ${workshop.studio || "-"}
 • עיר: ${workshop.city || "-"}
-• יום: ${workshop.day || "-"}
-• שעה: ${workshop.hour || "-"}
+• ימים: ${daysStr}
+• שעה: ${hourStr}
 • תאריך התחלה: ${startDateStr}
 • תאריך סיום: ${endDateStr}
 • תקופה (ימים): ${periodDays}
@@ -1083,53 +1266,60 @@ exports.exportWorkshopExcel = async (req, res) => {
 `;
 
     const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
 
     await transporter.sendMail({
-  from: `"מערכת סדנאות" <${process.env.EMAIL_USER}>`,
-  to: admin.email,
-  subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
-  html: `
-    <div dir="rtl" style="font-family: 'Segoe UI', sans-serif; text-align: right; line-height: 1.6; color: #222; font-size: 15px;">
-      <p>שלום ${admin.name},</p>
-      <p>להלן דו״ח הסדנה <strong>"${workshop.title || "-"}"</strong>:</p>
+      from: process.env.MAIL_FROM || `"מערכת סדנאות" <${process.env.SMTP_USER}>`,
+      to: admin.email,
+      subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
+      text: plainBody,
+      headers: {
+        "Content-Language": "he",
+      },
+      html: `
+<!doctype html>
+<html dir="rtl" lang="he">
+  <body style="direction:rtl;text-align:right;font-family:'Segoe UI',Tahoma,Arial,sans-serif;line-height:1.6;color:#222;font-size:15px;">
+    <p>שלום ${admin.name},</p>
+    <p>להלן דו״ח הסדנה <strong>"${workshop.title || "-"}"</strong>:</p>
 
-      <h3 style="margin-bottom: 8px; margin-top: 16px;">פרטי הסדנה:</h3>
-      <ul style="list-style-type: none; padding: 0; margin: 0;">
-        <li>• סוג: ${workshop.type || "-"}</li>
-        <li>• מאמן: ${workshop.coach || "-"}</li>
-        <li>• סטודיו: ${workshop.studio || "-"}</li>
-        <li>• עיר: ${workshop.city || "-"}</li>
-        <li>• יום: ${workshop.day || "-"}</li>
-        <li>• שעה: ${workshop.hour || "-"}</li>
-        <li>• תאריך התחלה: ${startDateStr}</li>
-        <li>• תאריך סיום: ${endDateStr}</li>
-        <li>• תקופה (ימים): ${periodDays}</li>
-        <li>• כמות משתתפים: ${statsLine}</li>
-        <li>• רשימת המתנה: ${waitCount} משתתפים</li>
-      </ul>
+    <h3 style="margin-bottom:8px;margin-top:16px;">פרטי הסדנה:</h3>
+    <ul style="list-style-type:none;padding:0;margin:0;">
+      <li>• סוג: ${workshop.type || "-"}</li>
+      <li>• מאמן: ${workshop.coach || "-"}</li>
+      <li>• סטודיו: ${workshop.studio || "-"}</li>
+      <li>• עיר: ${workshop.city || "-"}</li>
+      <li>• ימים: ${daysStr}</li>
+      <li>• שעה: ${hourStr}</li>
+      <li>• תאריך התחלה: ${startDateStr}</li>
+      <li>• תאריך סיום: ${endDateStr}</li>
+      <li>• תקופה (ימים): ${periodDays}</li>
+      <li>• כמות משתתפים: ${statsLine}</li>
+      <li>• רשימת המתנה: ${waitCount} משתתפים</li>
+    </ul>
 
-      <p style="margin-top: 16px;">
-        מצורף קובץ אקסל עם רשימת המשתתפים ורשימת ההמתנה.
-      </p>
+    <p style="margin-top:16px;">מצורף קובץ אקסל עם רשימת המשתתפים ורשימת ההמתנה.</p>
 
-      <p style="margin-top: 24px;">
-        בברכה,<br/>
-        <strong>מערכת הסדנאות</strong>
-      </p>
-    </div>
-  `,
-  attachments: [
-    {
-      filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
-      content: buffer,
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    },
-  ],
-});
+    <p style="margin-top:24px;">
+      בברכה,<br/>
+      <strong>מערכת הסדנאות</strong>
+    </p>
+  </body>
+</html>
+      `,
+      attachments: [
+        {
+          filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
+          content: buffer,
+          contentType:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      ],
+    });
 
     res.json({ success: true, message: "Excel sent successfully" });
   } catch (err) {
@@ -1137,7 +1327,6 @@ exports.exportWorkshopExcel = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 
 /* ------------------------------------------------------------
@@ -1320,6 +1509,171 @@ exports.validateAddress = async (req, res) => {
   } catch (err) {
     console.error("❌ Address validation error:", err.message);
     res.status(500).json({ success: false, message: "Validation service unavailable" });
+  }
+};
+
+/* ============================================================
+   🔍 searchWorkshops — Atlas Compound Search + Fallback
+   Mirrors searchUsers for consistent UX & query logic
+   ============================================================ */
+exports.searchWorkshops = async (req, res) => {
+  try {
+    // Normalize query
+    const raw = (req.query.q || "").trim();
+    if (!raw) return res.json([]);
+// was: const q = normalizeSearchQuery(raw);
+    const q = normalizeWorkshopQuery(raw);
+    const escaped = escapeRegex(q);
+    const wildcardToken = `*${q}*`;
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit || "60", 10) || 60, 200));
+
+    // Filters
+    const cityFilter = req.query.city;
+    const typeFilter = req.query.type;
+    const coachFilter = req.query.coach;
+    const dayFilter = req.query.day;
+    const hourFilter = req.query.hour;
+    const availableParam = req.query.available;
+    const ageGroupFilter = req.query.ageGroup;
+    const availableFilter =
+      availableParam !== undefined
+        ? String(availableParam).toLowerCase() === "true"
+        : undefined;
+
+    // Clean filter object
+    const filterObj = {};
+    if (cityFilter) filterObj.city = { $regex: new RegExp(escapeRegex(cityFilter), "i") };
+    if (typeFilter) filterObj.type = typeFilter;
+    if (coachFilter) filterObj.coach = { $regex: new RegExp(escapeRegex(coachFilter), "i") };
+    if (hourFilter) filterObj.hour = { $regex: new RegExp(escapeRegex(hourFilter), "i") };
+    if (dayFilter) filterObj.days = dayFilter;
+    if (ageGroupFilter) filterObj.ageGroup = ageGroupFilter;
+    if (availableFilter !== undefined) filterObj.available = availableFilter;
+
+    // Projection
+    const projection = {
+      title: 1,
+      coach: 1,
+      type: 1,
+      city: 1,
+      days: 1,
+      hour: 1,
+      ageGroup: 1,
+      available: 1,
+      image: 1,
+      price: 1,
+      participantsCount: 1,
+      maxParticipants: 1,
+      startDate: 1,
+      endDate: 1,
+    };
+
+    // ----------------------------
+    // Atlas Compound Search
+    // ----------------------------
+    const SEARCH_ANALYZED = ["title", "description", "coach", "city", "type", "studio"];
+    const SEARCH_KEYWORD = [
+      "title_keyword",
+      "description_keyword",
+      "coach_keyword",
+      "city_keyword",
+      "type_keyword",
+      "studio_keyword",
+    ];
+
+    const pipeline = [
+      {
+        $search: {
+          index: "WorkshopTextIndex",
+          compound: {
+            should: [
+              { text: { query: q, path: SEARCH_ANALYZED } },
+              { wildcard: { path: SEARCH_KEYWORD, query: wildcardToken, allowAnalyzedField: true } },
+              { text: { query: q, path: SEARCH_ANALYZED, fuzzy: { maxEdits: 1 } } },
+              { regex: { path: SEARCH_KEYWORD, query: escaped, allowAnalyzedField: true } },
+            ],
+            minimumShouldMatch: 1,
+          },
+        },
+      },
+      { $match: filterObj },
+      { $limit: Math.max(limit * 2, 60) },
+      {
+        $project: {
+          ...projection,
+          score: { $meta: "searchScore" },
+          highlights: { $meta: "searchHighlights" },
+        },
+      },
+    ];
+
+    let docs = [];
+    let clauseUsed = "Atlas compound";
+    const start = Date.now();
+
+    try {
+      docs = await Workshop.aggregate(pipeline);
+    } catch (err) {
+      console.error("⚠️ Atlas $search error:", err.message);
+      clauseUsed = "Atlas error → fallback regex";
+      docs = [];
+    }
+
+    // ----------------------------
+    // Fallback if Atlas failed or empty
+    // ----------------------------
+    if (!docs.length) {
+      console.log("⚙️ [fallback] Running regex fallback for:", q);
+      const rx = new RegExp(escapeRegex(q), "i");
+      docs = await Workshop.find({
+        $or: [
+          { title: rx },
+          { description: rx },
+          { coach: rx },
+          { type: rx },
+          { city: rx },
+          { studio: rx },
+        ],
+        ...filterObj,
+      })
+        .select(projection)
+        .limit(limit)
+        .lean();
+      clauseUsed = "fallback regex";
+    }
+
+    // ----------------------------
+    // Final filtering
+    // ----------------------------
+    const filtered = docs.filter((w) => {
+      if (dayFilter) {
+        const days = Array.isArray(w.days) ? w.days : [];
+        if (!days.includes(dayFilter)) return false;
+      }
+      return true;
+    });
+
+    const took = Date.now() - start;
+    console.groupCollapsed(`🧩 [searchWorkshops] (${clauseUsed}, ${took} ms)`);
+    console.log("Query:", q, "| Docs:", filtered.length);
+    if (filtered[0]) {
+      console.log("Sample:", {
+        _id: filtered[0]._id,
+        title: filtered[0].title,
+        coach: filtered[0].coach,
+        city: filtered[0].city,
+        score: filtered[0].score,
+      });
+    }
+    console.groupEnd();
+
+    return res.json(filtered.slice(0, limit));
+  } catch (err) {
+    console.error("❌ [searchWorkshops] Error:", err);
+    res.status(500).json({
+      message: "Server error performing workshop search",
+      error: err.message,
+    });
   }
 };
 

@@ -27,17 +27,16 @@ function generateRefreshToken(user) {
 
 // שליחת ה-refresh כ-HttpOnly cookie כדי להגן מפני XSS
 function setRefreshCookie(res, refreshToken) {
-  const isProd = process.env.NODE_ENV === "production";
+  const useSecure = String(process.env.COOKIE_SECURE || "").toLowerCase() === "true";
+  const sameSite = (process.env.COOKIE_SAMESITE || "Lax"); // "Lax" is fine for same-site ports
 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
-    secure: isProd ? true : false, // בלוקאל - false
-    sameSite: isProd ? "Strict" : "Lax", // בלוקאל חייב להיות Lax, לא None
-    path: "/", // חשוב שיהיה /
+    secure: useSecure,   // set COOKIE_SECURE=false in .env for LAN/http
+    sameSite,            // "Lax" for LAN; if you ever use "None" you must set secure=true
+    path: "/",
     maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
   });
-
-  console.log(`✅ refreshToken cookie set | secure=${isProd ? "true" : "false"} | sameSite=${isProd ? "Strict" : "Lax"}`);
 }
 
 
@@ -68,8 +67,24 @@ function generateJwtToken(userId) {
 
 // === ✅ Active development version ===
 const logFile = path.join(__dirname, "../../otp_log.csv");
-let transporter = null; // No email sending in dev mode
-const isDev = true; // <-- active development mode
+// Configure a reusable SMTP transporter using environment variables.  This
+// transporter is used for all outgoing emails (OTP, password recovery
+// etc.).  See README for the required SMTP_* keys in .env.  We avoid
+// logging sensitive credentials or message contents.
+const smtpTransport = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+// When developing locally you may still want to log OTP codes to a
+// local CSV file for convenience.  Toggle this flag via the
+// OTP_LOGGING environment variable.  When OTP_LOGGING=false the
+// codes are not persisted locally.
+const otpLoggingEnabled = String(process.env.OTP_LOGGING || "true").toLowerCase() !== "false";
 
 // === 💬 Production version (commented out) ===
 // const isDev = process.env.NODE_ENV !== "production";
@@ -209,11 +224,9 @@ if (!match) {
 
 console.log(`[AUTH] ✅ Login success for ${email}`);
 
-    // ייצור טוקנים
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // שמירת refresh DB עם userAgent לזיהוי מכשיר
     user.refreshTokens.push({
       token: refreshToken,
       userAgent: req.headers["user-agent"] || "",
@@ -275,18 +288,30 @@ exports.sendOtp = async (req, res) => {
     await user.save();
     console.log("[DEBUG] OTP saved on user:", user._id);
 
-    if (isDev) {
-      const line = `${new Date().toISOString()},${email},${otp}\n`;
-      fs.appendFileSync(logFile, line);
-      console.log(`⚙️ [DEV MODE] OTP for ${email}: ${otp}`);
-    } else if (transporter) {
-      await transporter.sendMail({
-        from: `"Workshops" <${process.env.EMAIL_USER}>`,
+    // Optionally write the OTP to a local log file for debugging.
+    if (otpLoggingEnabled) {
+      try {
+        const line = `${new Date().toISOString()},${email},${otp}\n`;
+        fs.appendFileSync(logFile, line);
+        console.log(`⚙️ OTP for ${email}: ${otp} (logged)`);
+      } catch (err) {
+        console.warn("⚠️ Failed to write OTP to log:", err.message);
+      }
+    }
+    // Send the OTP via email using the configured SMTP transport.  If
+    // sending fails we still return success to avoid enumerating
+    // user existence.
+    try {
+      await smtpTransport.sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_USER,
         to: email,
-        subject: "Your verification code",
-        text: `Verification code: ${otp}`,
+        subject: "קוד אימות", // Hebrew subject for the client
+        text: `קוד האימות שלך הוא ${otp}`,
+        html: `<p dir="rtl">קוד האימות שלך הוא <b>${otp}</b></p>`,
       });
-      console.log(`📧 OTP sent to ${email}`);
+      console.log(`📧 OTP email sent to ${email}`);
+    } catch (err) {
+      console.error("⚠️ Failed to send OTP email:", err.message);
     }
 
     return res.json({ success: true, message: "OTP generated successfully." });
@@ -318,15 +343,15 @@ exports.verifyOtp = async (req, res) => {
       await user.save();
       return res.status(400).json({ message: `Invalid code. Attempt ${user.otpAttempts}/5` });
     }
-
-    // ✅ אימות OTP עבר
+    //Passed
     user.otpCode = null;
     await user.save();
 
+
+    //Aquire tokens
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // שמירת refresh ב-DB
     user.refreshTokens.push({
       token: refreshToken,
       userAgent: req.headers["user-agent"] || "",
@@ -403,24 +428,22 @@ exports.recoverPassword = async (req, res) => {
     user.otpAttempts = 0;
     await user.save();
 
-    // Reuse nodemailer transporter from login OTP, but change subject
-    let transporter;
-    if (process.env.NODE_ENV === "production") {
-      transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT || 587,
-        secure: false,
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      });
-    } else {
-      transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-      });
-    }
+    // Always use environment-provided SMTP settings for sending recovery
+    // emails.  The SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS values
+    // should be defined in the .env file.  We avoid relying on
+    // provider-specific services (e.g. Gmail) directly in code.
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
 
     await transporter.sendMail({
-      from: process.env.MAIL_FROM || process.env.EMAIL_USER,
+      from: process.env.MAIL_FROM || process.env.SMTP_USER,
       to: email,
       subject: "Password Recovery",
       text: `Your recovery code is ${otp}. It expires in 10 minutes.`,
@@ -483,7 +506,6 @@ exports.refreshAccessToken = async (req, res) => {
     if (!session)
       return res.status(403).json({ message: "Refresh not recognized" });
 
-    // ✅ מנפיק Access חדש בלבד
     const newAccess = generateAccessToken(user);
     return res.json({ accessToken: newAccess });
   } catch (e) {
@@ -496,7 +518,7 @@ exports.logout = async (req, res) => {
     const token = req.cookies?.refreshToken;
     const isProd = process.env.NODE_ENV === "production";
 
-    // ⚙️ אותן הגדרות בדיוק כמו ב־setRefreshCookie
+   
     const clearOptions = {
       httpOnly: true,
       secure: isProd ? true : false,

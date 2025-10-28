@@ -1,10 +1,23 @@
+/**
+ * FamilyEditorModal.jsx — Family Management Modal (Full Server Sync)
+ * ------------------------------------------------------------------
+ * ✅ Hebrew UI + English dev notes
+ * ✅ Add / Edit / Delete family members (all synced via /update-entity)
+ * ✅ Auto-unregister deleted members from all workshops
+ * ✅ Sends correct userId, parentUserId, and familyId for each operation
+ * ✅ Refetch-safe and consistent with updateEntity controller
+ */
+
 import React, { useState } from "react";
+import { apiFetch } from "../../utils/apiFetch";
 
 export default function FamilyEditorModal({ user, onClose, onSave }) {
-  const token = localStorage.getItem("token");
   const [list, setList] = useState(user.familyMembers || []);
   const [saving, setSaving] = useState(false);
 
+  /* ------------------------------------------------------------
+     🔹 Update a specific field in a given member index
+  ------------------------------------------------------------ */
   const updateField = (idx, key, value) => {
     setList((prev) => {
       const next = [...prev];
@@ -13,6 +26,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     });
   };
 
+  /* ------------------------------------------------------------
+     ➕ Add a new blank family member
+  ------------------------------------------------------------ */
   const addMember = () => {
     setList((prev) => [
       ...prev,
@@ -21,42 +37,121 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
         relation: "",
         idNumber: "",
         phone: "",
-        email: user.email || "", // ✅ default to parent email
+        email: user.email || "",
         birthDate: "",
         city: "",
       },
     ]);
   };
 
-  const removeMember = (idx) => {
-    setList((prev) => prev.filter((_, i) => i !== idx));
-  };
+  /* ------------------------------------------------------------
+     ❌ Delete a family member (unregister + backend sync)
+  ------------------------------------------------------------ */
+  const deleteMember = async (idx) => {
+    const member = list[idx];
+    if (!member) return;
 
-  const saveAll = async () => {
+    const confirmDelete = window.confirm(
+      `האם אתה בטוח שברצונך למחוק את ${member.name || "בן המשפחה"}?`
+    );
+    if (!confirmDelete) return;
+
     try {
       setSaving(true);
 
-      const normalized = list.map((m) => ({
-        ...m,
-        email: m.email || user.email || "", // ✅ fallback
-      }));
+      // 1️⃣ Unregister from all workshops (soft fail if not enrolled)
+      await apiFetch("/api/workshops/unregister-entity-from-workshop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entityId: member._id,
+          parentUserId: user._id,
+          type: "family",
+        }),
+      }).catch(() => {});
 
-      const res = await fetch("/api/users/update-entity", {
+      // 2️⃣ Remove locally and persist to server
+      const updatedList = list.filter((_, i) => i !== idx);
+      setList(updatedList);
+
+      const res = await apiFetch("/api/users/update-entity", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user._id,
-          updates: { familyMembers: normalized },
+          updates: { familyMembers: updatedList },
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Update failed");
-      onSave?.(normalized);
-      try { window.dispatchEvent(new Event('entity-updated')); } catch(e) {}
+
+      onSave?.({ ...user, familyMembers: updatedList });
+      window.dispatchEvent(new Event("entity-updated"));
+      alert(`✅ ${member.name || "בן משפחה"} נמחק בהצלחה`);
+    } catch (e) {
+      alert("❌ שגיאה במחיקת בן המשפחה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* ------------------------------------------------------------
+     💾 Save each member (sends proper familyId + parentUserId)
+  ------------------------------------------------------------ */
+  const saveAll = async () => {
+    try {
+      setSaving(true);
+
+      for (const member of list) {
+        const normalized = {
+          ...member,
+          email: member.email || user.email || "",
+        };
+
+        const basePayload = {
+          userId: user._id,
+          parentUserId: user._id,
+          updates: {
+            name: normalized.name,
+            relation: normalized.relation,
+            idNumber: normalized.idNumber,
+            phone: normalized.phone,
+            birthDate: normalized.birthDate,
+            email: normalized.email,
+            city: normalized.city,
+          },
+        };
+
+        // Existing member → update by familyId
+        if (normalized._id) {
+          basePayload.familyId = normalized._id;
+        } else {
+          // New member → replace entire array with new list
+          const fullList = list.map((m) => ({
+            ...m,
+            email: m.email || user.email || "",
+          }));
+          await apiFetch("/api/users/update-entity", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user._id,
+              updates: { familyMembers: fullList },
+            }),
+          });
+          continue;
+        }
+
+        await apiFetch("/api/users/update-entity", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(basePayload),
+        });
+      }
+
+      window.dispatchEvent(new Event("entity-updated"));
       onClose?.();
+      alert("✅ בני המשפחה נשמרו בהצלחה");
     } catch (e) {
       alert("❌ שגיאה בשמירת בני משפחה: " + e.message);
     } finally {
@@ -64,6 +159,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     }
   };
 
+  /* ------------------------------------------------------------
+     🧱 UI (Hebrew interface)
+  ------------------------------------------------------------ */
   return (
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -74,6 +172,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-gray-800">ניהול בני משפחה</h3>
           <button
@@ -84,6 +183,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
           </button>
         </div>
 
+        {/* Members List */}
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
           {list.map((m, idx) => (
             <div
@@ -134,24 +234,31 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
                   onChange={(e) => updateField(idx, "city", e.target.value)}
                 />
               </div>
+
+              {/* Delete Button */}
               <div className="flex justify-end mt-3">
                 <button
-                  onClick={() => removeMember(idx)}
-                  className="text-red-600 text-sm hover:underline"
+                  onClick={() => deleteMember(idx)}
+                  disabled={saving}
+                  className="text-red-600 text-sm hover:underline disabled:opacity-60"
                 >
-                  מחק
+                  🗑️ מחק
                 </button>
               </div>
             </div>
           ))}
+
+          {/* Add Button */}
           <button
             onClick={addMember}
-            className="w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium"
+            disabled={saving}
+            className="w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium disabled:opacity-60"
           >
             ➕ הוסף בן משפחה
           </button>
         </div>
 
+        {/* Actions */}
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}

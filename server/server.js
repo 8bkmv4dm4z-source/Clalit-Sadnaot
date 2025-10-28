@@ -1,358 +1,267 @@
-// server/server.js
-require("dotenv").config();
-if (!process.env.JWT_SECRET) {
-  console.error("❌ Missing JWT_SECRET. Exiting...");
-  process.exit(1);
-}
+/**
+ * server.js — Express backend for Clalit Workshops
+ * ------------------------------------------------
+ * Purpose
+ * - Secure API server (Express + MongoDB via Mongoose)
+ * - Works with local LAN launcher (HOST/PORT/CORS from env)
+ * - Security/CORS/RLs are applied ONLY to /api/** routes
+ *
+ * Data Flow
+ * Client (React) → Context → /api/** → Controllers → MongoDB → Refetch → Context → UI
+ */
 
+require("dotenv").config();
+
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
-const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose"); 
-
-const connectDB = require("./config/db"); // ✅ use the new helper
 const rateLimit = require("express-rate-limit");
 const hpp = require("hpp");
 const compression = require("compression");
 const mongoSanitize = require("express-mongo-sanitize");
 const cookieParser = require("cookie-parser");
+const mongoose = require("mongoose");
+const { errors: celebrateErrors, CelebrateError } = require("celebrate");
+const jwt = require("jsonwebtoken");
 
 const app = express();
-console.log("🌐 NODE_ENV =", process.env.NODE_ENV);
-console.log("Limiter active:", process.env.NODE_ENV !== "loadtest");
+app.set("trust proxy", 1);
+
+/* ----------------------------
+ * Helpers
+ * -------------------------- */
+const parseCSV = (csv) =>
+  (csv || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+const logsDir = path.join(__dirname, "../logs");
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+const logFilePath = path.join(logsDir, "server.log");
+
+const scrub = (s = "") =>
+  String(s)
+    .replace(/Bearer\s+[A-Za-z0-9\.\-_]+/g, "Bearer ***")
+    .replace(
+      /(\"(password|pass|token|secret|authorization|otp|code)\"\s*:\s*\")([^"]+)/gi,
+      '$1***'
+    );
+
+function logToFile(level, msg) {
+  try {
+    const line = `[${new Date().toISOString()}] [${level}] ${msg}\n`;
+    fs.appendFile(logFilePath, line, () => {});
+  } catch (_) {}
+}
+
+["log", "info", "warn", "error"].forEach((m) => {
+  const orig = console[m];
+  console[m] = (...args) => {
+    const msg = args
+      .map((a) => (typeof a === "object" ? scrub(JSON.stringify(a)) : scrub(a)))
+      .join(" ");
+    logToFile(m.toUpperCase(), msg);
+    orig.apply(console, args);
+  };
+});
+
+/* ----------------------------
+ * Body parsing (global)
+ * -------------------------- */
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: false, limit: "1mb" }));
+app.use(cookieParser());
+
+/* ----------------------------
+ * Database
+ * -------------------------- */
+const MONGODB_URI =
+  process.env.MONGODB_URI ||
+  process.env.MONGO_URI ||
+  "mongodb://127.0.0.1:27017/ClalitData";
+
 mongoose.connection.once("open", () => {
   console.log(`✅ Connected to cluster: ${mongoose.connection.host}`);
   console.log(`📂 Active database: ${mongoose.connection.name}`);
 });
-if (process.env.NODE_ENV !== "production") {
-  app.use("/api/dev", require("./routes/dev"));
-}
-app.disable("x-powered-by");
+mongoose.connection.on("error", (err) => {
+  console.error("Mongo connection error:", err?.message || err);
+});
 
-/* ----------------------------------------
- * 🔹 בסיס
- * -------------------------------------- */
-//enable when behind a proxy (e.g. Heroku, Vercel, Nginx)
-app.set("trust proxy", 1); // ✅ רק hop אחד (Render/Proxy אחד)
+/* ============================================================
+ * API router — all security/CORS/limits are scoped to /api/**
+ * ========================================================== */
+const api = express.Router();
 
-// JSON parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
-const logPath = "./server_env.log";
-const envInfo = `\n[${new Date().toISOString()}] 🚀 NODE_ENV = ${process.env.NODE_ENV}\nCWD = ${process.cwd()}\n`;
-fs.appendFileSync(logPath, envInfo);
-
-console.log("🧭 Environment info written to", logPath);
-
-// 🔐 Security headers (minimal Helmet replacement)
-// 🔐 Helmet — הגנות ברירת מחדל דרך כותרות HTTP
-app.use(
+// Security middleware (API only)
+api.use(
   helmet({
-    // CSP נוסיף בשלב ייעודי כדי לא לשבור את ה-UI בזמן פיתוח
-    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false, // silence COOP on LAN http
   })
 );
-app.use(hpp());
+api.use(hpp());
+api.use(mongoSanitize());
+api.use(compression());
 
-app.use(compression());
-
-/* ----------------------------------------
- * 🚦 Global Rate Limit  ✅ NEW SECTION
- * -------------------------------------- */
-/*hey*/
-
-/* ----------------------------------------
- * 🚦 Global Rate Limit (Load-Test-Safe)
- * -------------------------------------- */
-
-const IS_LOADTEST = process.env.NODE_ENV === "loadtest";
-
-const WHITELISTED_IPS = [
-  "127.0.0.1",     // local IPv4
-  "::1",           // local IPv6
-  "192.168.1.100", // LAN IP (for cross-device testing)
-];
-
-let generalLimiter;
-if (IS_LOADTEST) {
-  console.warn("⚠️  Global rate limiter disabled due to loadtest mode");
-  generalLimiter = (req, res, next) => next();
-} else {
-  generalLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 100,            // 100 req/min per IP
-    message: { message: "Too many requests, slow down." },
-    handler: (req, res) => {
-      req.app.emit("rate-limit-hit", {
-        type: "auth-general",
-        ip: req.ip,
-        path: req.originalUrl,
-        when: new Date().toISOString(),
-      });
-      res.status(429).json({ message: "Too many requests" });
+// CORS (API only)
+const ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS);
+api.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // tools/same-origin
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("CORS: Origin not allowed"), false);
     },
-    skip: (req) => WHITELISTED_IPS.includes(req.ip),
-  });
-}
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    exposedHeaders: ["Content-Disposition"],
+  })
+);
 
-app.use(generalLimiter);
+// Rate limits (API only)
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+api.use(globalLimiter);
 
-app.use(cookieParser());
-const sanitizeBody = require("./middleware/sanitizeBody");
-app.use(sanitizeBody); // Cleans req.body, req.query, req.params
+// Write limiter for workshops (with admin JWT/email whitelist)
+const ADMIN_WHITELIST_IDS = parseCSV(process.env.ADMIN_WHITELIST_IDS).map((s) =>
+  s.toLowerCase()
+);
+const ADMIN_WHITELIST_EMAILS = parseCSV(
+  process.env.ADMIN_WHITELIST_EMAILS
+).map((s) => s.toLowerCase());
 
-app.use(mongoSanitize());
-
-// 🧼 Basic sanitization to mitigate MongoDB operator injection
-// function sanitize(obj) {
-//   if (obj && typeof obj === "object") {
-//     Object.keys(obj).forEach((key) => {
-//       if (key.startsWith("$") || key.includes(".")) {
-//         delete obj[key];
-//       } else {
-//         sanitize(obj[key]);
-//       }
-//     });
-//   }
-// }
-// app.use((req, _res, next) => {
-//   sanitize(req.body);
-//   sanitize(req.query);
-//   next();
-// });
-/* ----------------------------------------
- * 🌐 CORS (Safe + Controlled)
- * -------------------------------------- */
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no Origin (like curl, Postman, k6 local tests)
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // Instead of throwing, return a controlled 403-style error
-    const msg = `CORS blocked: ${origin} is not in allowed origins`;
-    console.warn(`[CORS] ❌ ${msg}`);
-    return callback(new Error(msg), false);
+const workshopWriteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skip: (req) => {
+    try {
+      const auth = req.headers?.authorization || "";
+      if (!auth.startsWith("Bearer ")) return false;
+      const token = auth.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const uid = String(decoded.id || decoded.userId || "").toLowerCase();
+      const email = String(decoded.email || "").toLowerCase();
+      if (uid && ADMIN_WHITELIST_IDS.includes(uid)) return true;
+      if (email && ADMIN_WHITELIST_EMAILS.includes(email)) return true;
+    } catch (_) {}
+    return false;
   },
-  credentials: true,
-  optionsSuccessStatus: 204, // Ensure preflights return 204 instead of 200
-};
-
-// Middleware wrapper for cleaner error handling
-app.use((req, res, next) => {
-  cors(corsOptions)(req, res, (err) => {
-    if (err && err.message.startsWith("CORS blocked")) {
-      return res.status(403).json({ message: err.message });
-    }
-    next(err);
-  });
 });
 
-/* ----------------------------------------
- * 🧾 לוגים לקובץ
- * -------------------------------------- */
-const logDir = path.join(__dirname, "logs");
-const logFile = path.join(logDir, "server.log");
-if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-
-const logStream = fs.createWriteStream(logFile, { flags: "a" });
-const log = (type, msg) => {
-  const timestamp = new Date().toISOString();
-  const line = `[${timestamp}] [${type}] ${msg}\n`;
-  process.stdout.write(line);
-  logStream.write(line);
-};
-
-// mirror console to file
-["log", "info", "warn", "error"].forEach((method) => {
-  const original = console[method];
-  console[method] = (...args) => {
-    const message = args
-      .map((a) => (typeof a === "object" ? JSON.stringify(a, null, 2) : a))
-      .join(" ");
-    log(method.toUpperCase(), message);
-    original.apply(console, args);
-  };
-});
-
-/* ----------------------------------------
- * ✅ בריאות
- * -------------------------------------- */
-app.get("/", (_req, res) => res.json({ ok: true, ts: Date.now() }));
-
-/* ----------------------------------------
- * 🚦 Rate limit חכם לכתיבות בלבד (Workshops)
- *  - מזהה אדמין / רשימת לבנים מה־JWT ומחריג.
- *  - עובד רק על POST/PUT/PATCH/DELETE של /api/workshops/*
- * -------------------------------------- */
-
-// רשימות לבנים מה־env (אופציונלי)
-const ADMIN_WHITELIST_IDS = (process.env.ADMIN_WHITELIST_IDS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-const ADMIN_WHITELIST_EMAILS = (process.env.ADMIN_WHITELIST_EMAILS || "")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-
-// בדיקת החרגה מתוך ה־JWT בלי גישה ל־DB
-function isWhitelistedReq(req) {
+/* ----------------------------
+ * Dev utilities (API only)
+ * -------------------------- */
+if (process.env.NODE_ENV !== "production") {
   try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return false;
-
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    if (!payload) return false;
-
-    if (payload.role === "admin") return true;
-    if (payload._id && ADMIN_WHITELIST_IDS.includes(String(payload._id))) return true;
-    if (
-      payload.email &&
-      ADMIN_WHITELIST_EMAILS.includes(String(payload.email).toLowerCase())
-    )
-      return true;
-
-    return false;
-  } catch {
-    return false;
+    api.use("/dev", require("./routes/dev"));
+  } catch (e) {
+    console.warn("⚠️ Dev routes not found (ok).");
   }
 }
 
-// ממפה מפתח לפי IP+נתיב כדי לתת גמישות
-const writeRateMap = Object.create(null);
-const WRITE_WINDOW_MS = 60 * 1000; // 1 דקה
-const WRITE_MAX = 20; // עד 20 פעולות בדקה למשתמש/IP
-
-function workshopWriteLimiter(req, res, next) {
-  // ✅ Skip limiter completely during load tests
-  if (IS_LOADTEST) return next();
-
-  const method = req.method.toUpperCase();
-  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return next();
-
-  if (isWhitelistedReq(req)) return next();
-
-  const ip = req.ip || req.connection?.remoteAddress || "unknown";
-  const key = `${ip}:${req.baseUrl}${req.path}`;
-  const now = Date.now();
-
-  const rec = writeRateMap[key] || { count: 0, start: now };
-  if (now - rec.start > WRITE_WINDOW_MS) {
-    rec.count = 0;
-    rec.start = now;
-  }
-  rec.count += 1;
-  writeRateMap[key] = rec;
-
-  if (rec.count > WRITE_MAX) {
-    console.warn("[RateLimit] blocked", {
-      key,
-      ip,
-      path: req.originalUrl,
-      method,
-    });
-    return res
-      .status(429)
-      .json({ message: "Too many requests, please try again later." });
-  }
-
-  return next();
-}
-
-
-/* ----------------------------------------
- * 🔀 Routers
- * -------------------------------------- */
+/* ----------------------------
+ * Routers (under /api)
+ * -------------------------- */
 const workshopsRouter = require("./routes/workshops");
 const authRouter = require("./routes/auth");
 const usersRouter = require("./routes/users");
 const profileRouter = require("./routes/profile");
-if (process.env.NODE_ENV !== "production") {
-  app.use("/api/dev", require("./routes/dev"));
-}
 
-// ⚠️ חשוב: למקד את המגבלה רק על כתיבות של workshops
-app.use("/api/workshops", workshopWriteLimiter, workshopsRouter);
+api.use("/workshops", workshopWriteLimiter, workshopsRouter);
+api.use("/auth", authRouter);
+api.use("/users", usersRouter);
+api.use("/profile", profileRouter);
 
-// שאר הנתיבים ללא מגביל גלובלי
-app.use("/api/auth", authRouter);
-app.use("/api/users", usersRouter);
-app.use("/api/profile", profileRouter);
-const { errors } = require("celebrate");
-app.use(errors());
-// 🧩 Error handling middleware — כולל Celebrate + Joi פירוט מלא
-app.use((err, req, res, next) => {
-  console.error("❌ Server error:", err);
-
-  // Celebrate / Joi validation errors
-  if (err.joi) {
-    return res.status(400).json({
-      success: false,
-      message: "Validation failed",
-      details: err.joi.details?.map((d) => ({
-        path: d.path,
-        message: d.message,
-      })),
-    });
-  }
-
-  // Celebrate 15+ style errors (Map of segments)
-  if (err.name === "CelebrateError") {
-    const details = [];
-    for (const [segment, joiError] of err.details.entries()) {
-      details.push(
-        ...joiError.details.map((d) => ({
-          segment,
-          path: d.path,
-          message: d.message,
-        }))
-      );
-    }
-    return res.status(400).json({
-      success: false,
-      message: "Validation failed",
-      details,
-    });
-  }
-
-  // כל שאר השגיאות
-  return res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Server error",
-  });
+// API 404
+api.use((req, res, next) => {
+  if (res.headersSent) return next();
+  return res.status(404).json({ success: false, message: "Not found" });
 });
 
-/* ----------------------------------------
- * 🚀 Start
- * -------------------------------------- */
-const PORT = process.env.PORT || 5000;
+// API error handlers
+api.use(celebrateErrors());
+api.use((err, req, res, _next) => {
+  if (err instanceof CelebrateError) {
+    return res.status(400).json({ success: false, message: "Validation error" });
+  }
+  const status = err.status || err.statusCode || 500;
+  const payload =
+    process.env.NODE_ENV === "production"
+      ? { success: false, message: "Server error" }
+      : { success: false, message: err.message || "Server error" };
+  if (status >= 500) console.error("Unhandled error:", err);
+  return res.status(status).json(payload);
+});
+
+// Mount the API once
+app.use("/api", api);
+
+/* ------------------------------------------------
+ * Static SPA (serve client build) — outside /api
+ * MUST come after API and before app-level 404s
+ * ---------------------------------------------- */
+if (process.env.NODE_ENV === "production") {
+  const dist = path.join(__dirname, "../client/dist");
+  console.log("[STATIC] expecting build at:", dist, "exists?", fs.existsSync(dist));
+  if (fs.existsSync(dist)) {
+    app.use(express.static(dist));
+    app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  } else {
+    console.warn("[STATIC] dist folder missing — did Vite build run?");
+  }
+}
+
+/* ------------------------------------------------
+ * App-level 404 for any other unmatched (rare)
+ * ---------------------------------------------- */
+app.use((req, res, next) => {
+  if (res.headersSent) return next();
+  return res.status(404).json({ success: false, message: "Not found" });
+});
+
+/* ------------------------------------------------
+ * Start
+ * ---------------------------------------------- */
+const PORT = Number(process.env.PORT) || 5000;
+const HOST = process.env.HOST || "0.0.0.0";
 
 (async () => {
   try {
-    await connectDB();
-    process.on("unhandledRejection", (r) =>
-      console.error("UNHANDLED REJECTION:", r)
-    );
-    process.on("uncaughtException", (e) =>
-      console.error("UNCAUGHT EXCEPTION:", e)
-    );
+    await mongoose.connect(MONGODB_URI, {
+      autoIndex: true,
+      serverSelectionTimeoutMS: 10000,
+    });
 
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    const server = app.listen(PORT, HOST, () => {
+      const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+      console.log(`🚀 Server listening on ${HOST}:${PORT}`);
+      console.log(`🔗 Open: ${url}`);
+    });
+
+    const shutdown = (sig) => () => {
+      console.warn(`\n${sig} received — shutting down...`);
+      server.close(() => {
+        mongoose.connection.close(false).then(() => process.exit(0));
+      });
+      setTimeout(() => process.exit(1), 10000).unref();
+    };
+    process.on("SIGTERM", shutdown("SIGTERM"));
+    process.on("SIGINT", shutdown("SIGINT"));
   } catch (err) {
-    console.error("❌ Failed to start server:", err.message);
+    console.error("❌ Failed to start server:", err?.message || err);
     process.exit(1);
   }
 })();
-

@@ -1,9 +1,9 @@
 /**
- * Workshops.jsx — Smart Search Edition (Multi-Sessions + Hebrew Day Logic)
+ * Workshops.jsx — Smart Search Edition (Context-Only API Calls)
  * -----------------------------------------------------------------------
  * ✅ חיפוש חכם בעברית: "יום ה" / "ימים א,ד"
- * ✅ תפריט יחיד לבחירת קטגוריה (שם, סוג, עיר, מאמן, ימים, מחיר...)
- * ✅ מחיקה, עריכה, הרשמה וביטול — כולם עובדים
+ * ✅ כל הקריאות עוברות דרך ה־Context בלבד (בלי apiFetch ישיר)
+ * ✅ הרשמה, ביטול, מחיקה, רשימת המתנה — כולם עובדים דרך הפונקציות ב־WorkshopContext
  * ✅ עיצוב קומפקטי ונקי (Tailwind)
  */
 
@@ -11,78 +11,60 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-// After normalising the folder structure, shared UI pieces live under
-// `src/components`. Import the workshop card and participants modal from the new
-// path. No logic has changed; only the import paths were updated.
 import WorkshopCard from "../../components/WorkshopCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
-import { apiFetch } from "../../utils/apiFetch";
 
 export default function Workshops() {
   const navigate = useNavigate();
+  const { isLoggedIn, isAdmin, user } = useAuth();
 
   // 🔹 State
   const [searchBy, setSearchBy] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [feedback, setFeedback] = useState(null);
-const [cities, setCities] = useState([]);
-const { isLoggedIn, isAdmin, user } = useAuth();
+  const [cities, setCities] = useState([]);
+
   // 🔹 Context
   const {
-  displayedWorkshops,
-  registeredWorkshopIds,
-  setRegisteredWorkshopIds,
-  fetchWorkshops,
-  deleteWorkshopLocal,
-  loading,
-  error,
-  viewMode,
-  registerEntityToWorkshop,
-  unregisterEntityFromWorkshop,
-  registerToWaitlist,
-  unregisterFromWaitlist,
-  fetchAvailableCities, 
-} = useWorkshops();
-
+    displayedWorkshops,
+    
+    setRegisteredWorkshopIds,
+    fetchWorkshops,
+    fetchRegisteredWorkshops,
+    deleteWorkshop,
+    loading,
+    error,
+    viewMode,
+    registerEntityToWorkshop,
+    unregisterEntityFromWorkshop,
+    registerToWaitlist,
+    unregisterFromWaitlist,
+    fetchAvailableCities,
+  } = useWorkshops();
 
   /* ============================================================
      🧩 Initial Data Fetch
   ============================================================ */
   useEffect(() => {
-  const loadCities = async () => {
-    try {
+    const loadCities = async () => {
       const result = await fetchAvailableCities();
       if (Array.isArray(result)) setCities(result);
-    } catch (err) {
-      console.error("❌ Error loading cities:", err);
-    }
-  };
-  loadCities();
-}, []);
+    };
+    loadCities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    fetchWorkshops();
-  }, [viewMode]);
+
 
   useEffect(() => {
     if (!isLoggedIn) {
       setRegisteredWorkshopIds([]);
       return;
     }
-    const fetchRegistered = async () => {
-      try {
-        const res = await apiFetch("/api/workshops/registered");
-        if (res.status === 401) return;
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "Failed to load registrations");
-        setRegisteredWorkshopIds(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error("❌ Error fetching registered workshops:", err);
-      }
-    };
-    fetchRegistered();
-  }, [isLoggedIn, setRegisteredWorkshopIds]);
+    fetchRegisteredWorkshops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -111,14 +93,13 @@ const { isLoggedIn, isAdmin, user } = useAuth();
         .map((d) => d.trim())
         .filter(Boolean);
 
-      list = list.filter(
+      return list.filter(
         (w) => Array.isArray(w.days) && normalized.some((n) => w.days.includes(n))
       );
-      return list;
     }
 
     // 🌍 General wide search
-    list = list.filter((w) => {
+    return list.filter((w) => {
       const fields =
         searchBy === "all"
           ? [
@@ -140,8 +121,6 @@ const { isLoggedIn, isAdmin, user } = useAuth();
         .filter(Boolean)
         .some((f) => f.toString().toLowerCase().includes(q));
     });
-
-    return list;
   }, [displayedWorkshops, searchBy, searchQuery]);
 
   /* ============================================================
@@ -183,49 +162,29 @@ const { isLoggedIn, isAdmin, user } = useAuth();
 
   const handleRegister = async (id, familyId = null) => {
     const result = await registerEntityToWorkshop(id, familyId);
-    if (result.success) {
-      setFeedback("✅ נרשמת בהצלחה לסדנה!");
-      setRegisteredWorkshopIds((prev) => [...prev, id]);
-      await fetchWorkshops();
-    } else setFeedback("❌ שגיאה בהרשמה לסדנה");
+    setFeedback(result.success ? "✅ נרשמת בהצלחה לסדנה!" : "❌ שגיאה בהרשמה לסדנה");
     setTimeout(() => setFeedback(null), 2500);
   };
 
   const handleUnregister = async (id, familyId = null) => {
     const result = await unregisterEntityFromWorkshop(id, familyId);
-    if (result.success) {
-      setFeedback("✅ ההרשמה בוטלה בהצלחה");
-      setRegisteredWorkshopIds((prev) => prev.filter((x) => x !== id));
-      await fetchWorkshops();
-    } else setFeedback("❌ שגיאה בביטול ההרשמה");
+    setFeedback(result.success ? "✅ ההרשמה בוטלה בהצלחה" : "❌ שגיאה בביטול ההרשמה");
     setTimeout(() => setFeedback(null), 2500);
   };
+
+  const handleDeleteWorkshop = async (id) => {
+    if (!window.confirm("למחוק את הסדנה לצמיתות?")) return;
+    const result = await deleteWorkshop(id);
+    setFeedback(result.success ? "✅ הסדנה נמחקה בהצלחה" : `❌ ${result.message}`);
+    setTimeout(() => setFeedback(null), 2500);
+  };
+
+  const handleEditWorkshop = (id) =>
+    navigate(`/editworkshop/${id}`, { state: { cities } });
 
   const handleManageParticipants = (id) => {
     const found = displayedWorkshops.find((w) => w._id === id);
     if (found) setSelectedWorkshop(found);
-  };
-
-const handleEditWorkshop = (id) =>
-  navigate(`/editworkshop/${id}`, { state: { cities } });
-
-  const handleDeleteWorkshop = async (id) => {
-    if (!window.confirm("למחוק את הסדנה לצמיתות?")) return;
-    try {
-      const res = await apiFetch(`/api/workshops/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "שגיאה במחיקה");
-
-      deleteWorkshopLocal(id);
-      await fetchWorkshops();
-
-      setFeedback("✅ הסדנה נמחקה בהצלחה");
-    } catch (err) {
-      console.error("❌ Error deleting workshop:", err);
-      setFeedback(`❌ ${err.message}`);
-    } finally {
-      setTimeout(() => setFeedback(null), 2500);
-    }
   };
 
   const handleModalClose = async () => {
@@ -345,7 +304,7 @@ const handleEditWorkshop = (id) =>
                     onUnregister={(fid) => handleUnregister(w._id, fid)}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
-                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)} // ✅ תוקן
+                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
                     searchQuery={searchQuery}
                   />
                 ))}
@@ -361,22 +320,21 @@ const handleEditWorkshop = (id) =>
         <div className="grid gap-6 sm:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 max-w-6xl mx-auto mt-10">
           {filteredWorkshops.map((w) => (
             <WorkshopCard
-  key={w._id}
-  {...w}
-  isLoggedIn={isLoggedIn}
-  isAdmin={isAdmin}
-  isRegistered={w.isUserRegistered}
-  userFamilyRegistrations={w.userFamilyRegistrations || []}
-  onRegister={(fid) => handleRegister(w._id, fid)}
-  onUnregister={(fid) => handleUnregister(w._id, fid)}
-  onRegisterWaitlist={(fid) => registerToWaitlist(w._id, fid)}
-  onUnregisterWaitlist={(fid) => unregisterFromWaitlist(w._id, fid)}
-  onManageParticipants={() => handleManageParticipants(w._id)}
-  onEditWorkshop={() => handleEditWorkshop(w._id)}
-  onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-  searchQuery={searchQuery}
-/>
-
+              key={w._id}
+              {...w}
+              isLoggedIn={isLoggedIn}
+              isAdmin={isAdmin}
+              isRegistered={w.isUserRegistered}
+              userFamilyRegistrations={w.userFamilyRegistrations || []}
+              onRegister={(fid) => handleRegister(w._id, fid)}
+              onUnregister={(fid) => handleUnregister(w._id, fid)}
+              onRegisterWaitlist={(fid) => registerToWaitlist(w._id, fid)}
+              onUnregisterWaitlist={(fid) => unregisterFromWaitlist(w._id, fid)}
+              onManageParticipants={() => handleManageParticipants(w._id)}
+              onEditWorkshop={() => handleEditWorkshop(w._id)}
+              onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+              searchQuery={searchQuery}
+            />
           ))}
         </div>
       )}
