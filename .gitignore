@@ -1,28 +1,108 @@
-# Logs
-logs
-*.log
+# ======================================================
+# 🌐 MERN + Vite Full Stack Git Ignore (Nir - public ready)
+# ======================================================
+
+# ----------------------
+# Node / Build Artifacts
+# ----------------------
+node_modules/
+client/node_modules/
+server/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
+dist/
+build/
+.cache/
+.tmp/
+.vite/
+vite.config.ts.timestamp*
 
-node_modules
-dist
-dist-ssr
+# ----------------------
+# Environment / Secrets
+# ----------------------
+.env
+.env.*
+*/.env
+client/.env
+server/.env
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
+.envrc
+*.secret
 *.local
+*.bak
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# ----------------------
+# Logs
+# ----------------------
+logs/
+*.log
+logs/**/*.log
+debug.log
+error.log
+client/logs/
+server/logs/
+
+# ----------------------
+# OS / System Files
+# ----------------------
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ----------------------
+# IDE / Editor
+# ----------------------
+.vscode/
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-# Environment files
-.env
-server/.env
-client/.env
+.history/
+
+# ----------------------
+# Test coverage / reports
+# ----------------------
+coverage/
+*.lcov
+client/coverage/
+server/coverage/
+
+# ----------------------
+# Misc / Temporary
+# ----------------------
+*.pid
+*.seed
+*.pid.lock
+*.tgz
+*.tmp
+*.bak
+*.swp
+
+# ----------------------
+# Deployment (Vercel / Render / local)
+# ----------------------
+.vercel/
+.render/
+render.yaml
+vercel.json
+client/.output/
+server/.output/
+uploads/
+tmp/
+
+# ----------------------
+# Local Dev
+# ----------------------
+.eslintcache
+*.pid
+*.seed
+*.tgz
+*.zip
