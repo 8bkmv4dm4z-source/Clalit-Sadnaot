@@ -9,6 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "vite": "^5.4.0",
+"@vitejs/plugin-react": "^4.3.0",
+"autoprefixer": "^10.4.21",
+"postcss": "^8.5.6",
+"tailwindcss": "^3.4.13"
+,
     "@fullcalendar/core": "^6.1.19",
     "@fullcalendar/daygrid": "^6.1.19",
     "@fullcalendar/interaction": "^6.1.19",
