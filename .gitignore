@@ -97,7 +97,7 @@ client/.output/
 server/.output/
 uploads/
 tmp/
-
+otp_log.csv
 # ----------------------
 # Local Dev
 # ----------------------
