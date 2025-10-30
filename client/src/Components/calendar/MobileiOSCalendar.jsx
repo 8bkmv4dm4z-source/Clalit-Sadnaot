@@ -59,7 +59,9 @@ export default function MobileiOSCalendar({
   const [collapsed, setCollapsed] = useState(startCollapsed);
   const weekStartsOn = startOnSunday ? 0 : 1;
 
-  const current = anchorDate ?? new Date();
+// option 1: split fallback into its own useMemo
+const fallbackDate = useMemo(() => new Date(), []);
+const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackDate]);
   const setAnchor = (d) => onAnchorChange?.(d);
 
   // Month key + render counter (helps diagnose StrictMode double-renders)

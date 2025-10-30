@@ -1,5 +1,5 @@
 /**
- * WorkshopCard.jsx — Robust Self/Family Registration Resolution + Logs
+ * WorkshopCard.jsx — Robust Self/Family Registration Resolution
  * --------------------------------------------------------------------
  * Priority for SELF registered state:
  *   1) registeredWorkshopIds.includes(_id)         ← Context strong signal
@@ -9,9 +9,6 @@
  *
  * Family registered state:
  *   - familyWorkshopMap[_id] or userFamilyRegistrations (prop)
- *
- * Toggle logs:
- *   localStorage.setItem("DEBUG_WS","1"); location.reload();
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
@@ -33,14 +30,6 @@ import {
   User as UserIcon,
   Check,
 } from "lucide-react";
-
-const dbg = (...args) => {
-  try {
-    if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
-      console.log("[WS-CARD]", ...args);
-    }
-  } catch (_) {}
-};
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 const extractId = (obj) => {
@@ -122,8 +111,6 @@ export default function WorkshopCard({
     unregisterEntityFromWorkshop,
     registerToWaitlist,
     unregisterFromWaitlist,
-
-    // ⬇️ We will use these as primary signals
     registeredWorkshopIds,
     userWorkshopMap,
     familyWorkshopMap,
@@ -151,7 +138,6 @@ export default function WorkshopCard({
   /* ---------------- Derived data ---------------- */
   const userId = str(user?._id);
 
-  // Normalize lists for checks
   const participantIdSet = useMemo(() => {
     const arr = Array.isArray(participants) ? participants : [];
     return new Set(arr.map(extractId).filter(Boolean));
@@ -191,57 +177,27 @@ export default function WorkshopCard({
 
   // -------------- SELF registered resolution (priority chain) --------------
   const isSelfRegistered = useMemo(() => {
-    // 1) registeredWorkshopIds (strong signal from /registered)
     if (Array.isArray(registeredWorkshopIds) && _id) {
       if (registeredWorkshopIds.includes(_id)) {
         return true;
       }
     }
-    // 2) userWorkshopMap
     const mapVal = userWorkshopMap ? userWorkshopMap[_id] : undefined;
     if (typeof mapVal === "boolean") return mapVal;
-
-    // 3) explicit prop
     if (typeof isRegistered === "boolean") return isRegistered;
-
-    // 4) participants payload fallback
     if (userId) return participantIdSet.has(userId);
-
     return false;
   }, [registeredWorkshopIds, userWorkshopMap, _id, isRegistered, participantIdSet, userId]);
 
   // -------------- FAMILY registered --------------
   const familyRegisteredIdSet = useMemo(() => {
-    const fromMap = familyWorkshopMap && Array.isArray(familyWorkshopMap[_id])
-      ? familyWorkshopMap[_id]
-      : undefined;
+    const fromMap =
+      familyWorkshopMap && Array.isArray(familyWorkshopMap[_id])
+        ? familyWorkshopMap[_id]
+        : undefined;
     const src = fromMap ?? userFamilyRegistrations ?? [];
     return new Set((src || []).map(str));
   }, [familyWorkshopMap, userFamilyRegistrations, _id]);
-
-  // logs on mount + decisions
-  useEffect(() => {
-    dbg("mount", { wid: _id, title, userId });
-  }, [_id]);
-
-  useEffect(() => {
-    dbg("decision:self", {
-      wid: _id,
-      registeredWorkshopIds_contains: Array.isArray(registeredWorkshopIds) ? registeredWorkshopIds.includes(_id) : null,
-      userWorkshopMap_val: userWorkshopMap ? userWorkshopMap[_id] : undefined,
-      isRegistered_prop: isRegistered,
-      inParticipants: userId ? participantIdSet.has(userId) : null,
-      decided_isSelfRegistered: isSelfRegistered,
-    });
-  }, [registeredWorkshopIds, userWorkshopMap, _id, isRegistered, participantIdSet, userId, isSelfRegistered]);
-
-  useEffect(() => {
-    dbg("decision:family", {
-      wid: _id,
-      familyRegistered: Array.from(familyRegisteredIdSet || []),
-      waitRows,
-    });
-  }, [familyRegisteredIdSet, waitRows, _id]);
 
   // ---------------- Button factory ----------------
   const getEntityButton = (entity) => {
@@ -255,22 +211,6 @@ export default function WorkshopCard({
 
     const registered = isSelf ? isSelfRegistered : memberRegistered;
     const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
-
-    dbg("button-decision", {
-      wid: _id,
-      who: isSelf ? "self" : `family:${familyId}`,
-      available,
-      isWorkshopFull,
-      isWaitlistFull,
-      registered,
-      onWaitlist,
-      counts: {
-        participants: Number(participantsCount || participants?.length || 0),
-        maxParticipants,
-        waitCount: waitRows.length,
-        waitingListMax,
-      },
-    });
 
     if (!available) {
       return {
@@ -321,16 +261,11 @@ export default function WorkshopCard({
   const runEntityAction = async (entity) => {
     const btn = getEntityButton(entity);
     if (loading || !btn?.action) return;
-    const who = typeof entity === "object" ? `family:${str(entity?._id)}` : "self";
     setLoading(true);
-    dbg("action-start", { wid: _id, who, label: btn.label });
     try {
       await btn.action();
-      dbg("action-success", { wid: _id, who, label: btn.label });
       setFeedback(`✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`);
-      dbg("refetched-after-action", { wid: _id });
     } catch (e) {
-      dbg("action-error", { wid: _id, who, error: e?.message });
       setFeedback(`❌ ${e?.message || "שגיאה בביצוע פעולה"}`);
     } finally {
       setLoading(false);
@@ -550,22 +485,15 @@ export default function WorkshopCard({
 
           {/* Primary action (self) */}
           {isLoggedIn && (
-            <>
-              {dbg("render-self-button", {
-                wid: _id,
-                finalLabel: getEntityButton(userId)?.label,
-                finalHasAction: !!getEntityButton(userId)?.action,
-              })}
-              <button
-                onClick={() => runEntityAction(userId)}
-                disabled={loading || !getEntityButton(userId)?.action}
-                className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
-                  getEntityButton(userId).color
-                }`}
-              >
-                {loading ? "..." : getEntityButton(userId).label}
-              </button>
-            </>
+            <button
+              onClick={() => runEntityAction(userId)}
+              disabled={loading || !getEntityButton(userId)?.action}
+              className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
+                getEntityButton(userId).color
+              }`}
+            >
+              {loading ? "..." : getEntityButton(userId).label}
+            </button>
           )}
 
           {/* Family modal trigger */}
@@ -722,7 +650,7 @@ function highlight(text = "", query = "") {
     .split(new RegExp(`(${escapeRegExp(query)})`, "gi"))
     .map((part, i) =>
       part.toLowerCase().includes(q) ? (
-        <mark key={i} className="bg-yellow-200 text-black rounded px-1">
+        <mark key={i} className="bg-indigo-200 text-black rounded px-1">
           {part}
         </mark>
       ) : (

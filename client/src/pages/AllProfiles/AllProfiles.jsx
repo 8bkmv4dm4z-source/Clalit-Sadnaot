@@ -226,7 +226,7 @@ export default function AllProfiles() {
   };
 
   const toggleCanCharge = () =>
-    setEditBuffer((p) => ({ ...p, canCharge: !Boolean(p.canCharge) }));
+    setEditBuffer((p) => ({ ...p, canCharge: !p.canCharge }));
 
   const optimisticPatchEverywhere = (patcher) => {
     setProfiles((prev) => prev.map(patcher));

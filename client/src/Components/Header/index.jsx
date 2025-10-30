@@ -21,4 +21,4 @@
  * (No explicit props or destructured props detected.)
  */
 
-export { default } from './Header';
+export { default } from './Header.jsx';

@@ -1,4 +1,12 @@
 // src/layouts/AuthLayout/AuthLayout.jsx
+/**
+ * AuthLayout.jsx — Authentication provider
+ * -----------------------------------------
+ * ✅ Centralized login/logout/OTP/token refresh logic
+ * ✅ Now routes all backend calls through apiFetch()
+ * ✅ Works automatically with VITE_API_URL (.env)
+ */
+
 import { View } from "lucide-react";
 import React, {
   createContext,
@@ -9,6 +17,7 @@ import React, {
   useCallback,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../../utils/apiFetch"; // ✅ Unified backend handler
 
 /* ------------------------------ Logger ------------------------------ */
 const log = (...args) => {
@@ -18,7 +27,6 @@ const log = (...args) => {
 
 /* ----------------------------- Events ------------------------------- */
 function fireAuthReady(loggedIn, extra = {}) {
-  // Backwards-compat event + payload for anyone listening
   window.dispatchEvent(
     new CustomEvent("auth-ready", { detail: { loggedIn: !!loggedIn, ...extra } })
   );
@@ -69,18 +77,14 @@ export const AuthProvider = ({ children }) => {
   const didVerifyRef = useRef(false);
 
   /* ============================================================
-     🔁 Refresh Access Token (via refresh cookie)
+     🔁 Refresh Access Token
      ============================================================ */
   const refreshAccessToken = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth/refresh", {
+      const data = await apiFetch("/api/auth/refresh", {
         method: "POST",
-        credentials: "include", // REQUIRED so refresh cookie is sent
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
       });
-      if (!res.ok) throw new Error(`Failed to refresh token (${res.status})`);
-      const data = await res.json();
-
       if (data?.accessToken) {
         localStorage.setItem("accessToken", data.accessToken);
         setAccessToken(data.accessToken);
@@ -90,8 +94,7 @@ export const AuthProvider = ({ children }) => {
       throw new Error("No access token in refresh response");
     } catch (err) {
       log("⚠️ refreshAccessToken failed:", err.message);
-      // do NOT recurse; perform a clean logout
-      await logout(true); // silent
+      await logout(true);
       return null;
     }
   }, []);
@@ -108,23 +111,29 @@ export const AuthProvider = ({ children }) => {
         "Content-Type": "application/json",
       };
 
-      let res = await fetch(url, { ...options, headers });
+      try {
+        let res = await apiFetch(url, { ...options, headers });
 
-      if (res.status === 401) {
-        log("⚠️ 401 detected — attempting refresh...");
-        const newToken = await refreshAccessToken();
-        if (!newToken) throw new Error("Session expired");
-        const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
-        res = await fetch(url, { ...options, headers: headers2 });
+        // if unauthorized, try refresh once
+        if (res.status === 401) {
+          log("⚠️ 401 detected — attempting refresh...");
+          const newToken = await refreshAccessToken();
+          if (!newToken) throw new Error("Session expired");
+          const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
+          res = await apiFetch(url, { ...options, headers: headers2 });
+        }
+
+        return res;
+      } catch (e) {
+        log("❌ authFetch error:", e.message);
+        throw e;
       }
-
-      return res;
     },
     [accessToken, refreshAccessToken]
   );
 
   /* ============================================================
-     👤 fetchMe — load current user by access token
+     👤 fetchMe — load current user
      ============================================================ */
   const fetchMe = async (tokenOverride = null) => {
     const token =
@@ -139,15 +148,14 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch("/api/users/me", {
+      const data = await apiFetch("/api/users/me", {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
-      const data = await res.json();
 
-      if (res.ok) {
+      if (data) {
         setUser(data);
         setIsLoggedIn(true);
         setIsAdmin(data.role === "admin");
@@ -181,7 +189,6 @@ export const AuthProvider = ({ children }) => {
     (async () => {
       await fetchMe();
       setLoading(false);
-      // fire auth-ready with current state
       fireAuthReady(!!(accessToken || localStorage.getItem("accessToken")));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,13 +200,10 @@ export const AuthProvider = ({ children }) => {
   const registerUser = async (payload) => {
     log("📩 registerUser called:", payload?.email);
     try {
-      const res = await fetch("/api/auth/register", {
+      const data = await apiFetch("/api/auth/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
       return { success: true, data };
     } catch (err) {
       log("❌ registerUser error:", err.message);
@@ -213,15 +217,11 @@ export const AuthProvider = ({ children }) => {
   const sendOtp = async (email) => {
     log("📤 sendOtp:", email);
     try {
-      const res = await fetch("/api/auth/send-otp", {
+      const data = await apiFetch("/api/auth/send-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-      return res.ok
-        ? { success: true, data }
-        : { success: false, message: data.message };
+      return { success: true, data };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -230,19 +230,16 @@ export const AuthProvider = ({ children }) => {
   const verifyOtp = async (email, otp) => {
     log("🔐 verifyOtp called:", email, otp);
     try {
-      const res = await fetch("/api/auth/verify", {
+      const data = await apiFetch("/api/auth/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
-        credentials: "include", // send/receive refresh cookie
+        credentials: "include",
       });
-      const data = await res.json();
-
-      if (res.ok && data.accessToken) {
+      if (data?.accessToken) {
         await completeLogin(data.accessToken);
         return { success: true, data };
       }
-      return { success: false, message: data.message };
+      return { success: false, message: data?.message };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -259,26 +256,22 @@ export const AuthProvider = ({ children }) => {
     log("💾 Access token stored, loading user directly...");
 
     await fetchMe(newToken);
-
-    // fire both the legacy signal and explicit "logged-in"
     fireAuthReady(true, { phase: "login-complete" });
     fireLoggedIn({ userId: String(user?.id || user?._id || "") });
-
-    // redirect after successful login
     navigate("/workshops");
   };
 
   /* ============================================================
-     🚪 Logout (server + local) with global signals
+     🚪 Logout
      ============================================================ */
   const logout = async (silent = false) => {
     try {
-      await fetch("/api/auth/logout", {
+      await apiFetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });
     } catch (_) {
-      // ignore network error; still clear client state
+      /* ignore */
     }
 
     localStorage.removeItem("accessToken");
@@ -289,7 +282,6 @@ export const AuthProvider = ({ children }) => {
 
     log("🚪 Logged out (local + server)");
 
-    // fire both events so other contexts can react (e.g., WorkshopContext)
     fireAuthReady(false, { phase: "logout" });
     fireLoggedOut();
 
@@ -297,13 +289,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   /* ============================================================
-    
-    ♻️ Refresh Me
+     ♻️ Refresh Me
      ============================================================ */
-
   const refreshMe = async () => {
     await fetchMe();
-    // עדכן את האפליקציה כולה שמידע המשתמש רוענן
     window.dispatchEvent(
       new CustomEvent("auth-user-updated", {
         detail: { at: Date.now(), userId: String(user?._id || "") },
@@ -311,30 +300,29 @@ export const AuthProvider = ({ children }) => {
     );
   };
 
- /* ============================================================
+  /* ============================================================
      ✏️ Save Entity (User / Family)
      ============================================================ */
-   const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
-     log("✏️ saveEntity called:", payload);
-     try {
-       const res = await authFetch("/api/users/update-entity", {
-         method: "PUT",
-         body: JSON.stringify(payload),
-       });
-       const data = await res.json();
-       if (!res.ok) throw new Error(data.message || "Update failed");
+  const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
+    log("✏️ saveEntity called:", payload);
+    try {
+      const res = await authFetch("/api/users/update-entity", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Update failed");
 
-       const isCurrentUserUpdate =
-         payload.userId && user && String(payload.userId) === String(user._id);
-       const isCurrentFamilyUpdate =
-         payload.familyId &&
-         user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
+      const isCurrentUserUpdate =
+        payload.userId && user && String(payload.userId) === String(user._id);
+      const isCurrentFamilyUpdate =
+        payload.familyId &&
+        user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
 
-       if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
+      if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
         await refreshMe();
-       }
+      }
 
-      // גם אם זה לא המשתמש הנוכחי—אפשר לשדר לכל האפליקציה שהתרחשה עדכון
       window.dispatchEvent(
         new CustomEvent("auth-user-updated", {
           detail: {
@@ -348,19 +336,20 @@ export const AuthProvider = ({ children }) => {
         })
       );
 
-       log("✅ saveEntity success:", data);
-       return { success: true, data };
-     } catch (err) {
-       log("❌ saveEntity error:", err.message);
-       return { success: false, message: err.message };
-     }
-   };
+      log("✅ saveEntity success:", data);
+      return { success: true, data };
+    } catch (err) {
+      log("❌ saveEntity error:", err.message);
+      return { success: false, message: err.message };
+    }
+  };
 
-   const updateEntity = async (payload) => await saveEntity(payload, { refreshMeIfCurrent: true });
+  const updateEntity = async (payload) =>
+    await saveEntity(payload, { refreshMeIfCurrent: true });
 
-/* ============================================================
-   🎯 Provide Context
-   ============================================================ */
+  /* ============================================================
+     🎯 Provide Context
+     ============================================================ */
   return (
     <AuthContext.Provider
       value={{
@@ -382,12 +371,12 @@ export const AuthProvider = ({ children }) => {
         verifyOtp,
         updateEntity,
         saveEntity,
-       refreshMe,
+        refreshMe,
       }}
     >
       {children}
     </AuthContext.Provider>
-  );}
-  // src/layouts/AuthLayout/AuthLayout.jsx
-export const useAuth = () => useContext(AuthContext);
+  );
+};
 
+export const useAuth = () => useContext(AuthContext);

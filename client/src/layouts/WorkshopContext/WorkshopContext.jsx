@@ -222,7 +222,7 @@ export const WorkshopProvider = ({ children }) => {
     } else {
       fetchAllWorkshops();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [viewMode]);
 
   /* ============================================================
@@ -276,7 +276,7 @@ export const WorkshopProvider = ({ children }) => {
       window.removeEventListener("auth-ready", onAuthReady);
       window.removeEventListener("auth-user-updated", onUserUpdated);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [viewMode]);
 
   /* ============================================================
