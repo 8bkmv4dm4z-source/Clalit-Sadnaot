@@ -9,7 +9,7 @@ import { Outlet } from "react-router-dom";
 // Import the sticky header component for authenticated areas. After reorganising the
 // project structure, components now live under `components/` rather than `Components/`.
 // The Header is responsible for rendering the navigation bar across logged-in pages.
-import Header from "../components/Header";
+import Header from "../../components/Header";
 
 export default function AppShell() {
   return (
