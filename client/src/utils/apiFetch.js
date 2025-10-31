@@ -1,15 +1,19 @@
 /**
- * apiFetch.js — Unified Secure Fetch Wrapper
- * -------------------------------------------
- * ✅ Automatically includes:
- *   - Authorization header with access token
- *   - credentials: "include" for refresh-token cookies
- * ✅ Handles 401 Unauthorized by refreshing access token
- * ✅ Replays the original request if refresh succeeded
+ * apiFetch.js — Unified Secure Fetch Wrapper (with backend URL)
+ * -------------------------------------------------------------
+ * ✅ Adds API base automatically from VITE_API_URL
+ * ✅ Handles access token + refresh flow
  */
 
-export async function apiFetch(url, options = {}) {
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+export async function apiFetch(path, options = {}) {
   const token = localStorage.getItem("token");
+
+  // ✅ Normalize and prepend API base
+  const url = path.startsWith("http")
+    ? path
+    : `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   // Merge headers with token and defaults
   const headers = {
@@ -18,32 +22,29 @@ export async function apiFetch(url, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  // Send initial request
+  // Initial request
   let res = await fetch(url, {
     ...options,
     headers,
     credentials: "include", // ✅ sends refresh cookie automatically
   });
 
-  // If access token expired — try refreshing it
+  // Handle token refresh if needed
   if (res.status === 401) {
     console.warn("[apiFetch] Access token expired, attempting refresh...");
-
     try {
-      const refreshRes = await fetch("/api/auth/refresh", {
+      const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: "POST",
-        credentials: "include", // send refresh cookie
+        credentials: "include",
       });
 
       const refreshData = await refreshRes.json();
       if (refreshRes.ok && refreshData.accessToken) {
         console.info("[apiFetch] ✅ Access token refreshed successfully");
-
-        // Save new access token
         localStorage.setItem("token", refreshData.accessToken);
-
-        // Retry original request with new token
         headers.Authorization = `Bearer ${refreshData.accessToken}`;
+
+        // Retry original request
         res = await fetch(url, {
           ...options,
           headers,

@@ -21,5 +21,4 @@
  * (No explicit props or destructured props detected.)
  */
 
-import Header from "./Header.jsx";
-export default Header;
+export { default } from "./Header.jsx";
