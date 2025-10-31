@@ -72,14 +72,15 @@ const logFile = path.join(__dirname, "../../otp_log.csv");
 // etc.).  See README for the required SMTP_* keys in .env.  We avoid
 // logging sensitive credentials or message contents.
 const smtpTransport = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: Number(process.env.SMTP_PORT) || 465,
+  secure: true, // ✅ enable SSL/TLS
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
 });
+
 // When developing locally you may still want to log OTP codes to a
 // local CSV file for convenience.  Toggle this flag via the
 // OTP_LOGGING environment variable.  When OTP_LOGGING=false the
