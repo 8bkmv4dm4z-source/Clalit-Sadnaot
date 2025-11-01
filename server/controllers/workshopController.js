@@ -6,6 +6,9 @@ const nodemailer = require("nodemailer");
 const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop ,registerFamilyToWorkshop,registerUserToWorkshop} =
   require("../services/workshopRegistration");
 const mongoose = require("mongoose");
+const { Resend } = require("resend");
+const fs = require("fs");
+const path = require("path");
 
 /* ============================================================
    🔍 Workshop Search Helpers
@@ -1040,15 +1043,6 @@ exports.removeEntityFromWaitlist = async (req, res) => {
   }
 };
 
-/* ------------------------------------------------------------
-   📊 POST /api/workshops/:id/export — Admin only
-   מייצר קובץ אקסל עם רשימת המשתתפים ושולח למייל של המנהל
------------------------------------------------------------- */
-
-/**
- * Export full workshop participants (and waiting list) to Excel
- * Admin-only access
- */
 exports.exportWorkshopExcel = async (req, res) => {
   try {
     const admin = req.user;
@@ -1106,7 +1100,6 @@ exports.exportWorkshopExcel = async (req, res) => {
       views: [{ rightToLeft: true }], // RTL view
     });
 
-    // (extra safety) some office builds respect this after creation:
     sheet.views = [{ rightToLeft: true }];
 
     // Define columns
@@ -1122,33 +1115,24 @@ exports.exportWorkshopExcel = async (req, res) => {
       { header: "מקור", key: "origin", width: 16 },
     ];
 
-    // Header styling: bold + centered (in RTL sheet it still renders correctly)
     const header = sheet.getRow(1);
     header.font = { bold: true };
     header.alignment = { horizontal: "center", vertical: "middle" };
 
-    // Rows adder with RTL alignment:
-    // - Strings right-aligned
-    // - Numbers/booleans centered
     const addRowRTL = (rowObj) => {
       const r = sheet.addRow(rowObj);
-      // align cells per type
       r.eachCell((cell, colNumber) => {
         const key = sheet.columns[colNumber - 1].key;
-        const val = rowObj[key];
-
-        // Center some known numeric/boolean columns
         if (key === "p_age" || key === "p_cancharge") {
           cell.alignment = { horizontal: "center", vertical: "middle" };
         } else {
-          // Everything else right-aligned for Hebrew
           cell.alignment = { horizontal: "right", vertical: "middle" };
         }
       });
       return r;
     };
 
-    // Participants (main users)
+    // Participants
     if (includeParticipants) {
       (workshop.participants || []).forEach((p) => {
         addRowRTL({
@@ -1164,7 +1148,6 @@ exports.exportWorkshopExcel = async (req, res) => {
         });
       });
 
-      // Family members (participants)
       (workshop.familyRegistrations || []).forEach((fr) => {
         const fm = fr.familyMemberId || {};
         const parent = fr.parentUser || {};
@@ -1218,7 +1201,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // ---------------- Email (RTL) ----------------
+    // ---------------- Email Content ----------------
     const maxCap = Number(workshop.maxParticipants ?? 0);
     const capStr = maxCap === 0 ? "∞" : String(maxCap);
     const statsLine = `${
@@ -1265,25 +1248,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 מערכת הסדנאות
 `;
 
-    const smtpTransport = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT) || 465,
-  secure: true, // ✅ enable SSL/TLS
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM || `"מערכת סדנאות" <${process.env.SMTP_USER}>`,
-      to: admin.email,
-      subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
-      text: plainBody,
-      headers: {
-        "Content-Language": "he",
-      },
-      html: `
+    const htmlBody = `
 <!doctype html>
 <html dir="rtl" lang="he">
   <body style="direction:rtl;text-align:right;font-family:'Segoe UI',Tahoma,Arial,sans-serif;line-height:1.6;color:#222;font-size:15px;">
@@ -1313,43 +1278,87 @@ exports.exportWorkshopExcel = async (req, res) => {
     </p>
   </body>
 </html>
-      `,
-      attachments: [
-        {
-          filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
-          content: buffer,
-          contentType:
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        },
-      ],
-    });
+`;
 
+    // ---------------- Email Sending (Resend → Gmail → log) ----------------
+    const isDev = process.env.NODE_ENV !== "production";
+    const logFile = path.join(__dirname, "../../export_log.csv");
+
+    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+    let gmailTransport = null;
+
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      gmailTransport = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
+    }
+
+    async function sendReportEmail() {
+      if (isDev) {
+        fs.appendFileSync(logFile, `${new Date().toISOString()},${admin.email},Excel Export\n`);
+        console.log(`⚙️ [DEV] Logged export email for ${admin.email}`);
+        return true;
+      }
+
+      try {
+        if (resend) {
+          await resend.emails.send({
+            from: process.env.MAIL_FROM || "Clalit Workshops <onboarding@resend.dev>",
+            to: admin.email,
+            subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
+            html: htmlBody,
+            attachments: [
+              {
+                filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
+                content: buffer.toString("base64"),
+              },
+            ],
+          });
+          console.log(`📬 Resend sent Excel report to ${admin.email}`);
+          return true;
+        }
+      } catch (err) {
+        console.warn(`⚠️ Resend failed: ${err.message}`);
+      }
+
+      if (gmailTransport) {
+        try {
+          await gmailTransport.sendMail({
+            from: process.env.MAIL_FROM || `"מערכת סדנאות" <${process.env.EMAIL_USER}>`,
+            to: admin.email,
+            subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
+            text: plainBody,
+            html: htmlBody,
+            attachments: [
+              {
+                filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
+                content: buffer,
+                contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              },
+            ],
+          });
+          console.log(`📧 Gmail fallback sent Excel report to ${admin.email}`);
+          return true;
+        } catch (err) {
+          console.error("❌ Gmail failed:", err.message);
+        }
+      }
+
+      console.error("❌ No email transport available for Excel export");
+      return false;
+    }
+
+    await sendReportEmail();
     res.json({ success: true, message: "Excel sent successfully" });
   } catch (err) {
     console.error("❌ exportWorkshopExcel error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-
-/* ------------------------------------------------------------
-   📝 GET /api/workshops/:id/waitlist — Admin only
-   Returns the current waiting list for a workshop.  Useful for
-   reviewing queue order and manually promoting or removing
-   entries.
------------------------------------------------------------- */
-exports.getWaitlist = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const workshop = await Workshop.findById(id).populate("waitingList.parentUser", "name email");
-    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
-    return res.json(workshop.waitingList || []);
-  } catch (err) {
-    console.error("❌ getWaitlist error:", err);
-    res.status(500).json({ message: "Server error fetching waitlist" });
-  }
-};
-
 /* ------------------------------------------------------------
    ➕ POST /api/workshops/:id/waitlist — Admin only
    Allows an admin to manually add a user or family member to
