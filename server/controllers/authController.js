@@ -56,20 +56,26 @@ function setRefreshCookie(res, refreshToken) {
 /* ============================================================
    📤 Email Transport — Resend primary, Gmail fallback
    ============================================================ */
-const isDev = process.env.NODE_ENV !== "production";
+const isProd = process.env.NODE_ENV === "production";
+const isDev = !isProd;
 const logFile = path.join(__dirname, "../../otp_log.csv");
 
-// --- Initialize Resend ---
 let resend = null;
+let gmailTransport = null;
+
+/* ============================================================
+   📡 Initialize Resend (Primary, HTTPS)
+   ============================================================ */
 if (process.env.RESEND_API_KEY) {
   resend = new Resend(process.env.RESEND_API_KEY);
-  console.log("📩 Resend API initialized.");
+  console.log("📩 Resend API initialized (primary transport).");
 } else {
   console.warn("⚠️ Missing RESEND_API_KEY — Resend disabled.");
 }
 
-// --- Optional Gmail fallback ---
-let gmailTransport = null;
+/* ============================================================
+   📧 Optional Gmail Fallback (for local/dev)
+   ============================================================ */
 const allowGmail =
   process.env.USE_GMAIL === "true" && process.env.NODE_ENV !== "production";
 
@@ -92,24 +98,20 @@ if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   console.log("✉️ Gmail fallback disabled (USE_GMAIL=false or production).");
 }
 
-/**
- * Send an email (Resend → Gmail → local log)
- */
+/* ============================================================
+   ✉️ Send Email (Resend → Gmail → Dev log)
+   ============================================================ */
 async function sendEmail({ to, subject, text, html }) {
-  try {
-    console.log("==> sendEmail called:", { to, subject });
-    if (isDev) {
-      const line = `${new Date().toISOString()},${to},${text}\n`;
-      fs.appendFileSync(logFile, line);
-      console.log(`⚙️ [DEV] Logged email for ${to}: ${text}`);
-      return true;
-    }
+  console.log("==> sendEmail called:", { to, subject });
 
-    // 1️⃣ Try Resend
+  try {
+    // 1️⃣ Primary: Resend (works in production)
     if (resend) {
       try {
         await resend.emails.send({
-          from: process.env.MAIL_FROM || "Clalit Workshops <onboarding@resend.dev>",
+          from:
+            process.env.MAIL_FROM ||
+            "Clalit Workshops <onboarding@resend.dev>",
           to,
           subject,
           html: html || `<p>${text}</p>`,
@@ -121,15 +123,25 @@ async function sendEmail({ to, subject, text, html }) {
       }
     }
 
-    // 2️⃣ Try Gmail fallback
-    if (gmailTransport) {
+    // 2️⃣ Fallback: Gmail (dev/local only)
+    if (gmailTransport && !isProd) {
       await gmailTransport.sendMail({
-        from: process.env.MAIL_FROM || `"Clalit Workshops" <${process.env.EMAIL_USER}>`,
+        from:
+          process.env.MAIL_FROM ||
+          `"Clalit Workshops" <${process.env.EMAIL_USER}>`,
         to,
         subject,
         html: html || `<p>${text}</p>`,
       });
       console.log(`📧 Gmail fallback sent email to ${to}`);
+      return true;
+    }
+
+    // 3️⃣ Final fallback: Log locally in dev
+    if (isDev) {
+      const line = `${new Date().toISOString()},${to},${text}\n`;
+      fs.appendFileSync(logFile, line);
+      console.log(`⚙️ [DEV] Logged email for ${to}: ${text}`);
       return true;
     }
 
