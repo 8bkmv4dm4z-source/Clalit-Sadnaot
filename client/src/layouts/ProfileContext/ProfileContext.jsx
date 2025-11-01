@@ -8,8 +8,16 @@
  * ✅ Exposes getUserWorkshops + updateEntity passthrough
  */
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { apiFetch } from "../../utils/apiFetch";
+import { useAuth } from "../AuthLayout";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -64,6 +72,7 @@ const flattenUsersForUI = (users = []) => {
 };
 
 export function ProfileProvider({ children }) {
+  const { isLoggedIn, isAdmin, loading: authLoading } = useAuth();
   const [profilesRaw, setProfilesRaw] = useState([]);     // server shape (users[])
   const [rows, setRows] = useState([]);                   // flattened rows[]
   const [loading, setLoading] = useState(true);
@@ -73,7 +82,7 @@ export function ProfileProvider({ children }) {
   const searchCache = useRef(new Map());
 
   /* -------- initial fetch (and when asked) -------- */
-  const fetchProfiles = async ({ limit = 1000, compact = 1 } = {}) => {
+  const fetchProfiles = useCallback(async ({ limit = 1000, compact = 1 } = {}) => {
     try {
       setLoading(true);
       setError(null);
@@ -88,24 +97,39 @@ export function ProfileProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const resetProfiles = useCallback(() => {
+    setProfilesRaw([]);
+    setRows([]);
+    setError(null);
+    searchCache.current.clear();
+  }, []);
   useEffect(() => {
-  const onInvalidate = () => {
-    // tiny debounce to batch bursts
-    clearTimeout(window.__profilesInvalidateTO);
-    window.__profilesInvalidateTO = setTimeout(() => {
-      fetchProfiles({ limit: 1000, compact: 1 });
-      searchCache.current.clear();
-    }, 80);
-  };
-  window.addEventListener("profiles:invalidate", onInvalidate);
-  return () => window.removeEventListener("profiles:invalidate", onInvalidate);
-}, []);
+    const onInvalidate = () => {
+      // tiny debounce to batch bursts
+      clearTimeout(window.__profilesInvalidateTO);
+      window.__profilesInvalidateTO = setTimeout(() => {
+        if (!isAdmin) return;
+        searchCache.current.clear();
+        fetchProfiles({ limit: 1000, compact: 1 });
+      }, 80);
+    };
+    window.addEventListener("profiles:invalidate", onInvalidate);
+    return () => window.removeEventListener("profiles:invalidate", onInvalidate);
+  }, [fetchProfiles, isAdmin]);
 
   useEffect(() => {
-    // First load: small list is fine; the page will show first 100 rows
+    if (authLoading) return;
+
+    if (!isLoggedIn || !isAdmin) {
+      resetProfiles();
+      setLoading(false);
+      return;
+    }
+
     fetchProfiles({ limit: 1000, compact: 1 });
-  }, []);
+  }, [authLoading, isLoggedIn, isAdmin, fetchProfiles, resetProfiles]);
 
   /* -------- recompute flattened rows on raw change -------- */
   useEffect(() => {
