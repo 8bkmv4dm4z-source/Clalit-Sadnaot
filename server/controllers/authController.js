@@ -69,7 +69,11 @@ if (process.env.RESEND_API_KEY) {
 
 // --- Optional Gmail fallback ---
 let gmailTransport = null;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+const allowGmail =
+  process.env.USE_GMAIL === "true" &&
+  process.env.NODE_ENV !== "production";
+
+if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   gmailTransport = nodemailer.createTransport({
     service: "gmail",
     auth: {
