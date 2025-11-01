@@ -25,6 +25,15 @@ const log = (...args) => {
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
 
+async function safeJson(res) {
+  try {
+    return await res.json();
+  } catch (err) {
+    log("⚠️ Failed to parse JSON:", err?.message || err);
+    return null;
+  }
+}
+
 /* ----------------------------- Events ------------------------------- */
 function fireAuthReady(loggedIn, extra = {}) {
   window.dispatchEvent(
@@ -81,10 +90,14 @@ export const AuthProvider = ({ children }) => {
      ============================================================ */
   const refreshAccessToken = useCallback(async () => {
     try {
-      const data = await apiFetch("/api/auth/refresh", {
+      const res = await apiFetch("/api/auth/refresh", {
         method: "POST",
         credentials: "include",
       });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "Refresh token invalid");
+      }
       if (data?.accessToken) {
         localStorage.setItem("accessToken", data.accessToken);
         setAccessToken(data.accessToken);
@@ -159,26 +172,22 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const data = await apiFetch("/api/users/me", {
+      const res = await apiFetch("/api/users/me", {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
+      const data = await safeJson(res);
 
-      if (data) {
-        setUser(data);
-        setIsLoggedIn(true);
-        setIsAdmin(data.role === "admin");
-        log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
-      } else {
-        localStorage.removeItem("accessToken");
-        setAccessToken(null);
-        setUser(null);
-        setIsLoggedIn(false);
-        setIsAdmin(false);
-        log("❌ Invalid token removed");
+      if (!res.ok || !data) {
+        throw new Error(data?.message || "Failed to load profile");
       }
+
+      setUser(data);
+      setIsLoggedIn(true);
+      setIsAdmin(data.role === "admin");
+      log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
     } catch (err) {
       log("❌ fetchMe error:", err.message);
       localStorage.removeItem("accessToken");
@@ -211,10 +220,14 @@ export const AuthProvider = ({ children }) => {
   const registerUser = async (payload) => {
     log("📩 registerUser called:", payload?.email);
     try {
-      const data = await apiFetch("/api/auth/register", {
+      const res = await apiFetch("/api/auth/register", {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "Registration failed");
+      }
       return { success: true, data };
     } catch (err) {
       log("❌ registerUser error:", err.message);
@@ -228,10 +241,14 @@ export const AuthProvider = ({ children }) => {
   const sendOtp = async (email) => {
     log("📤 sendOtp:", email);
     try {
-      const data = await apiFetch("/api/auth/send-otp", {
+      const res = await apiFetch("/api/auth/send-otp", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to send OTP");
+      }
       return { success: true, data };
     } catch (err) {
       return { success: false, message: err.message };
@@ -241,16 +258,20 @@ export const AuthProvider = ({ children }) => {
   const verifyOtp = async (email, otp) => {
     log("🔐 verifyOtp called:", email, otp);
     try {
-      const data = await apiFetch("/api/auth/verify", {
+      const res = await apiFetch("/api/auth/verify", {
         method: "POST",
         body: JSON.stringify({ email, otp }),
         credentials: "include",
       });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "OTP verification failed");
+      }
       if (data?.accessToken) {
         await completeLogin(data.accessToken);
         return { success: true, data };
       }
-      return { success: false, message: data?.message };
+      return { success: false, message: data?.message || "Missing access token" };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -281,7 +302,7 @@ export const AuthProvider = ({ children }) => {
         method: "POST",
         credentials: "include",
       });
-    } catch (_) {
+    } catch {
       /* ignore */
     }
 

@@ -9,7 +9,8 @@
     "start": "cross-env NODE_ENV=production node server.js",
     "dev": "cross-env NODE_ENV=development nodemon server.js",
     "loadtest": "cross-env NODE_ENV=loadtest node server.js",
-    "test": "node ./tests/testUserImport.js",
+    "test": "cross-env NODE_ENV=test node --test",
+    "test:userImport": "node ./tests/testUserImport.js",
     "k6": "k6 run tests/k6/scenarios.js",
     "artillery": "artillery run tests/artillery/scenario.yaml",
     "lint": "echo 'No linter configured'"
