@@ -62,6 +62,8 @@ const logFile = path.join(__dirname, "../../otp_log.csv");
 
 let resend = null;
 let gmailTransport = null;
+let defaultResend = null;
+let defaultGmailTransport = null;
 
 /* ============================================================
    📡 Initialize Resend (Primary, HTTPS)
@@ -72,12 +74,12 @@ if (process.env.RESEND_API_KEY) {
 } else {
   console.warn("⚠️ Missing RESEND_API_KEY — Resend disabled.");
 }
+defaultResend = resend;
 
 /* ============================================================
    📧 Optional Gmail Fallback (for local/dev)
    ============================================================ */
-const allowGmail =
-  process.env.USE_GMAIL === "true" && process.env.NODE_ENV !== "production";
+const allowGmail = process.env.USE_GMAIL === "true";
 
 if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   gmailTransport = nodemailer.createTransport({
@@ -90,13 +92,21 @@ if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
 
   gmailTransport
     .verify()
-    .then(() => console.log("📨 Gmail transporter verified as fallback."))
+    .then(() =>
+      console.log(
+        `📨 Gmail transporter verified as fallback (${isProd ? "prod" : "dev"}).`
+      )
+    )
     .catch((err) =>
       console.warn("⚠️ Gmail transporter verification failed:", err.message)
     );
 } else {
-  console.log("✉️ Gmail fallback disabled (USE_GMAIL=false or production).");
+  const reason = allowGmail
+    ? "missing EMAIL_USER/EMAIL_PASS"
+    : "USE_GMAIL not set to true";
+  console.log(`✉️ Gmail fallback disabled (${reason}).`);
 }
+defaultGmailTransport = gmailTransport;
 
 /* ============================================================
    ✉️ Send Email (Resend → Gmail → Dev log)
@@ -124,7 +134,7 @@ async function sendEmail({ to, subject, text, html }) {
     }
 
     // 2️⃣ Fallback: Gmail (dev/local only)
-    if (gmailTransport && !isProd) {
+    if (gmailTransport) {
       await gmailTransport.sendMail({
         from:
           process.env.MAIL_FROM ||
@@ -151,6 +161,19 @@ async function sendEmail({ to, subject, text, html }) {
     console.error("❌ Email send error:", err.message);
     return false;
   }
+}
+
+function setResendInstance(instance) {
+  resend = instance;
+}
+
+function setGmailTransport(instance) {
+  gmailTransport = instance;
+}
+
+function resetTransports() {
+  resend = defaultResend;
+  gmailTransport = defaultGmailTransport;
 }
 
 /* ============================================================
@@ -334,6 +357,7 @@ exports.verifyOtp = async (req, res) => {
   console.log("==> verifyOtp called:", req.body);
   try {
     const { email, otp } = req.body;
+    const normalizedOtp = String(otp ?? "").trim();
     const user = await User.findOne({
       email: (email || "").toLowerCase().trim(),
     }).select("+otpCode +otpExpires +otpAttempts");
@@ -357,7 +381,7 @@ exports.verifyOtp = async (req, res) => {
     }
 
     // Wrong code
-    if (String(user.otpCode) !== String(otp)) {
+    if (String(user.otpCode).trim() !== normalizedOtp) {
       console.warn("❌ Invalid OTP for:", email);
       user.otpAttempts = (user.otpAttempts || 0) + 1;
       await user.save();
@@ -603,4 +627,11 @@ exports.logout = async (req, res) => {
 /* ============================================================
    ✅ END OF FILE
    ============================================================ */
+exports.__test = {
+  sendEmail,
+  setResendInstance,
+  setGmailTransport,
+  resetTransports,
+};
+
 console.log("🧩 authController.js loaded successfully.");
