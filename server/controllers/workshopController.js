@@ -1428,6 +1428,53 @@ exports.removeFromWaitlist = async (req, res) => {
     res.status(500).json({ message: "Server error removing from waitlist" });
   }
 };
+// ------------------------------------------------------------
+// 🟣 GET /api/workshops/:id/waitlist — Admin only
+// Returns all waiting list entries for a given workshop
+// ------------------------------------------------------------
+exports.getWaitlist = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
+
+    const workshop = await Workshop.findById(id)
+      .populate("waitingList.parentUser", "name email phone city canCharge")
+      .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate")
+      .lean();
+
+    if (!workshop) {
+      return res.status(404).json({ message: "Workshop not found" });
+    }
+
+    const waitingList = (workshop.waitingList || []).map((w) => {
+      const parent = w.parentUser || {};
+      const member = w.familyMemberId || {};
+      return {
+        _id: w._id,
+        name: w.name || member.name || "",
+        relation: w.relation || member.relation || "",
+        parentName: parent.name || "",
+        parentEmail: parent.email || "",
+        parentPhone: parent.phone || "",
+        idNumber: member.idNumber || w.idNumber || "",
+        birthDate: member.birthDate || w.birthDate || null,
+        canCharge: parent.canCharge ? "כן" : "לא",
+      };
+    });
+
+    return res.json({
+      success: true,
+      count: waitingList.length,
+      waitingList,
+    });
+  } catch (err) {
+    console.error("❌ [getWaitlist] error:", err);
+    res.status(500).json({ success: false, message: "Server error fetching waitlist" });
+  }
+};
+
 // ✅ מחזיר רשימת ערים בישראל ממקור ממשלתי (או fallback ל-local)
 exports.getAvailableCities = async (req, res) => {
   try {
