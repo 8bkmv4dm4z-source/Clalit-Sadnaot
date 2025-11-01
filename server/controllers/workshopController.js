@@ -3,12 +3,18 @@ const Workshop = require("../models/Workshop");
 const User = require("../models/User");
 const ExcelJS = require("exceljs");
 const nodemailer = require("nodemailer");
-const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop ,registerFamilyToWorkshop,registerUserToWorkshop} =
-  require("../services/workshopRegistration");
+const {
+  unregisterUserFromWorkshop,
+  unregisterFamilyFromWorkshop,
+  registerFamilyToWorkshop,
+  registerUserToWorkshop,
+} = require("../services/workshopRegistration");
 const mongoose = require("mongoose");
 const { Resend } = require("resend");
 const fs = require("fs");
 const path = require("path");
+const { safeFetch } = require("../utils/safeFetch");
+const fallbackCities = require("../config/fallbackCities.json");
 
 /* ============================================================
    🔍 Workshop Search Helpers
@@ -1481,9 +1487,17 @@ exports.getAvailableCities = async (req, res) => {
     // ✅ ניסיון ראשון – קריאה ל-API ממשלתי
     const url =
       "https://data.gov.il/api/3/action/datastore_search?resource_id=bb040a11-b8b0-46a9-bc48-63a972df2a5b&limit=5000";
-    const response = await fetch(url, {
-      headers: { "User-Agent": "Clalit-Workshops-App" },
+    const response = await safeFetch(url, {
+      headers: {
+        "User-Agent": "Clalit-Workshops-App",
+        Accept: "application/json",
+      },
+      timeout: 15000,
     });
+
+    if (!response.ok) {
+      throw new Error(`data.gov.il responded with status ${response.status}`);
+    }
 
     const data = await response.json();
 
@@ -1502,7 +1516,6 @@ exports.getAvailableCities = async (req, res) => {
   } catch (err) {
     console.warn("⚠️ Failed to fetch cities:", err.message);
 
-    // ✅ fallback מיוחד לאזור הנגב והדרום
     const southernCities = [
       "באר שבע",
       "כרמים",
@@ -1537,11 +1550,13 @@ exports.getAvailableCities = async (req, res) => {
       "ספיר",
     ];
 
+    const fallbackList = Array.from(new Set([...(fallbackCities || []), ...southernCities])).sort();
+
     return res.status(200).json({
       success: true,
-      source: "fallback-southern",
-      count: southernCities.length,
-      cities: southernCities,
+      source: "fallback-local",
+      count: fallbackList.length,
+      cities: fallbackList,
     });
   }
 };
@@ -1556,7 +1571,18 @@ exports.validateAddress = async (req, res) => {
     const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
       city
     )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
-    const response = await fetch(url, { headers: { "User-Agent": "Clalit-Workshops-App" } });
+    const response = await safeFetch(url, {
+      headers: {
+        "User-Agent": "Clalit-Workshops-App",
+        Accept: "application/json",
+      },
+      timeout: 15000,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Nominatim responded with status ${response.status}`);
+    }
+
     const data = await response.json();
 
     const valid = Array.isArray(data) && data.length > 0;
