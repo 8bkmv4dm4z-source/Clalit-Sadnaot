@@ -43,14 +43,17 @@ function parseJwtExpToMs(exp) {
 
 function setRefreshCookie(res, refreshToken) {
   const isProd = process.env.NODE_ENV === "production";
+  const sameSite = isProd ? "None" : "Lax";
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "Strict" : "Lax",
+    sameSite,
     path: "/",
     maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
   });
-  console.log(`🍪 refreshToken cookie set | secure=${isProd}`);
+  console.log(
+    `🍪 refreshToken cookie set | secure=${isProd} sameSite=${sameSite}`
+  );
 }
 
 /* ============================================================
@@ -90,16 +93,26 @@ if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     },
   });
 
-  gmailTransport
-    .verify()
-    .then(() =>
-      console.log(
-        `📨 Gmail transporter verified as fallback (${isProd ? "prod" : "dev"}).`
-      )
-    )
-    .catch((err) =>
-      console.warn("⚠️ Gmail transporter verification failed:", err.message)
+  if (isProd) {
+    console.log(
+      "📨 Gmail fallback configured without verification (skipped in production)."
     );
+  } else {
+    const timeoutMs = Number(process.env.GMAIL_VERIFY_TIMEOUT_MS || 5000);
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Verification timeout")), timeoutMs)
+    );
+
+    Promise.race([gmailTransport.verify(), timeout])
+      .then(() =>
+        console.log(
+          `📨 Gmail transporter verified as fallback (${isProd ? "prod" : "dev"}).`
+        )
+      )
+      .catch((err) =>
+        console.warn("⚠️ Gmail transporter verification skipped:", err.message)
+      );
+  }
 } else {
   const reason = allowGmail
     ? "missing EMAIL_USER/EMAIL_PASS"
@@ -580,16 +593,19 @@ exports.logout = async (req, res) => {
     console.log("🍪 Refresh token found?", !!token);
 
     const isProd = process.env.NODE_ENV === "production";
+    const sameSite = isProd ? "None" : "Lax";
     const clearOptions = {
       httpOnly: true,
       secure: isProd,
-      sameSite: isProd ? "Strict" : "Lax",
+      sameSite,
       path: "/",
     };
 
     // Always clear cookie first
     res.clearCookie("refreshToken", clearOptions);
-    console.log("✅ Cleared refreshToken cookie.");
+    console.log(
+      `✅ Cleared refreshToken cookie (secure=${isProd} sameSite=${sameSite}).`
+    );
 
     if (token) {
       try {

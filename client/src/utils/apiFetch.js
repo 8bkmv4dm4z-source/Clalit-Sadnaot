@@ -7,8 +7,10 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+const ACCESS_TOKEN_KEY = "accessToken";
+
 export async function apiFetch(path, options = {}) {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
 
   // ✅ Normalize and prepend API base
   const url = path.startsWith("http")
@@ -41,7 +43,7 @@ export async function apiFetch(path, options = {}) {
       const refreshData = await refreshRes.json();
       if (refreshRes.ok && refreshData.accessToken) {
         console.info("[apiFetch] ✅ Access token refreshed successfully");
-        localStorage.setItem("token", refreshData.accessToken);
+        localStorage.setItem(ACCESS_TOKEN_KEY, refreshData.accessToken);
         headers.Authorization = `Bearer ${refreshData.accessToken}`;
 
         // Retry original request
@@ -52,11 +54,11 @@ export async function apiFetch(path, options = {}) {
         });
       } else {
         console.warn("[apiFetch] ❌ Refresh failed, forcing logout");
-        localStorage.removeItem("token");
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
       }
     } catch (err) {
       console.error("[apiFetch] Refresh error:", err);
-      localStorage.removeItem("token");
+      localStorage.removeItem(ACCESS_TOKEN_KEY);
     }
   }
 
