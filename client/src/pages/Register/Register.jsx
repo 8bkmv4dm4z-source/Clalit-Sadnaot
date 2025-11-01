@@ -1,7 +1,15 @@
 // src/pages/Auth/Register.jsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
+import {
+  validateEmail,
+  validateIsraeliId,
+  validatePasswordComplexity,
+  validatePasswordConfirmation,
+  validatePhone,
+  validateRequired,
+} from "../../utils/validation";
 
 /**
  * Register.jsx — Strict Schema-Aligned Version (2025)
@@ -28,17 +36,83 @@ export default function Register() {
   const [familyMembers, setFamilyMembers] = useState([]);
   const [showFamily, setShowFamily] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    password: "",
+    confirm: "",
+    idNumber: "",
+  });
+  const [touched, setTouched] = useState({
+    name: false,
+    email: false,
+    phone: false,
+    password: false,
+    confirm: false,
+    idNumber: false,
+  });
+  const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState("");
 
   const navigate = useNavigate();
   const { registerUser } = useAuth();
 
+  const runValidation = (field, value, nextAccount = account) => {
+    switch (field) {
+      case "name":
+        return validateRequired(value, "שם מלא");
+      case "email": {
+        const required = validateRequired(value, "כתובת אימייל");
+        if (!required.valid) return required;
+        return validateEmail(value);
+      }
+      case "phone": {
+        const required = validateRequired(value, "מספר טלפון");
+        if (!required.valid) return required;
+        return validatePhone(value);
+      }
+      case "password": {
+        const required = validateRequired(value, "סיסמה");
+        if (!required.valid) return required;
+        return validatePasswordComplexity(value);
+      }
+      case "confirm":
+        return validatePasswordConfirmation(nextAccount.password, value);
+      case "idNumber": {
+        const required = validateRequired(value, "תעודת זהות");
+        if (!required.valid) return required;
+        return validateIsraeliId(value);
+      }
+      default:
+        return { valid: true, message: "" };
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setAccount((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    const nextValue = type === "checkbox" ? checked : value;
+    const nextAccount = { ...account, [name]: nextValue };
+    setAccount(nextAccount);
+    setSubmitError("");
+    setSubmitSuccess("");
+
+    const result = runValidation(name, nextValue, nextAccount);
+    setErrors((prev) => {
+      const updated = { ...prev, [name]: result.message };
+      if (name === "password" || name === "confirm") {
+        const confirmResult = runValidation("confirm", nextAccount.confirm, nextAccount);
+        updated.confirm = confirmResult.message;
+      }
+      return updated;
+    });
   };
+
+  const markTouched = (field) =>
+    setTouched((prev) => ({
+      ...prev,
+      [field]: true,
+    }));
 
   const handleFamilyChange = (index, field, value) => {
     setFamilyMembers((prev) =>
@@ -65,35 +139,44 @@ export default function Register() {
     setFamilyMembers((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const validateForm = () => {
+    const validationResults = {
+      name: runValidation("name", account.name),
+      email: runValidation("email", account.email),
+      phone: runValidation("phone", account.phone),
+      password: runValidation("password", account.password),
+      confirm: runValidation("confirm", account.confirm),
+      idNumber: runValidation("idNumber", account.idNumber),
+    };
+
+    setErrors((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        Object.entries(validationResults).map(([field, result]) => [
+          field,
+          result.message,
+        ])
+      ),
+    }));
+    setTouched({
+      name: true,
+      email: true,
+      phone: true,
+      password: true,
+      confirm: true,
+      idNumber: true,
+    });
+
+    return Object.values(validationResults).every((res) => res.valid);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // ✅ Basic client validations
-    if (account.password !== account.confirm)
-      return alert("הסיסמאות אינן תואמות");
+    setSubmitError("");
+    setSubmitSuccess("");
 
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const phonePattern = /^[0-9+\-\s]{6,20}$/;
-
-    if (!emailPattern.test(account.email)) {
-      return alert("נא להזין כתובת אימייל תקינה");
-    }
-
-    if (!phonePattern.test(account.phone)) {
-      return alert("נא להזין מספר טלפון תקין");
-    }
-
-    if (account.idNumber && !/^[0-9]{5,10}$/.test(account.idNumber)) {
-      return alert("מספר תעודת זהות חייב להיות בין 5 ל-10 ספרות");
-    }
-
-    if (
-      account.password.length < 8 ||
-      !/[A-Za-z]/.test(account.password) ||
-      !/[0-9]/.test(account.password)
-    ) {
-      return alert("הסיסמה חייבת להיות באורך 8 תווים לפחות ולכלול אותיות ומספרים");
-    }
+    if (!validateForm()) return;
 
     // ✅ Build payload identical to UserSchema
     const payload = {
@@ -114,12 +197,37 @@ export default function Register() {
     setLoading(false);
 
     if (result.success) {
-      alert("✅ נרשמת בהצלחה! ניתן להתחבר כעת.");
-      navigate("/login");
+      setSubmitSuccess("✅ נרשמת בהצלחה! ניתן להתחבר כעת.");
+      setAccount({ ...initialAccount });
+      setFamilyMembers([]);
+      setTouched({
+        name: false,
+        email: false,
+        phone: false,
+        password: false,
+        confirm: false,
+        idNumber: false,
+      });
+      setErrors({
+        name: "",
+        email: "",
+        phone: "",
+        password: "",
+        confirm: "",
+        idNumber: "",
+      });
+      setTimeout(() => navigate("/login"), 600);
     } else {
-      alert("❌ " + (result.message || "שגיאה בהרשמה"));
+      setSubmitError(`❌ ${result.message || "שגיאה בהרשמה"}`);
     }
   };
+
+  const canSubmit = useMemo(() => {
+    const requiredFields = ["name", "email", "phone", "password", "confirm", "idNumber"];
+    const allFilled = requiredFields.every((field) => Boolean(String(account[field] || "").trim()));
+    const noErrors = Object.values(errors).every((msg) => !msg);
+    return allFilled && noErrors && !loading;
+  }, [account, errors, loading]);
 
   return (
     <div
@@ -154,60 +262,95 @@ export default function Register() {
             name="name"
             value={account.name}
             onChange={handleChange}
+            onBlur={() => markTouched("name")}
             required
             placeholder="שם מלא"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.name && touched.name ? "border-rose-400" : ""
+            }`}
           />
+          {errors.name && touched.name && (
+            <p className="text-xs text-rose-600">{errors.name}</p>
+          )}
 
           <input
             name="email"
             type="email"
             value={account.email}
             onChange={handleChange}
+            onBlur={() => markTouched("email")}
             required
             placeholder="אימייל"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.email && touched.email ? "border-rose-400" : ""
+            }`}
           />
+          {errors.email && touched.email && (
+            <p className="text-xs text-rose-600">{errors.email}</p>
+          )}
 
           <input
             name="phone"
             type="tel"
             value={account.phone}
             onChange={handleChange}
+            onBlur={() => markTouched("phone")}
             required
             placeholder="טלפון"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.phone && touched.phone ? "border-rose-400" : ""
+            }`}
           />
+          {errors.phone && touched.phone && (
+            <p className="text-xs text-rose-600">{errors.phone}</p>
+          )}
 
           <input
             type="password"
             name="password"
             value={account.password}
             onChange={handleChange}
+            onBlur={() => markTouched("password")}
             required
-            minLength={8}
-            placeholder="סיסמה (לפחות 8 תווים)"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            placeholder="סיסמה (לפחות 10 תווים, אות גדולה ותו מיוחד)"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.password && touched.password ? "border-rose-400" : ""
+            }`}
           />
+          {errors.password && touched.password && (
+            <p className="text-xs text-rose-600">{errors.password}</p>
+          )}
 
           <input
             type="password"
             name="confirm"
             value={account.confirm}
             onChange={handleChange}
+            onBlur={() => markTouched("confirm")}
             required
             placeholder="אימות סיסמה"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.confirm && touched.confirm ? "border-rose-400" : ""
+            }`}
           />
+          {errors.confirm && touched.confirm && (
+            <p className="text-xs text-rose-600">{errors.confirm}</p>
+          )}
 
           <input
             name="idNumber"
             value={account.idNumber}
             onChange={handleChange}
+            onBlur={() => markTouched("idNumber")}
             required
             placeholder="תעודת זהות"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+              errors.idNumber && touched.idNumber ? "border-rose-400" : ""
+            }`}
           />
+          {errors.idNumber && touched.idNumber && (
+            <p className="text-xs text-rose-600">{errors.idNumber}</p>
+          )}
 
           <input
             type="date"
@@ -344,11 +487,21 @@ export default function Register() {
         </div>
 
         {/* Submit */}
+        {submitError && (
+          <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-3 border border-rose-100">
+            {submitError}
+          </div>
+        )}
+        {submitSuccess && (
+          <div className="bg-emerald-50 text-emerald-700 text-sm rounded-lg p-3 border border-emerald-100">
+            {submitSuccess}
+          </div>
+        )}
         <button
           type="submit"
-          disabled={loading}
+          disabled={!canSubmit}
           className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
-            loading
+            !canSubmit
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
           }`}
