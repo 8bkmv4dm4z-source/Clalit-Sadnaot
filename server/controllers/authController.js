@@ -341,13 +341,22 @@ exports.verifyOtp = async (req, res) => {
     console.log("🔍 User found:", !!user);
     if (!user) return res.status(404).json({ message: "User not found." });
 
+    // 🧭 Added: handle already verified user (no OTP left)
+    if (!user.otpCode && !user.otpExpires) {
+      console.warn("⚠️ OTP already consumed or not generated for:", email);
+      return res.status(409).json({ message: "OTP already verified or missing." });
+    }
+
+    // Expired code
     if (!user.otpExpires || user.otpExpires < Date.now()) {
       console.warn("⚠️ OTP expired for:", email);
       user.otpCode = null;
+      user.otpExpires = null;
       await user.save();
       return res.status(400).json({ message: "OTP expired." });
     }
 
+    // Wrong code
     if (String(user.otpCode) !== String(otp)) {
       console.warn("❌ Invalid OTP for:", email);
       user.otpAttempts = (user.otpAttempts || 0) + 1;
@@ -355,8 +364,10 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
+    // ✅ Valid one-time OTP
     console.log("✅ OTP verified:", email);
     user.otpCode = null;
+    user.otpExpires = null;
     await user.save();
 
     const accessToken = generateAccessToken(user);
@@ -366,11 +377,18 @@ exports.verifyOtp = async (req, res) => {
       userAgent: req.headers["user-agent"] || "",
     });
     await user.save();
+
     setRefreshCookie(res, refreshToken);
 
+    console.log("🎟️ Tokens issued for:", email);
     return res.json({
       accessToken,
-      user: { id: user._id, email: user.email, role: user.role, name: user.name },
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+      },
     });
   } catch (e) {
     console.error("❌ verifyOtp error:", e);
