@@ -103,34 +103,45 @@ export const AuthProvider = ({ children }) => {
      🔐 authFetch helper — auto refresh on 401 once
      ============================================================ */
   const authFetch = useCallback(
-    async (url, options = {}) => {
-      const token = accessToken || localStorage.getItem("accessToken");
-      const headers = {
-        ...(options.headers || {}),
-        Authorization: token ? `Bearer ${token}` : undefined,
-        "Content-Type": "application/json",
-      };
+  async (url, options = {}) => {
+    const token = accessToken || localStorage.getItem("accessToken");
+    const headers = {
+      ...(options.headers || {}),
+      Authorization: token ? `Bearer ${token}` : undefined,
+      "Content-Type": "application/json",
+    };
 
-      try {
-        let res = await apiFetch(url, { ...options, headers });
+    try {
+      // ✅ Always include credentials so refresh cookies work
+      let res = await apiFetch(url, { 
+        ...options, 
+        headers, 
+        credentials: "include" 
+      });
 
-        // if unauthorized, try refresh once
-        if (res.status === 401) {
-          log("⚠️ 401 detected — attempting refresh...");
-          const newToken = await refreshAccessToken();
-          if (!newToken) throw new Error("Session expired");
-          const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
-          res = await apiFetch(url, { ...options, headers: headers2 });
-        }
+      // ⚠️ If unauthorized, try refresh once
+      if (res.status === 401) {
+        log("⚠️ 401 detected — attempting refresh...");
+        const newToken = await refreshAccessToken();
+        if (!newToken) throw new Error("Session expired");
 
-        return res;
-      } catch (e) {
-        log("❌ authFetch error:", e.message);
-        throw e;
+        const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
+        res = await apiFetch(url, { 
+          ...options, 
+          headers: headers2, 
+          credentials: "include" // 🔁 include again on retry
+        });
       }
-    },
-    [accessToken, refreshAccessToken]
-  );
+
+      return res;
+    } catch (e) {
+      log("❌ authFetch error:", e.message);
+      throw e;
+    }
+  },
+  [accessToken, refreshAccessToken]
+);
+
 
   /* ============================================================
      👤 fetchMe — load current user
