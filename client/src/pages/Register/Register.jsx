@@ -28,20 +28,12 @@ export default function Register() {
   const [familyMembers, setFamilyMembers] = useState([]);
   const [showFamily, setShowFamily] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [inlineErrors, setInlineErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [submitDetails, setSubmitDetails] = useState([]);
 
   const navigate = useNavigate();
   const { registerUser } = useAuth();
-  const requiredMessages = {
-    name: "נא להזין שם מלא.",
-    email: "נא להזין כתובת אימייל.",
-    phone: "נא להזין מספר טלפון.",
-    password: "נא לבחור סיסמה.",
-    confirm: "נא לאשר את הסיסמה.",
-    idNumber: "נא להזין תעודת זהות.",
-  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -49,15 +41,7 @@ export default function Register() {
     setAccount((prev) => ({ ...prev, [name]: nextValue }));
     setSubmitError("");
     setSubmitSuccess("");
-    setInlineErrors((prev) => {
-      if (!prev[name] && !(name === "password" && prev.confirm)) {
-        return prev;
-      }
-      const updated = { ...prev };
-      if (prev[name]) updated[name] = "";
-      if (name === "password" && prev.confirm) updated.confirm = "";
-      return updated;
-    });
+    setSubmitDetails([]);
   };
 
   const handleFamilyChange = (index, field, value) => {
@@ -85,79 +69,51 @@ export default function Register() {
     setFamilyMembers((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const validateLocally = () => {
-    const errors = {};
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-    Object.entries(requiredMessages).forEach(([field, message]) => {
-      const rawValue = account[field];
-      const normalized =
-        field === "password" || field === "confirm"
-          ? String(rawValue || "")
-          : String(rawValue || "").trim();
-
-      if (!normalized) {
-        errors[field] = message;
-      }
-    });
+    setSubmitError("");
+    setSubmitSuccess("");
+    setSubmitDetails([]);
 
     if (
       account.password &&
       account.confirm &&
       account.password !== account.confirm
     ) {
-      errors.confirm = "הסיסמאות אינן תואמות.";
+      setSubmitError("הסיסמאות אינן תואמות.");
+      return;
     }
 
-    setInlineErrors(errors);
-
-    if (Object.keys(errors).length) {
-      setSubmitError("אנא תקנו את השדות המסומנים והגישו שוב.");
-      return null;
-    }
-
-    return {
-      name: account.name.trim(),
-      email: account.email.trim().toLowerCase(),
-      phone: account.phone.trim(),
-      password: account.password,
-      idNumber: account.idNumber.trim(),
-      birthDate: account.birthDate,
-      city: account.city.trim(),
-      canCharge: account.canCharge,
-    };
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    setSubmitError("");
-    setSubmitSuccess("");
-
-    const normalized = validateLocally();
-    if (!normalized) return;
+    const trimmedName = account.name.trim();
+    const trimmedEmail = account.email.trim().toLowerCase();
+    const trimmedPhone = account.phone.trim();
+    const trimmedId = account.idNumber.trim();
+    const trimmedCity = account.city.trim();
 
     const payload = {
-      name: normalized.name,
-      email: normalized.email,
-      phone: normalized.phone,
-      password: normalized.password,
-      idNumber: normalized.idNumber,
-      birthDate: normalized.birthDate,
-      city: normalized.city,
-      canCharge: normalized.canCharge,
+      name: trimmedName,
+      email: trimmedEmail,
+      password: account.password,
+      canCharge: account.canCharge,
       role: "user",
       familyMembers: familyMembers
         .map((member) => ({
           name: String(member.name || "").trim(),
           relation: String(member.relation || "").trim(),
           idNumber: String(member.idNumber || "").trim(),
-          phone: String(member.phone || "").trim() || normalized.phone,
-          email: String(member.email || "").trim() || normalized.email,
-          city: String(member.city || "").trim() || normalized.city,
+          phone: String(member.phone || "").trim() || trimmedPhone,
+          email: String(member.email || "").trim() || trimmedEmail,
+          city: String(member.city || "").trim() || trimmedCity,
           birthDate: member.birthDate || "",
         }))
         .filter((member) => member.name && member.idNumber),
     };
+
+    if (trimmedPhone) payload.phone = trimmedPhone;
+    if (trimmedId) payload.idNumber = trimmedId;
+    if (account.birthDate) payload.birthDate = account.birthDate;
+    if (trimmedCity) payload.city = trimmedCity;
 
     setLoading(true);
     try {
@@ -166,24 +122,20 @@ export default function Register() {
         setSubmitSuccess("נרשמת בהצלחה! ניתן להתחבר כעת.");
         setAccount({ ...initialAccount });
         setFamilyMembers([]);
-        setInlineErrors({});
+        setSubmitDetails([]);
         setTimeout(() => navigate("/login"), 800);
       } else {
         setSubmitError(result.message || "שגיאה בהרשמה.");
+        if (Array.isArray(result.details) && result.details.length) {
+          setSubmitDetails(result.details);
+        }
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const disableSubmit =
-    loading ||
-    !account.name.trim() ||
-    !account.email.trim() ||
-    !account.phone.trim() ||
-    !account.password ||
-    !account.confirm ||
-    !account.idNumber.trim();
+  const disableSubmit = loading;
 
   return (
     <div
@@ -218,89 +170,53 @@ export default function Register() {
             name="name"
             value={account.name}
             onChange={handleChange}
-            required
             placeholder="שם מלא"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.name ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.name && (
-            <p className="text-xs text-rose-600">{inlineErrors.name}</p>
-          )}
 
           <input
             name="email"
             type="email"
             value={account.email}
             onChange={handleChange}
-            required
             placeholder="אימייל"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.email ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.email && (
-            <p className="text-xs text-rose-600">{inlineErrors.email}</p>
-          )}
 
           <input
             name="phone"
             type="tel"
             value={account.phone}
             onChange={handleChange}
-            required
             placeholder="טלפון"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.phone ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.phone && (
-            <p className="text-xs text-rose-600">{inlineErrors.phone}</p>
-          )}
 
           <input
             type="password"
             name="password"
             value={account.password}
             onChange={handleChange}
-            required
             placeholder="סיסמה (לפחות 10 תווים, אות גדולה ותו מיוחד)"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.password ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.password && (
-            <p className="text-xs text-rose-600">{inlineErrors.password}</p>
-          )}
 
           <input
             type="password"
             name="confirm"
             value={account.confirm}
             onChange={handleChange}
-            required
             placeholder="אימות סיסמה"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.confirm ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.confirm && (
-            <p className="text-xs text-rose-600">{inlineErrors.confirm}</p>
-          )}
 
           <input
             name="idNumber"
             value={account.idNumber}
             onChange={handleChange}
-            required
             placeholder="תעודת זהות"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              inlineErrors.idNumber ? "border-rose-400" : ""
-            }`}
+            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
           />
-          {inlineErrors.idNumber && (
-            <p className="text-xs text-rose-600">{inlineErrors.idNumber}</p>
-          )}
 
           <input
             type="date"
@@ -438,8 +354,15 @@ export default function Register() {
 
         {/* Submit */}
         {submitError && (
-          <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-3 border border-rose-100">
-            ❌ {submitError}
+          <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-3 border border-rose-100 space-y-2">
+            <div>❌ {submitError}</div>
+            {submitDetails.length > 0 && (
+              <ul className="space-y-1 text-xs list-disc pr-4">
+                {submitDetails.map((detail, idx) => (
+                  <li key={`register-detail-${idx}`}>{detail}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {submitSuccess && (

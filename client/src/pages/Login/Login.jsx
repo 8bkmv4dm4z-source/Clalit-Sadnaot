@@ -11,7 +11,7 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState("idle");
   const [errorMsg, setErrorMsg] = useState("");
-  const [inlineErrors, setInlineErrors] = useState({ email: "", password: "" });
+  const [inlineDetails, setInlineDetails] = useState([]);
 
   useEffect(() => {
     if (isLoggedIn) navigate("/workshops", { replace: true });
@@ -20,20 +20,15 @@ export default function Login() {
   const onSubmit = async (e) => {
     e.preventDefault();
     const trimmedEmail = email.trim();
-    const nextErrors = {
-      email: trimmedEmail ? "" : "נא להזין כתובת אימייל.",
-      password: password ? "" : "נא להזין סיסמה.",
-    };
-
-    setInlineErrors(nextErrors);
-
     if (!trimmedEmail || !password) {
-      setErrorMsg("יש למלא את כל השדות הדרושים.");
+      setErrorMsg("נא להזין כתובת אימייל וסיסמה.");
+      setInlineDetails([]);
       return;
     }
 
     setStatus("submitting");
     setErrorMsg("");
+    setInlineDetails([]);
 
     try {
       const result = await loginWithPassword({
@@ -43,6 +38,9 @@ export default function Login() {
 
       if (!result.success) {
         setErrorMsg(result.message || "ההתחברות נכשלה.");
+        if (Array.isArray(result.details) && result.details.length) {
+          setInlineDetails(result.details);
+        }
       }
     } finally {
       setStatus("idle");
@@ -81,20 +79,10 @@ export default function Login() {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
-                if (errorMsg) setErrorMsg("");
-                if (inlineErrors.email) {
-                  setInlineErrors((prev) => ({ ...prev, email: "" }));
-                }
               }}
-              required
-              className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-                inlineErrors.email ? "border-rose-400" : ""
-              }`}
+              className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none"
               placeholder="example@gmail.com"
             />
-            {inlineErrors.email && (
-              <p className="mt-2 text-xs text-rose-600">{inlineErrors.email}</p>
-            )}
           </div>
 
           <div className="pb-4 border-b border-indigo-50">
@@ -107,15 +95,8 @@ export default function Login() {
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  if (errorMsg) setErrorMsg("");
-                  if (inlineErrors.password) {
-                    setInlineErrors((prev) => ({ ...prev, password: "" }));
-                  }
                 }}
-                required
-                className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
-                  inlineErrors.password ? "border-rose-400" : ""
-                }`}
+                className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10"
                 placeholder="••••••••"
               />
               <button
@@ -126,14 +107,18 @@ export default function Login() {
                 {showPw ? "🙈" : "👁️"}
               </button>
             </div>
-            {inlineErrors.password && (
-              <p className="mt-2 text-xs text-rose-600">{inlineErrors.password}</p>
-            )}
           </div>
 
           {errorMsg && (
             <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-2 px-3 border border-rose-100 animate-fade-in">
               ❌ {errorMsg}
+              {inlineDetails.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs list-disc pr-4">
+                  {inlineDetails.map((detail, idx) => (
+                    <li key={`login-detail-${idx}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 

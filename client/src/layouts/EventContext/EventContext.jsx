@@ -109,6 +109,13 @@ export function EventProvider({ children }) {
                 {event.message && (
                   <p className="text-xs leading-relaxed mt-0.5">{event.message}</p>
                 )}
+                {Array.isArray(event.meta?.details) && event.meta.details.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-[0.7rem] leading-relaxed list-disc pr-4">
+                    {event.meta.details.map((detail, idx) => (
+                      <li key={`${event.id}-detail-${idx}`}>{detail}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <button
                 onClick={() => dismiss(event.id)}

@@ -7,7 +7,6 @@
  * ✅ Works automatically with VITE_API_URL (.env)
  */
 
-import { View } from "lucide-react";
 import React, {
   createContext,
   useContext,
@@ -19,106 +18,16 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../../utils/apiFetch"; // ✅ Unified backend handler
 import { useEventBus } from "../EventContext";
+import {
+  translateAuthError,
+  translateNetworkError,
+} from "../../utils/errorTranslator";
 
 /* ------------------------------ Logger ------------------------------ */
 const log = (...args) => {
   const time = new Date().toLocaleTimeString("he-IL");
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
-
-const AUTH_ERROR_MESSAGES = {
-  login: {
-    400: {
-      messageMap: {
-        "Validation error": "כתובת האימייל או הסיסמה חסרים או אינם תקינים.",
-      },
-      default: "כתובת האימייל או הסיסמה אינם נכונים.",
-    },
-    401: { default: "ההרשאה פגה. התחברו מחדש." },
-    404: { default: "לא מצאנו משתמש עם הפרטים שסופקו." },
-    429: {
-      default: "בוצעו יותר מדי ניסיונות התחברות. המתינו מספר דקות ונסו שוב.",
-    },
-    500: { default: "אירעה תקלה זמנית בשרת. נסו שוב מאוחר יותר." },
-    default: "לא ניתן היה להשלים את ההתחברות עם הפרטים שסיפקתם.",
-  },
-  register: {
-    400: {
-      messageMap: {
-        "A user with this email or phone already exists":
-          "כבר קיים משתמש עם כתובת האימייל או מספר הטלפון שסופקו.",
-        "Email or phone is required":
-          "יש להזין לפחות כתובת אימייל אחת או מספר טלפון.",
-        "Validation error":
-          "חלק מהשדות אינם עומדים בדרישות. בדקו ונסו שוב.",
-        "Password must include a letter, number, and special character.":
-          "הסיסמה חייבת לכלול לפחות אות אחת, מספר וסימן מיוחד.",
-      },
-      default: "חלק מהפרטים אינם תקינים. ודאו את הערכים ונסו שוב.",
-    },
-    409: {
-      default:
-        "בקשה זו כבר עובדה עבור המשתמש. נסו להתחבר או לאפס סיסמה.",
-    },
-    429: {
-      default: "בוצעו יותר מדי ניסיונות. המתינו מספר דקות ונסו שוב.",
-    },
-    500: {
-      default: "לא ניתן היה להשלים את ההרשמה כרגע. נסו שוב מאוחר יותר.",
-    },
-    default: "הרשמה נכשלה. בדקו את הפרטים ונסו שוב.",
-  },
-  generic: {
-    400: "הבקשה שנשלחה אינה תקינה.",
-    401: "ההרשאה פגה. התחברו מחדש.",
-    403: "אין לכם הרשאה לבצע פעולה זו.",
-    404: "הפריט המבוקש לא נמצא.",
-    429: "בוצעו יותר מדי בקשות. המתינו ונסו שוב.",
-    500: "אירעה תקלה זמנית בשרת. נסו שוב מאוחר יותר.",
-    default: "אירעה תקלה בלתי צפויה. נסו שוב מאוחר יותר.",
-  },
-  network:
-    "לא ניתן ליצור קשר עם השרת כרגע. בדקו את החיבור לאינטרנט ונסו שוב.",
-};
-
-function extractServerMessage(data) {
-  if (!data) return "";
-  if (typeof data === "string") return data;
-  if (typeof data === "object") {
-    if (typeof data.message === "string") return data.message;
-    if (typeof data.error === "string") return data.error;
-    if (data.details && typeof data.details.message === "string") {
-      return data.details.message;
-    }
-  }
-  return "";
-}
-
-function translateAuthError(action, status, data) {
-  const dictionary = AUTH_ERROR_MESSAGES[action] || {};
-  const serverMessage = extractServerMessage(data);
-  const statusEntry = dictionary[status];
-
-  if (statusEntry) {
-    if (statusEntry.messageMap && serverMessage) {
-      const mapped = statusEntry.messageMap[serverMessage];
-      if (mapped) return mapped;
-    }
-    if (statusEntry.default) return statusEntry.default;
-    if (typeof statusEntry === "string") return statusEntry;
-  }
-
-  if (dictionary.default) return dictionary.default;
-
-  const genericEntry = AUTH_ERROR_MESSAGES.generic[status];
-  if (genericEntry) return genericEntry;
-
-  return AUTH_ERROR_MESSAGES.generic.default;
-}
-
-function translateNetworkError() {
-  return AUTH_ERROR_MESSAGES.network;
-}
 
 async function safeJson(res) {
   try {
@@ -359,13 +268,23 @@ export const AuthProvider = ({ children }) => {
       const data = await safeJson(res);
 
       if (!res.ok) {
-        const friendly = translateAuthError("register", res.status, data);
+        const { message: friendly, details } = translateAuthError(
+          "register",
+          res.status,
+          data
+        );
         publishEvent({
           type: "error",
           title: "הרשמה נכשלה",
           message: friendly,
+          meta: details?.length ? { details } : undefined,
         });
-        return { success: false, status: res.status, message: friendly };
+        return {
+          success: false,
+          status: res.status,
+          message: friendly,
+          details: details || [],
+        };
       }
 
       publishEvent({
@@ -376,7 +295,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { success: true, data };
     } catch (err) {
-      const friendly = translateNetworkError();
+      const { message: friendly } = translateNetworkError(err);
       log("❌ registerUser error:", err.message);
       publishEvent({
         type: "error",
@@ -463,13 +382,23 @@ export const AuthProvider = ({ children }) => {
         const data = await safeJson(res);
 
         if (!res.ok) {
-          const friendly = translateAuthError("login", res.status, data);
+          const { message: friendly, details } = translateAuthError(
+            "login",
+            res.status,
+            data
+          );
           publishEvent({
             type: "error",
             title: "התחברות נכשלה",
             message: friendly,
+            meta: details?.length ? { details } : undefined,
           });
-          return { success: false, status: res.status, message: friendly };
+          return {
+            success: false,
+            status: res.status,
+            message: friendly,
+            details: details || [],
+          };
         }
 
         const token = data?.accessToken || data?.token;
@@ -493,7 +422,7 @@ export const AuthProvider = ({ children }) => {
         });
         return { success: true, data };
       } catch (err) {
-        const friendly = translateNetworkError();
+        const { message: friendly } = translateNetworkError(err);
         log("❌ loginWithPassword error:", err.message);
         publishEvent({
           type: "error",
