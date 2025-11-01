@@ -4,13 +4,14 @@ import { useAuth } from "../../layouts/AuthLayout";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isLoggedIn, completeLogin } = useAuth();
+  const { isLoggedIn, loginWithPassword } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [inlineErrors, setInlineErrors] = useState({ email: "", password: "" });
 
   useEffect(() => {
     if (isLoggedIn) navigate("/workshops", { replace: true });
@@ -18,31 +19,40 @@ export default function Login() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    const trimmedEmail = email.trim();
+    const nextErrors = {
+      email: trimmedEmail ? "" : "נא להזין כתובת אימייל.",
+      password: password ? "" : "נא להזין סיסמה.",
+    };
+
+    setInlineErrors(nextErrors);
+
+    if (!trimmedEmail || !password) {
+      setErrorMsg("יש למלא את כל השדות הדרושים.");
+      return;
+    }
+
     setStatus("submitting");
     setErrorMsg("");
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const result = await loginWithPassword({
+        email: trimmedEmail,
+        password,
       });
-      const data = await res.json();
 
-      if (!res.ok || !data?.token)
-        throw new Error(data?.message || "פרטי ההתחברות שגויים");
-
-      await completeLogin(data.token);
-      navigate("/workshops", { replace: true });
-    } catch (err) {
-      setErrorMsg(err.message || "שגיאה בהתחברות");
-      setStatus("error");
+      if (!result.success) {
+        setErrorMsg(result.message || "ההתחברות נכשלה.");
+      }
     } finally {
-      if (status !== "error") setStatus("idle");
+      setStatus("idle");
     }
   };
 
   const gotoOtp = () => navigate("/verify", { state: { email } });
+
+  const disableSubmit =
+    status === "submitting" || !email.trim() || !password.trim();
 
   return (
     <div
@@ -69,11 +79,22 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errorMsg) setErrorMsg("");
+                if (inlineErrors.email) {
+                  setInlineErrors((prev) => ({ ...prev, email: "" }));
+                }
+              }}
               required
-              className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+              className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+                inlineErrors.email ? "border-rose-400" : ""
+              }`}
               placeholder="example@gmail.com"
             />
+            {inlineErrors.email && (
+              <p className="mt-2 text-xs text-rose-600">{inlineErrors.email}</p>
+            )}
           </div>
 
           <div className="pb-4 border-b border-indigo-50">
@@ -84,10 +105,17 @@ export default function Login() {
               <input
                 type={showPw ? "text" : "password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMsg) setErrorMsg("");
+                  if (inlineErrors.password) {
+                    setInlineErrors((prev) => ({ ...prev, password: "" }));
+                  }
+                }}
                 required
-                className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10"
+                className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+                  inlineErrors.password ? "border-rose-400" : ""
+                }`}
                 placeholder="••••••••"
               />
               <button
@@ -98,6 +126,9 @@ export default function Login() {
                 {showPw ? "🙈" : "👁️"}
               </button>
             </div>
+            {inlineErrors.password && (
+              <p className="mt-2 text-xs text-rose-600">{inlineErrors.password}</p>
+            )}
           </div>
 
           {errorMsg && (
@@ -108,9 +139,9 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={status === "submitting"}
+            disabled={disableSubmit}
             className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
-              status === "submitting"
+              disableSubmit
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
             }`}

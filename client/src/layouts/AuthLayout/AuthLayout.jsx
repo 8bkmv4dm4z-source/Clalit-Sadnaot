@@ -18,12 +18,107 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../../utils/apiFetch"; // ✅ Unified backend handler
+import { useEventBus } from "../EventContext";
 
 /* ------------------------------ Logger ------------------------------ */
 const log = (...args) => {
   const time = new Date().toLocaleTimeString("he-IL");
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
+
+const AUTH_ERROR_MESSAGES = {
+  login: {
+    400: {
+      messageMap: {
+        "Validation error": "כתובת האימייל או הסיסמה חסרים או אינם תקינים.",
+      },
+      default: "כתובת האימייל או הסיסמה אינם נכונים.",
+    },
+    401: { default: "ההרשאה פגה. התחברו מחדש." },
+    404: { default: "לא מצאנו משתמש עם הפרטים שסופקו." },
+    429: {
+      default: "בוצעו יותר מדי ניסיונות התחברות. המתינו מספר דקות ונסו שוב.",
+    },
+    500: { default: "אירעה תקלה זמנית בשרת. נסו שוב מאוחר יותר." },
+    default: "לא ניתן היה להשלים את ההתחברות עם הפרטים שסיפקתם.",
+  },
+  register: {
+    400: {
+      messageMap: {
+        "A user with this email or phone already exists":
+          "כבר קיים משתמש עם כתובת האימייל או מספר הטלפון שסופקו.",
+        "Email or phone is required":
+          "יש להזין לפחות כתובת אימייל אחת או מספר טלפון.",
+        "Validation error":
+          "חלק מהשדות אינם עומדים בדרישות. בדקו ונסו שוב.",
+        "Password must include a letter, number, and special character.":
+          "הסיסמה חייבת לכלול לפחות אות אחת, מספר וסימן מיוחד.",
+      },
+      default: "חלק מהפרטים אינם תקינים. ודאו את הערכים ונסו שוב.",
+    },
+    409: {
+      default:
+        "בקשה זו כבר עובדה עבור המשתמש. נסו להתחבר או לאפס סיסמה.",
+    },
+    429: {
+      default: "בוצעו יותר מדי ניסיונות. המתינו מספר דקות ונסו שוב.",
+    },
+    500: {
+      default: "לא ניתן היה להשלים את ההרשמה כרגע. נסו שוב מאוחר יותר.",
+    },
+    default: "הרשמה נכשלה. בדקו את הפרטים ונסו שוב.",
+  },
+  generic: {
+    400: "הבקשה שנשלחה אינה תקינה.",
+    401: "ההרשאה פגה. התחברו מחדש.",
+    403: "אין לכם הרשאה לבצע פעולה זו.",
+    404: "הפריט המבוקש לא נמצא.",
+    429: "בוצעו יותר מדי בקשות. המתינו ונסו שוב.",
+    500: "אירעה תקלה זמנית בשרת. נסו שוב מאוחר יותר.",
+    default: "אירעה תקלה בלתי צפויה. נסו שוב מאוחר יותר.",
+  },
+  network:
+    "לא ניתן ליצור קשר עם השרת כרגע. בדקו את החיבור לאינטרנט ונסו שוב.",
+};
+
+function extractServerMessage(data) {
+  if (!data) return "";
+  if (typeof data === "string") return data;
+  if (typeof data === "object") {
+    if (typeof data.message === "string") return data.message;
+    if (typeof data.error === "string") return data.error;
+    if (data.details && typeof data.details.message === "string") {
+      return data.details.message;
+    }
+  }
+  return "";
+}
+
+function translateAuthError(action, status, data) {
+  const dictionary = AUTH_ERROR_MESSAGES[action] || {};
+  const serverMessage = extractServerMessage(data);
+  const statusEntry = dictionary[status];
+
+  if (statusEntry) {
+    if (statusEntry.messageMap && serverMessage) {
+      const mapped = statusEntry.messageMap[serverMessage];
+      if (mapped) return mapped;
+    }
+    if (statusEntry.default) return statusEntry.default;
+    if (typeof statusEntry === "string") return statusEntry;
+  }
+
+  if (dictionary.default) return dictionary.default;
+
+  const genericEntry = AUTH_ERROR_MESSAGES.generic[status];
+  if (genericEntry) return genericEntry;
+
+  return AUTH_ERROR_MESSAGES.generic.default;
+}
+
+function translateNetworkError() {
+  return AUTH_ERROR_MESSAGES.network;
+}
 
 async function safeJson(res) {
   try {
@@ -61,6 +156,7 @@ const AuthContext = createContext({
   setFilters: () => {},
   setSearchQuery: () => {},
   logout: () => {},
+  loginWithPassword: async () => {},
   completeLogin: async () => {},
   registerUser: async () => {},
   sendOtp: async () => {},
@@ -72,6 +168,7 @@ const AuthContext = createContext({
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+  const { publish: publishEvent } = useEventBus();
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -84,6 +181,36 @@ export const AuthProvider = ({ children }) => {
   );
 
   const didVerifyRef = useRef(false);
+
+  /* ============================================================
+     🚪 Logout
+     ============================================================ */
+  const logout = useCallback(
+    async (silent = false) => {
+      try {
+        await apiFetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        /* ignore */
+      }
+
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+
+      log("🚪 Logged out (local + server)");
+
+      fireAuthReady(false, { phase: "logout" });
+      fireLoggedOut();
+
+      if (!silent) navigate("/workshops");
+    },
+    [navigate]
+  );
 
   /* ============================================================
      🔁 Refresh Access Token
@@ -110,7 +237,7 @@ export const AuthProvider = ({ children }) => {
       await logout(true);
       return null;
     }
-  }, []);
+  }, [logout]);
 
   /* ============================================================
      🔐 authFetch helper — auto refresh on 401 once
@@ -159,44 +286,49 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
      👤 fetchMe — load current user
      ============================================================ */
-  const fetchMe = async (tokenOverride = null) => {
-    const token =
-      tokenOverride || accessToken || localStorage.getItem("accessToken");
-    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
+  const fetchMe = useCallback(
+    async (tokenOverride = null) => {
+      const token =
+        tokenOverride || accessToken || localStorage.getItem("accessToken");
+      log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-    if (!token) {
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-      return;
-    }
-
-    try {
-      const res = await apiFetch("/api/users/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      const data = await safeJson(res);
-
-      if (!res.ok || !data) {
-        throw new Error(data?.message || "Failed to load profile");
+      if (!token) {
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        return null;
       }
 
-      setUser(data);
-      setIsLoggedIn(true);
-      setIsAdmin(data.role === "admin");
-      log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
-    } catch (err) {
-      log("❌ fetchMe error:", err.message);
-      localStorage.removeItem("accessToken");
-      setAccessToken(null);
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-    }
-  };
+      try {
+        const res = await apiFetch("/api/users/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await safeJson(res);
+
+        if (!res.ok || !data) {
+          throw new Error(data?.message || "Failed to load profile");
+        }
+
+        setUser(data);
+        setIsLoggedIn(true);
+        setIsAdmin(data.role === "admin");
+        log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
+        return data;
+      } catch (err) {
+        log("❌ fetchMe error:", err.message);
+        localStorage.removeItem("accessToken");
+        setAccessToken(null);
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        return null;
+      }
+    },
+    [accessToken]
+  );
 
   /* ============================================================
      🚀 On Mount
@@ -225,13 +357,33 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify(payload),
       });
       const data = await safeJson(res);
+
       if (!res.ok) {
-        throw new Error(data?.message || "Registration failed");
+        const friendly = translateAuthError("register", res.status, data);
+        publishEvent({
+          type: "error",
+          title: "הרשמה נכשלה",
+          message: friendly,
+        });
+        return { success: false, status: res.status, message: friendly };
       }
+
+      publishEvent({
+        type: "success",
+        title: "הרשמה הושלמה",
+        message: "החשבון נוצר בהצלחה! ניתן להתחבר כעת.",
+        ttl: 4000,
+      });
       return { success: true, data };
     } catch (err) {
+      const friendly = translateNetworkError();
       log("❌ registerUser error:", err.message);
-      return { success: false, message: err.message };
+      publishEvent({
+        type: "error",
+        title: "הרשמה נכשלה",
+        message: friendly,
+      });
+      return { success: false, message: friendly };
     }
   };
 
@@ -280,45 +432,79 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
      ✅ Complete Login
      ============================================================ */
-  const completeLogin = async (newToken) => {
-    if (!newToken) return;
+  const completeLogin = useCallback(
+    async (newToken) => {
+      if (!newToken) return;
 
-    localStorage.setItem("accessToken", newToken);
-    setAccessToken(newToken);
-    log("💾 Access token stored, loading user directly...");
+      localStorage.setItem("accessToken", newToken);
+      setAccessToken(newToken);
+      log("💾 Access token stored, loading user directly...");
 
-    await fetchMe(newToken);
-    fireAuthReady(true, { phase: "login-complete" });
-    fireLoggedIn({ userId: String(user?.id || user?._id || "") });
-    navigate("/workshops");
-  };
+      const data = await fetchMe(newToken);
+      fireAuthReady(true, { phase: "login-complete" });
+      fireLoggedIn({ userId: String(data?._id || data?.id || "") });
+      navigate("/workshops");
+    },
+    [fetchMe, navigate]
+  );
 
   /* ============================================================
-     🚪 Logout
+     🔑 Login (Password)
      ============================================================ */
-  const logout = async (silent = false) => {
-    try {
-      await apiFetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      /* ignore */
-    }
+  const loginWithPassword = useCallback(
+    async ({ email, password }) => {
+      log("🔑 loginWithPassword called:", email);
+      try {
+        const res = await apiFetch("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
 
-    localStorage.removeItem("accessToken");
-    setAccessToken(null);
-    setUser(null);
-    setIsLoggedIn(false);
-    setIsAdmin(false);
+        const data = await safeJson(res);
 
-    log("🚪 Logged out (local + server)");
+        if (!res.ok) {
+          const friendly = translateAuthError("login", res.status, data);
+          publishEvent({
+            type: "error",
+            title: "התחברות נכשלה",
+            message: friendly,
+          });
+          return { success: false, status: res.status, message: friendly };
+        }
 
-    fireAuthReady(false, { phase: "logout" });
-    fireLoggedOut();
+        const token = data?.accessToken || data?.token;
+        if (!token) {
+          const friendly =
+            "תגובת ההתחברות חסרה אסימון גישה. פנו לתמיכה במערכת.";
+          publishEvent({
+            type: "error",
+            title: "התחברות נכשלה",
+            message: friendly,
+          });
+          return { success: false, status: res.status, message: friendly };
+        }
 
-    if (!silent) navigate("/workshops");
-  };
+        await completeLogin(token);
+        publishEvent({
+          type: "success",
+          title: "התחברות בוצעה",
+          message: "ברוך הבא! מפנים אותך ללוח הסדנאות.",
+          ttl: 3500,
+        });
+        return { success: true, data };
+      } catch (err) {
+        const friendly = translateNetworkError();
+        log("❌ loginWithPassword error:", err.message);
+        publishEvent({
+          type: "error",
+          title: "התחברות נכשלה",
+          message: friendly,
+        });
+        return { success: false, message: friendly };
+      }
+    },
+    [completeLogin, publishEvent]
+  );
 
   /* ============================================================
      ♻️ Refresh Me
@@ -397,6 +583,7 @@ export const AuthProvider = ({ children }) => {
         setFilters,
         setSearchQuery,
         logout,
+        loginWithPassword,
         completeLogin,
         registerUser,
         sendOtp,

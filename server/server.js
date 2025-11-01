@@ -229,12 +229,30 @@ if (SHOULD_SERVE_CLIENT) {
 
   if (hasDist) {
     app.use(express.static(CLIENT_DIST_PATH));
-    app.get(/^\/(?!api).*/, (_req, res) =>
-      res.sendFile(path.join(CLIENT_DIST_PATH, "index.html"))
-    );
   } else {
     console.warn(
       "[STATIC] dist folder missing — set CLIENT_DIST_PATH or run `npm run build` to enable refresh fallbacks."
+    );
+  }
+
+  const fallbackCandidates = [
+    path.join(CLIENT_DIST_PATH, "index.html"),
+    path.join(__dirname, "../client/index.html"),
+  ];
+  const fallbackIndex = fallbackCandidates.find((candidate) =>
+    fs.existsSync(candidate)
+  );
+
+  if (fallbackIndex) {
+    console.log("[STATIC] SPA fallback enabled from:", fallbackIndex);
+    app.get(/^\/(?!api).*/, (_req, res, next) => {
+      res.sendFile(fallbackIndex, (err) => {
+        if (err) next(err);
+      });
+    });
+  } else {
+    console.warn(
+      "[STATIC] index.html fallback missing — direct refreshes will fail until the client build is generated."
     );
   }
 }
