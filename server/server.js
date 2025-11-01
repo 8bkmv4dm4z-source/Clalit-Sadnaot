@@ -213,14 +213,29 @@ app.use("/api", api);
  * Static SPA (serve client build) — outside /api
  * MUST come after API and before app-level 404s
  * ---------------------------------------------- */
-if (process.env.NODE_ENV === "production") {
-  const dist = path.join(__dirname, "../client/dist");
-  console.log("[STATIC] expecting build at:", dist, "exists?", fs.existsSync(dist));
-  if (fs.existsSync(dist)) {
-    app.use(express.static(dist));
-    app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+const SHOULD_SERVE_CLIENT = process.env.SERVE_CLIENT !== "false";
+const CLIENT_DIST_PATH = process.env.CLIENT_DIST_PATH
+  ? path.resolve(process.env.CLIENT_DIST_PATH)
+  : path.join(__dirname, "../client/dist");
+
+if (SHOULD_SERVE_CLIENT) {
+  const hasDist = fs.existsSync(CLIENT_DIST_PATH);
+  console.log(
+    "[STATIC] expecting build at:",
+    CLIENT_DIST_PATH,
+    "exists?",
+    hasDist
+  );
+
+  if (hasDist) {
+    app.use(express.static(CLIENT_DIST_PATH));
+    app.get(/^\/(?!api).*/, (_req, res) =>
+      res.sendFile(path.join(CLIENT_DIST_PATH, "index.html"))
+    );
   } else {
-    console.warn("[STATIC] dist folder missing — did Vite build run?");
+    console.warn(
+      "[STATIC] dist folder missing — set CLIENT_DIST_PATH or run `npm run build` to enable refresh fallbacks."
+    );
   }
 }
 
