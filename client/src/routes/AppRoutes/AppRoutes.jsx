@@ -20,6 +20,8 @@ import EditWorkshop from "../../pages/EditWorkshop";
 import AllProfiles from "../../pages/AllProfiles";
 import EditProfile from "../../pages/EditProfile";
 import MyWorkshopsSimpleGcal from '../../pages/MyWorkshops/MyWorkshopsSimpleGcal';
+import ForgotPassword from "../../pages/ForgotPassword";
+import ResetPassword from "../../pages/ResetPassword";
 import { useWorkshops } from "../../layouts/WorkshopContext";   
 
 // 🧭 Layouts
@@ -44,6 +46,8 @@ export default function AppRoutes() {
   if (isLoggedIn) {
     return (
       <Routes>
+        <Route path="/resetpassword" element={<ResetPassword />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route element={<AppShell />}>
           <Route path="/workshops" element={<Workshops />} />
           <Route path="/myworkshops" element={<MyWorkshopsSimpleGcal/>} /> {/* ✅ calendar */}
@@ -69,6 +73,8 @@ export default function AppRoutes() {
   // 🔓 Public (logged-out) routes
   return (
     <Routes>
+      <Route path="/resetpassword" element={<ResetPassword />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route element={<PublicLayout />}>
         <Route path="/workshops" element={<Workshops />} />
         <Route path="/login" element={<Login />} />

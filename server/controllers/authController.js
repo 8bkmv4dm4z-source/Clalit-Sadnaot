@@ -9,6 +9,7 @@
 
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const nodemailer = require("nodemailer");
@@ -67,6 +68,75 @@ let resend = null;
 let gmailTransport = null;
 let defaultResend = null;
 let defaultGmailTransport = null;
+
+const PASSWORD_RESET_TOKEN_MINUTES = Math.max(
+  Number(process.env.PASSWORD_RESET_TOKEN_MINUTES || 30),
+  5
+);
+const PASSWORD_RESET_TOKEN_TTL_MS = PASSWORD_RESET_TOKEN_MINUTES * 60 * 1000;
+const DEFAULT_CLIENT_RESET_FALLBACK =
+  process.env.CLIENT_RESET_FALLBACK || "http://localhost:5173";
+
+function hashResetToken(rawToken) {
+  return crypto.createHash("sha256").update(String(rawToken)).digest("hex");
+}
+
+function resolveClientBaseUrl(req) {
+  const envUrl =
+    process.env.PASSWORD_RESET_BASE_URL ||
+    process.env.CLIENT_APP_URL ||
+    process.env.PUBLIC_CLIENT_URL ||
+    process.env.PUBLIC_URL ||
+    process.env.FRONTEND_URL;
+
+  if (envUrl) return envUrl.replace(/\/$/, "");
+
+  const origin = req?.headers?.origin;
+  if (origin) return origin.replace(/\/$/, "");
+
+  const host = req?.get?.("host");
+  if (host) {
+    const proto =
+      req?.headers?.["x-forwarded-proto"]?.split(",")[0]?.trim() ||
+      req?.protocol ||
+      "http";
+    return `${proto}://${host}`.replace(/\/$/, "");
+  }
+
+  return DEFAULT_CLIENT_RESET_FALLBACK;
+}
+
+function buildPasswordResetPayload({ baseUrl, email, otp, token, minutes }) {
+  const resetUrl = new URL("/resetpassword", baseUrl);
+  resetUrl.searchParams.set("token", token);
+  resetUrl.searchParams.set("email", email);
+
+  const prettyMinutes = minutes >= 60
+    ? `${Math.round(minutes / 60)} שעות`
+    : `${minutes} דקות`;
+
+  const text =
+    `קישור לאיפוס סיסמה: ${resetUrl.toString()}\n\n` +
+    `קוד חד-פעמי: ${otp}\n\n` +
+    `הקישור והקוד יהיו זמינים למשך ${prettyMinutes}. אם לא ביקשת איפוס, ניתן להתעלם מהודעה זו.`;
+
+  const html = `<p>לקוח יקר/ה,</p>
+    <p>בקשת לאיפוס סיסמה התקבלה עבור המשתמש <strong>${email}</strong>.</p>
+    <p><a href="${resetUrl.toString()}" style="color:#2563eb;font-weight:bold;">לחצו כאן כדי לאפס את הסיסמה</a></p>
+    <p>ניתן גם להקליד את הקוד החד-פעמי: <strong>${otp}</strong></p>
+    <p>הקישור והקוד יהיו זמינים למשך ${prettyMinutes}. אם לא ביקשתם איפוס, ניתן להתעלם מהודעה זו.</p>`;
+
+  return { text, html, resetUrl: resetUrl.toString() };
+}
+
+function createPasswordResetArtifacts() {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const hashedToken = hashResetToken(rawToken);
+  const expiresAt = Date.now() + PASSWORD_RESET_TOKEN_TTL_MS;
+
+  return { otp, rawToken, hashedToken, expiresAt };
+}
 
 /* ============================================================
    📡 Initialize Resend (Primary, HTTPS)
@@ -436,62 +506,141 @@ exports.verifyOtp = async (req, res) => {
 /* ============================================================
    🔁 Recover & Reset Password (with logs)
    ============================================================ */
-exports.recoverPassword = async (req, res) => {
-  console.log("==> recoverPassword called:", req.body);
+async function handlePasswordResetRequest(req, res) {
+  const emailRaw = req.body?.email;
+  console.log("==> requestPasswordReset called:", { email: emailRaw });
   try {
-    const email = (req.body.email || "").trim().toLowerCase();
-    if (!email) return res.status(400).json({ message: "Email is required" });
+    const email = (emailRaw || "").trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
 
-    const user = await User.findOne({ email });
-    console.log("🔍 User found:", !!user);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const user = await User.findOne({ email }).select(
+      "+passwordResetTokenHash +passwordResetTokenExpires"
+    );
+    console.log("🔍 User found for reset:", !!user);
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log("⚙️ Recovery OTP generated:", otp);
+    const genericResponse = {
+      success: true,
+      message: "אם החשבון קיים, נשלח קישור לאיפוס סיסמה. בדקו את תיבת המייל.",
+    };
+
+    if (!user) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return res.json(genericResponse);
+    }
+
+    const { otp, rawToken, hashedToken, expiresAt } =
+      createPasswordResetArtifacts();
+
     user.otpCode = otp;
-    user.otpExpires = Date.now() + 10 * 60 * 1000;
+    user.otpExpires = expiresAt;
     user.otpAttempts = 0;
+    user.passwordResetTokenHash = hashedToken;
+    user.passwordResetTokenExpires = expiresAt;
+    user.passwordResetTokenIssuedAt = new Date();
     await user.save();
+
+    const baseUrl = resolveClientBaseUrl(req);
+    const payload = buildPasswordResetPayload({
+      baseUrl,
+      email,
+      otp,
+      token: rawToken,
+      minutes: PASSWORD_RESET_TOKEN_MINUTES,
+    });
 
     const sent = await sendEmail({
       to: email,
-      subject: "Password Recovery",
-      text: `Your recovery code is ${otp}. It expires in 10 minutes.`,
-      html: `<p>Your recovery code is <b>${otp}</b>. It expires in 10 minutes.</p>`,
+      subject: "Password reset instructions",
+      text: payload.text,
+      html: payload.html,
     });
-    console.log("📨 Recovery email result:", sent);
 
-    return res.json({ success: true, message: "Recovery OTP sent" });
+    if (!sent) {
+      console.warn("⚠️ Password reset email dispatch failed:", email);
+      return res
+        .status(500)
+        .json({ message: "Failed to send password reset email" });
+    }
+
+    console.log("📨 Password reset email dispatched for:", email);
+    return res.json(genericResponse);
   } catch (e) {
-    console.error("❌ recoverPassword error:", e);
-    res.status(500).json({ message: "Server error sending recovery OTP" });
+    console.error("❌ requestPasswordReset error:", e);
+    return res
+      .status(500)
+      .json({ message: "Server error sending reset instructions" });
   }
-};
+}
+
+exports.recoverPassword = handlePasswordResetRequest;
+exports.requestPasswordReset = handlePasswordResetRequest;
 
 exports.resetPassword = async (req, res) => {
-  console.log("==> resetPassword called:", req.body);
+  const safeBody = {
+    email: req.body?.email,
+    hasOtp: Boolean(req.body?.otp),
+    hasToken: Boolean(req.body?.token),
+  };
+  console.log("==> resetPassword called:", safeBody);
   try {
-    const { email, otp, newPassword } = req.body;
-    if (!email || !otp || !newPassword)
+    const { email, otp, newPassword, token } = req.body;
+    if (!email || !newPassword) {
       return res
         .status(400)
-        .json({ message: "email, otp, newPassword required" });
+        .json({ message: "email and newPassword required" });
+    }
 
     const user = await User.findOne({
       email: email.trim().toLowerCase(),
-    }).select("+passwordHash +otpCode +otpExpires +otpAttempts");
+    }).select(
+      "+passwordHash +otpCode +otpExpires +otpAttempts +passwordResetTokenHash +passwordResetTokenExpires"
+    );
 
     console.log("🔍 User found:", !!user);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    if (!user.otpCode || !user.otpExpires || Date.now() > user.otpExpires) {
-      console.warn("⚠️ OTP expired for reset:", email);
-      return res.status(400).json({ message: "OTP expired" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    if (String(otp).trim() !== String(user.otpCode).trim()) {
-      console.warn("❌ Invalid reset OTP for:", email);
-      return res.status(400).json({ message: "Invalid OTP" });
+    const now = Date.now();
+    let verified = false;
+
+    if (token) {
+      const normalizedToken = String(token).trim().toLowerCase();
+      const hashed = hashResetToken(normalizedToken);
+      if (
+        !user.passwordResetTokenHash ||
+        !user.passwordResetTokenExpires ||
+        now > user.passwordResetTokenExpires
+      ) {
+        console.warn("⚠️ Reset token expired for:", email);
+        return res.status(400).json({ message: "Reset token expired" });
+      }
+      if (hashed !== user.passwordResetTokenHash) {
+        console.warn("❌ Invalid reset token for:", email);
+        return res.status(400).json({ message: "Invalid reset token" });
+      }
+      verified = true;
+    }
+
+    if (!verified) {
+      if (!otp) {
+        return res.status(400).json({ message: "OTP or token required" });
+      }
+      if (!user.otpCode || !user.otpExpires || now > user.otpExpires) {
+        console.warn("⚠️ OTP expired for reset:", email);
+        return res.status(400).json({ message: "OTP expired" });
+      }
+      if (String(otp).trim() !== String(user.otpCode).trim()) {
+        console.warn("❌ Invalid reset OTP for:", email);
+        return res.status(400).json({ message: "Invalid OTP" });
+      }
+      verified = true;
+    }
+
+    if (!verified) {
+      return res.status(400).json({ message: "OTP or token required" });
     }
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
@@ -500,13 +649,18 @@ exports.resetPassword = async (req, res) => {
     user.otpCode = null;
     user.otpExpires = null;
     user.otpAttempts = 0;
+    user.passwordResetTokenHash = null;
+    user.passwordResetTokenExpires = 0;
+    user.passwordResetTokenIssuedAt = null;
     await user.save();
     console.log("✅ Password reset successful for:", email);
 
     return res.json({ success: true, message: "Password reset successfully" });
   } catch (e) {
     console.error("❌ resetPassword error:", e);
-    res.status(500).json({ message: "Server error resetting password" });
+    return res
+      .status(500)
+      .json({ message: "Server error resetting password" });
   }
 };
 
