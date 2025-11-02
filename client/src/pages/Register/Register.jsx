@@ -178,19 +178,35 @@ export default function Register() {
 
     if (!validateForm()) return;
 
-    // ✅ Build payload identical to UserSchema
+    const trimmedName = account.name.trim();
+    const trimmedEmail = account.email.trim().toLowerCase();
+    const trimmedPhone = account.phone.trim();
+    const trimmedId = account.idNumber.trim();
+    const trimmedCity = account.city.trim();
+
     const payload = {
-      name: account.name,
-      email: account.email.trim().toLowerCase(),
-      phone: account.phone.trim(),
+      name: trimmedName,
+      email: trimmedEmail,
       password: account.password,
-      idNumber: account.idNumber,
-      birthDate: account.birthDate,
-      city: account.city,
       canCharge: account.canCharge,
       role: "user",
-      familyMembers: familyMembers.filter((m) => m.name && m.idNumber),
+      familyMembers: familyMembers
+        .map((member) => ({
+          name: String(member.name || "").trim(),
+          relation: String(member.relation || "").trim(),
+          idNumber: String(member.idNumber || "").trim(),
+          phone: String(member.phone || "").trim() || trimmedPhone,
+          email: String(member.email || "").trim() || trimmedEmail,
+          city: String(member.city || "").trim() || trimmedCity,
+          birthDate: member.birthDate || "",
+        }))
+        .filter((member) => member.name && member.idNumber),
     };
+
+    if (trimmedPhone) payload.phone = trimmedPhone;
+    if (trimmedId) payload.idNumber = trimmedId;
+    if (account.birthDate) payload.birthDate = account.birthDate;
+    if (trimmedCity) payload.city = trimmedCity;
 
     setLoading(true);
     const result = await registerUser(payload);

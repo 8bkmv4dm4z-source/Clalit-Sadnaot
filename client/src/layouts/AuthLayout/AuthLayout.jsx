@@ -7,7 +7,6 @@
  * ✅ Works automatically with VITE_API_URL (.env)
  */
 
-import { View } from "lucide-react";
 import React, {
   createContext,
   useContext,
@@ -18,6 +17,11 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../../utils/apiFetch"; // ✅ Unified backend handler
+import { useEventBus } from "../EventContext";
+import {
+  translateAuthError,
+  translateNetworkError,
+} from "../../utils/errorTranslator";
 
 /* ------------------------------ Logger ------------------------------ */
 const log = (...args) => {
@@ -61,6 +65,7 @@ const AuthContext = createContext({
   setFilters: () => {},
   setSearchQuery: () => {},
   logout: () => {},
+  loginWithPassword: async () => {},
   completeLogin: async () => {},
   registerUser: async () => {},
   sendOtp: async () => {},
@@ -72,6 +77,7 @@ const AuthContext = createContext({
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
+  const { publish: publishEvent } = useEventBus();
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -84,6 +90,36 @@ export const AuthProvider = ({ children }) => {
   );
 
   const didVerifyRef = useRef(false);
+
+  /* ============================================================
+     🚪 Logout
+     ============================================================ */
+  const logout = useCallback(
+    async (silent = false) => {
+      try {
+        await apiFetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        /* ignore */
+      }
+
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+
+      log("🚪 Logged out (local + server)");
+
+      fireAuthReady(false, { phase: "logout" });
+      fireLoggedOut();
+
+      if (!silent) navigate("/workshops");
+    },
+    [navigate]
+  );
 
   /* ============================================================
      🔁 Refresh Access Token
@@ -110,7 +146,7 @@ export const AuthProvider = ({ children }) => {
       await logout(true);
       return null;
     }
-  }, []);
+  }, [logout]);
 
   /* ============================================================
      🔐 authFetch helper — auto refresh on 401 once
@@ -159,44 +195,49 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
      👤 fetchMe — load current user
      ============================================================ */
-  const fetchMe = async (tokenOverride = null) => {
-    const token =
-      tokenOverride || accessToken || localStorage.getItem("accessToken");
-    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
+  const fetchMe = useCallback(
+    async (tokenOverride = null) => {
+      const token =
+        tokenOverride || accessToken || localStorage.getItem("accessToken");
+      log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-    if (!token) {
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-      return;
-    }
-
-    try {
-      const res = await apiFetch("/api/users/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      const data = await safeJson(res);
-
-      if (!res.ok || !data) {
-        throw new Error(data?.message || "Failed to load profile");
+      if (!token) {
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        return null;
       }
 
-      setUser(data);
-      setIsLoggedIn(true);
-      setIsAdmin(data.role === "admin");
-      log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
-    } catch (err) {
-      log("❌ fetchMe error:", err.message);
-      localStorage.removeItem("accessToken");
-      setAccessToken(null);
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
-    }
-  };
+      try {
+        const res = await apiFetch("/api/users/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await safeJson(res);
+
+        if (!res.ok || !data) {
+          throw new Error(data?.message || "Failed to load profile");
+        }
+
+        setUser(data);
+        setIsLoggedIn(true);
+        setIsAdmin(data.role === "admin");
+        log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
+        return data;
+      } catch (err) {
+        log("❌ fetchMe error:", err.message);
+        localStorage.removeItem("accessToken");
+        setAccessToken(null);
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        return null;
+      }
+    },
+    [accessToken]
+  );
 
   /* ============================================================
      🚀 On Mount
@@ -225,13 +266,43 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify(payload),
       });
       const data = await safeJson(res);
+
       if (!res.ok) {
-        throw new Error(data?.message || "Registration failed");
+        const { message: friendly, details } = translateAuthError(
+          "register",
+          res.status,
+          data
+        );
+        publishEvent({
+          type: "error",
+          title: "הרשמה נכשלה",
+          message: friendly,
+          meta: details?.length ? { details } : undefined,
+        });
+        return {
+          success: false,
+          status: res.status,
+          message: friendly,
+          details: details || [],
+        };
       }
+
+      publishEvent({
+        type: "success",
+        title: "הרשמה הושלמה",
+        message: "החשבון נוצר בהצלחה! ניתן להתחבר כעת.",
+        ttl: 4000,
+      });
       return { success: true, data };
     } catch (err) {
+      const { message: friendly } = translateNetworkError(err);
       log("❌ registerUser error:", err.message);
-      return { success: false, message: err.message };
+      publishEvent({
+        type: "error",
+        title: "הרשמה נכשלה",
+        message: friendly,
+      });
+      return { success: false, message: friendly };
     }
   };
 
@@ -280,45 +351,89 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
      ✅ Complete Login
      ============================================================ */
-  const completeLogin = async (newToken) => {
-    if (!newToken) return;
+  const completeLogin = useCallback(
+    async (newToken) => {
+      if (!newToken) return;
 
-    localStorage.setItem("accessToken", newToken);
-    setAccessToken(newToken);
-    log("💾 Access token stored, loading user directly...");
+      localStorage.setItem("accessToken", newToken);
+      setAccessToken(newToken);
+      log("💾 Access token stored, loading user directly...");
 
-    await fetchMe(newToken);
-    fireAuthReady(true, { phase: "login-complete" });
-    fireLoggedIn({ userId: String(user?.id || user?._id || "") });
-    navigate("/workshops");
-  };
+      const data = await fetchMe(newToken);
+      fireAuthReady(true, { phase: "login-complete" });
+      fireLoggedIn({ userId: String(data?._id || data?.id || "") });
+      navigate("/workshops");
+    },
+    [fetchMe, navigate]
+  );
 
   /* ============================================================
-     🚪 Logout
+     🔑 Login (Password)
      ============================================================ */
-  const logout = async (silent = false) => {
-    try {
-      await apiFetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      /* ignore */
-    }
+  const loginWithPassword = useCallback(
+    async ({ email, password }) => {
+      log("🔑 loginWithPassword called:", email);
+      try {
+        const res = await apiFetch("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
 
-    localStorage.removeItem("accessToken");
-    setAccessToken(null);
-    setUser(null);
-    setIsLoggedIn(false);
-    setIsAdmin(false);
+        const data = await safeJson(res);
 
-    log("🚪 Logged out (local + server)");
+        if (!res.ok) {
+          const { message: friendly, details } = translateAuthError(
+            "login",
+            res.status,
+            data
+          );
+          publishEvent({
+            type: "error",
+            title: "התחברות נכשלה",
+            message: friendly,
+            meta: details?.length ? { details } : undefined,
+          });
+          return {
+            success: false,
+            status: res.status,
+            message: friendly,
+            details: details || [],
+          };
+        }
 
-    fireAuthReady(false, { phase: "logout" });
-    fireLoggedOut();
+        const token = data?.accessToken || data?.token;
+        if (!token) {
+          const friendly =
+            "תגובת ההתחברות חסרה אסימון גישה. פנו לתמיכה במערכת.";
+          publishEvent({
+            type: "error",
+            title: "התחברות נכשלה",
+            message: friendly,
+          });
+          return { success: false, status: res.status, message: friendly };
+        }
 
-    if (!silent) navigate("/workshops");
-  };
+        await completeLogin(token);
+        publishEvent({
+          type: "success",
+          title: "התחברות בוצעה",
+          message: "ברוך הבא! מפנים אותך ללוח הסדנאות.",
+          ttl: 3500,
+        });
+        return { success: true, data };
+      } catch (err) {
+        const { message: friendly } = translateNetworkError(err);
+        log("❌ loginWithPassword error:", err.message);
+        publishEvent({
+          type: "error",
+          title: "התחברות נכשלה",
+          message: friendly,
+        });
+        return { success: false, message: friendly };
+      }
+    },
+    [completeLogin, publishEvent]
+  );
 
   /* ============================================================
      ♻️ Refresh Me
@@ -397,6 +512,7 @@ export const AuthProvider = ({ children }) => {
         setFilters,
         setSearchQuery,
         logout,
+        loginWithPassword,
         completeLogin,
         registerUser,
         sendOtp,

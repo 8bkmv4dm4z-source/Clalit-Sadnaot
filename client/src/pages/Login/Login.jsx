@@ -9,7 +9,7 @@ import {
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isLoggedIn, completeLogin } = useAuth();
+  const { isLoggedIn, loginWithPassword } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,14 +67,13 @@ export default function Login() {
 
     setStatus("submitting");
     setErrorMsg("");
+    setInlineDetails([]);
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const result = await loginWithPassword({
+        email: trimmedEmail,
+        password,
       });
-      const data = await res.json();
 
       if (!res.ok || !data?.token)
         throw new Error(data?.message || "פרטי ההתחברות שגויים");
@@ -89,6 +88,9 @@ export default function Login() {
   };
 
   const gotoOtp = () => navigate("/verify", { state: { email } });
+
+  const disableSubmit =
+    status === "submitting" || !email.trim() || !password.trim();
 
   return (
     <div
@@ -166,6 +168,13 @@ export default function Login() {
           {errorMsg && (
             <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-2 px-3 border border-rose-100 animate-fade-in">
               ❌ {errorMsg}
+              {inlineDetails.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs list-disc pr-4">
+                  {inlineDetails.map((detail, idx) => (
+                    <li key={`login-detail-${idx}`}>{detail}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 

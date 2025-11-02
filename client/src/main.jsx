@@ -19,17 +19,20 @@ import App from "./App";
 import { AuthProvider } from "./layouts/AuthLayout";
 import { WorkshopProvider } from "./layouts/WorkshopContext";
 import { ProfileProvider } from "./layouts/ProfileContext";
+import { EventProvider } from "./layouts/EventContext";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        <ProfileProvider>
-          <WorkshopProvider>
-            <App />
-          </WorkshopProvider>
-        </ProfileProvider>
-      </AuthProvider>
+      <EventProvider>
+        <AuthProvider>
+          <ProfileProvider>
+            <WorkshopProvider>
+              <App />
+            </WorkshopProvider>
+          </ProfileProvider>
+        </AuthProvider>
+      </EventProvider>
     </BrowserRouter>
   </React.StrictMode>
 );
