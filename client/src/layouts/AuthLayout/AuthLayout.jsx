@@ -70,6 +70,8 @@ const AuthContext = createContext({
   registerUser: async () => {},
   sendOtp: async () => {},
   verifyOtp: async () => {},
+  requestPasswordReset: async () => {},
+  completePasswordReset: async () => {},
   updateEntity: async () => {},
   saveEntity: async () => {},
   refreshMe: async () => {},
@@ -349,6 +351,55 @@ export const AuthProvider = ({ children }) => {
   };
 
   /* ============================================================
+     🔄 Password reset (request + completion)
+     ============================================================ */
+  const requestPasswordReset = async (email) => {
+    log("📨 requestPasswordReset:", email);
+    try {
+      const res = await apiFetch("/api/auth/password/request", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to send reset instructions");
+      }
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  const completePasswordReset = async ({ email, newPassword, token, otp }) => {
+    log("🔁 completePasswordReset invoked", {
+      email,
+      hasToken: Boolean(token),
+      hasOtp: Boolean(otp),
+    });
+
+    try {
+      const payload = {
+        email,
+        newPassword,
+        ...(token ? { token } : {}),
+        ...(otp ? { otp } : {}),
+      };
+
+      const res = await apiFetch("/api/auth/reset", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        throw new Error(data?.message || "Password reset failed");
+      }
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  /* ============================================================
      ✅ Complete Login
      ============================================================ */
   const completeLogin = useCallback(
@@ -517,6 +568,8 @@ export const AuthProvider = ({ children }) => {
         registerUser,
         sendOtp,
         verifyOtp,
+        requestPasswordReset,
+        completePasswordReset,
         updateEntity,
         saveEntity,
         refreshMe,

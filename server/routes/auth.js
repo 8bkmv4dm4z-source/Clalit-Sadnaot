@@ -12,6 +12,7 @@ const {
   getUserProfile,
   updatePassword,
   recoverPassword,
+  requestPasswordReset,
   resetPassword,
 } = require("../controllers/authController");
 
@@ -21,6 +22,7 @@ const {
   validateRegister,
   validateLogin,
   validateOTP,
+  validatePasswordResetRequest,
   validatePasswordReset,
 } = require("../middleware/validation");
 
@@ -114,8 +116,23 @@ router.post("/send-otp", otpLimiter,otpEmailLimiter,validateSendOtp, sendOtp);
 // ✅ Verify OTP
 router.post("/verify", otpLimiter, validateOTP, verifyOtp);
 
-// 🛠️ Recover password (send OTP to email)
-router.post("/recover", otpLimiter, validateOTP, recoverPassword);
+// 🛠️ Recover password (send reset link + OTP to email)
+router.post(
+  "/recover",
+  otpLimiter,
+  otpEmailLimiter,
+  validatePasswordResetRequest,
+  recoverPassword
+);
+
+// 📨 Dedicated reset-link request endpoint (alias of /recover)
+router.post(
+  "/password/request",
+  otpLimiter,
+  otpEmailLimiter,
+  validatePasswordResetRequest,
+  requestPasswordReset
+);
 
 // 🔄 Reset password with OTP
 router.post("/reset", otpLimiter, validatePasswordReset, resetPassword);

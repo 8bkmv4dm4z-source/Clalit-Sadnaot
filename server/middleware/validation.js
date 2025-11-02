@@ -50,6 +50,12 @@ const validateSendOtp = celebrate({
   }).unknown(true),
 });
 
+const validatePasswordResetRequest = celebrate({
+  [Segments.BODY]: Joi.object({
+    email: Joi.string().email().lowercase().trim().required(),
+  }).unknown(false),
+});
+
 /* ============================================================
    🧠 PASSWORD RESET / OTP
    ============================================================ */
@@ -74,8 +80,19 @@ const validatePasswordReset = celebrate({
       .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include a letter, number, and special character.")
       .required(),
-    otp: Joi.alternatives().try(Joi.string(), Joi.number()).optional(),
-  }).unknown(true),
+    otp: Joi.alternatives()
+      .try(
+        Joi.string().length(6).pattern(/^\d+$/),
+        Joi.number().integer().min(100000).max(999999)
+      )
+      .optional(),
+    token: Joi.string().length(64).hex().optional(),
+  })
+    .or("otp", "token")
+    .messages({
+      "object.missing": "OTP or reset token is required.",
+    })
+    .unknown(false),
 });
 
 /* ============================================================
@@ -400,5 +417,6 @@ module.exports = {
   validateWorkshopUnregister,
   validateProfile,
   validateSendOtp,
+  validatePasswordResetRequest,
   validateAddressRemote
 };

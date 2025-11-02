@@ -50,6 +50,11 @@ const UserSchema = new mongoose.Schema(
     otpExpires: { type: Number, default: 0 },
     otpAttempts: { type: Number, default: 0, select: false },
 
+    // 🔁 Password reset tokens (hashed)
+    passwordResetTokenHash: { type: String, select: false },
+    passwordResetTokenExpires: { type: Number, default: 0 },
+    passwordResetTokenIssuedAt: { type: Date },
+
     // 🔐 Password Flags
     hasPassword: { type: Boolean, default: false },
     temporaryPassword: { type: Boolean, default: false },

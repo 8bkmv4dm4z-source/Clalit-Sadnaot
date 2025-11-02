@@ -91,6 +91,7 @@ export default function Login() {
   };
 
   const gotoOtp = () => navigate("/verify", { state: { email } });
+  const gotoForgotPassword = () => navigate("/forgot-password", { state: { email } });
 
   return (
     <div
@@ -163,6 +164,15 @@ export default function Login() {
             {fieldErrors.password && touched.password && (
               <p className="mt-2 text-xs text-rose-600">{fieldErrors.password}</p>
             )}
+            <div className="mt-2 text-left">
+              <button
+                type="button"
+                onClick={gotoForgotPassword}
+                className="text-sm text-indigo-600 hover:text-indigo-800 font-semibold hover:underline"
+              >
+                שכחת סיסמה?
+              </button>
+            </div>
           </div>
 
           {errorMsg && (
