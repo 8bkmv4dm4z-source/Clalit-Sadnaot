@@ -1,6 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
+import {
+  validateEmail,
+  validatePasswordComplexity,
+  validateRequired,
+} from "../../utils/validation";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -11,7 +16,43 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState("idle");
   const [errorMsg, setErrorMsg] = useState("");
-  const [inlineDetails, setInlineDetails] = useState([]);
+  const [fieldErrors, setFieldErrors] = useState({ email: "", password: "" });
+  const [touched, setTouched] = useState({ email: false, password: false });
+
+  const runValidation = (field, value) => {
+    switch (field) {
+      case "email": {
+        const required = validateRequired(value, "כתובת אימייל");
+        if (!required.valid) return required;
+        return validateEmail(value);
+      }
+      case "password": {
+        const required = validateRequired(value, "סיסמה");
+        if (!required.valid) return required;
+        return validatePasswordComplexity(value);
+      }
+      default:
+        return { valid: true, message: "" };
+    }
+  };
+
+  const canSubmit = useMemo(() => {
+    if (!email || !password) return false;
+    return Object.values(fieldErrors).every((msg) => !msg) && status !== "submitting";
+  }, [email, password, fieldErrors, status]);
+
+  const handleValidation = (field, value) => {
+    const result = runValidation(field, value);
+    setFieldErrors((prev) => ({ ...prev, [field]: result.message }));
+    if (errorMsg) setErrorMsg("");
+    return result.valid;
+  };
+
+  const markTouched = (field) =>
+    setTouched((prev) => ({
+      ...prev,
+      [field]: true,
+    }));
 
   useEffect(() => {
     if (isLoggedIn) navigate("/workshops", { replace: true });
@@ -19,12 +60,10 @@ export default function Login() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
-      setErrorMsg("נא להזין כתובת אימייל וסיסמה.");
-      setInlineDetails([]);
-      return;
-    }
+    const emailValid = handleValidation("email", email);
+    const passwordValid = handleValidation("password", password);
+    setTouched({ email: true, password: true });
+    if (!emailValid || !passwordValid) return;
 
     setStatus("submitting");
     setErrorMsg("");
@@ -36,12 +75,13 @@ export default function Login() {
         password,
       });
 
-      if (!result.success) {
-        setErrorMsg(result.message || "ההתחברות נכשלה.");
-        if (Array.isArray(result.details) && result.details.length) {
-          setInlineDetails(result.details);
-        }
-      }
+      if (!res.ok || !data?.token)
+        throw new Error(data?.message || "פרטי ההתחברות שגויים");
+
+      await completeLogin(data.token);
+      navigate("/workshops", { replace: true });
+    } catch (err) {
+      setErrorMsg(err.message || "שגיאה בהתחברות");
     } finally {
       setStatus("idle");
     }
@@ -79,10 +119,18 @@ export default function Login() {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
+                handleValidation("email", e.target.value);
               }}
-              className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+              onBlur={() => markTouched("email")}
+              required
+              className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+                fieldErrors.email && touched.email ? "border-rose-400" : ""
+              }`}
               placeholder="example@gmail.com"
             />
+            {fieldErrors.email && touched.email && (
+              <p className="mt-2 text-xs text-rose-600">{fieldErrors.email}</p>
+            )}
           </div>
 
           <div className="pb-4 border-b border-indigo-50">
@@ -95,8 +143,13 @@ export default function Login() {
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
+                  handleValidation("password", e.target.value);
                 }}
-                className="w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10"
+                onBlur={() => markTouched("password")}
+                required
+                className={`w-full px-3 py-2 border rounded-xl bg-gray-50 focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+                  fieldErrors.password && touched.password ? "border-rose-400" : ""
+                }`}
                 placeholder="••••••••"
               />
               <button
@@ -107,6 +160,9 @@ export default function Login() {
                 {showPw ? "🙈" : "👁️"}
               </button>
             </div>
+            {fieldErrors.password && touched.password && (
+              <p className="mt-2 text-xs text-rose-600">{fieldErrors.password}</p>
+            )}
           </div>
 
           {errorMsg && (
@@ -124,9 +180,9 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={disableSubmit}
+            disabled={!canSubmit}
             className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
-              disableSubmit
+              !canSubmit
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
             }`}
