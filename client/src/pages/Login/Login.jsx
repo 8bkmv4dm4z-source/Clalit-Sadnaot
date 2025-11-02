@@ -16,6 +16,7 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [status, setStatus] = useState("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [inlineDetails, setInlineDetails] = useState([]);
   const [fieldErrors, setFieldErrors] = useState({ email: "", password: "" });
   const [touched, setTouched] = useState({ email: false, password: false });
 
@@ -37,7 +38,8 @@ export default function Login() {
   };
 
   const canSubmit = useMemo(() => {
-    if (!email || !password) return false;
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || password.length === 0) return false;
     return Object.values(fieldErrors).every((msg) => !msg) && status !== "submitting";
   }, [email, password, fieldErrors, status]);
 
@@ -71,15 +73,16 @@ export default function Login() {
 
     try {
       const result = await loginWithPassword({
-        email: trimmedEmail,
+        email: email.trim(),
         password,
       });
 
-      if (!res.ok || !data?.token)
-        throw new Error(data?.message || "פרטי ההתחברות שגויים");
-
-      await completeLogin(data.token);
-      navigate("/workshops", { replace: true });
+      if (!result?.success) {
+        setErrorMsg(result?.message || "פרטי ההתחברות שגויים");
+        if (Array.isArray(result?.details) && result.details.length) {
+          setInlineDetails(result.details);
+        }
+      }
     } catch (err) {
       setErrorMsg(err.message || "שגיאה בהתחברות");
     } finally {
@@ -88,9 +91,6 @@ export default function Login() {
   };
 
   const gotoOtp = () => navigate("/verify", { state: { email } });
-
-  const disableSubmit =
-    status === "submitting" || !email.trim() || !password.trim();
 
   return (
     <div
