@@ -65,7 +65,7 @@ export default function ForgotPassword() {
             שכחת סיסמה?
           </h1>
           <p className="text-gray-600 text-sm">
-            הזינו את כתובת האימייל ונשלח קישור מאובטח לאיפוס הסיסמה.
+            הזינו את כתובת האימייל ונשלח קישור לאיפוס הסיסמה.
           </p>
         </header>
 
