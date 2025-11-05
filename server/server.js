@@ -109,20 +109,45 @@ api.use(mongoSanitize());
 api.use(compression());
 
 // CORS (API only)
-const ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS);
+
+// --- CORS Setup (with dynamic origin list) ---
+const ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
+
+// ✅ Add fallback in case ALLOWED_ORIGINS is empty
+// This ensures production still works if env var is missing
+const DEFAULT_ALLOWED = [
+  "https://sandaot.onrender.com",
+  "http://localhost:5173"
+];
+
 api.use(
   cors({
     origin(origin, cb) {
-      if (!origin) return cb(null, true); // tools/same-origin
-      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      // Allow requests without Origin (like server-to-server or curl)
+      if (!origin) return cb(null, true);
+
+      // Merge environment and default lists
+      const allAllowed = [...new Set([...ALLOWED_ORIGINS, ...DEFAULT_ALLOWED])];
+
+      if (allAllowed.includes(origin)) {
+        return cb(null, true);
+      }
+
+      console.warn(`❌ CORS blocked request from: ${origin}`);
       return cb(new Error("CORS: Origin not allowed"), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept"
+    ],
     exposedHeaders: ["Content-Disposition"],
   })
 );
+
 
 // Rate limits (API only)
 const globalLimiter = rateLimit({
