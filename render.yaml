@@ -1,0 +1,11 @@
+services:
+  - type: static_site
+    name: sandaot-client
+    env: static
+    buildCommand: npm run build
+    publishPath: client/dist
+    rootDir: client
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
