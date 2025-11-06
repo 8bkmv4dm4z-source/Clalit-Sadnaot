@@ -133,6 +133,14 @@ function measureTextPx(text, font) {
   return Math.ceil(ctx.measureText(text || "").width);
 }
 
+// SECURITY FIX: throttle calendar logs to dev mode with sanitized payloads
+const CAL_DEV = import.meta.env.MODE !== "production";
+const calLog = (message, detail = {}) => {
+  if (!CAL_DEV) return;
+  const time = new Date().toLocaleTimeString("he-IL");
+  console.debug(`%c[${time}] [CAL] ${message}`, "color:#1565c0;", detail);
+};
+
 // Normalize a workshop's days → [0..5] indices (Sun..Fri).
 function normalizeDays(w) {
   const raw = Array.isArray(w?.days) ? w.days : [];
@@ -235,16 +243,6 @@ function MiniCard({ title, hour, color, city, address, size, lines }) {
     </div>
   );
 }
-// helper: stringify id safely
-const sid = (x) => String(x ?? "");
-
-// helper: pretty JSON without לופים
-const toJSON = (obj) => {
-  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
-};
-
-// helper: sample array
-const sampleArr = (arr, n = 3) => Array.isArray(arr) ? arr.slice(0, n) : [];
 /* ============================== Main Component ============================== */
 
 export default function MyWorkshopsOriginStyle() {
@@ -252,65 +250,25 @@ export default function MyWorkshopsOriginStyle() {
   const { user, isLoggedIn } = useAuth();
   const {
     displayedWorkshops,
-    userWorkshopMap,     // { [workshopId]: true }
-    familyWorkshopMap,   // { [workshopId]: [familyMemberId, ...] }
+    userWorkshopMap, // { [workshopId]: true }
+    familyWorkshopMap, // { [workshopId]: [familyMemberId, ...] }
     loading,
     error,
   } = useWorkshops();
-    // 🔧 לוגים נקודתיים לכל פרופ
-  useEffect(() => {
-    console.log("[CAL] ---- MyWorkshops props (raw) ----");
-    console.log("[CAL] isLoggedIn:", isLoggedIn);
-    console.log("[CAL] loading   :", loading);
-    console.log("[CAL] error     :", error || "(none)");
-
-    console.log("[CAL] user.id   :", sid(user?._id));
-    console.log("[CAL] user.familyMembers.count:", Array.isArray(user?.familyMembers) ? user.familyMembers.length : 0);
-    console.log("[CAL] user.familyMembers.ids  :", Array.isArray(user?.familyMembers) ? user.familyMembers.map(m => sid(m._id)) : []);
-
-    const dw = Array.isArray(displayedWorkshops) ? displayedWorkshops : [];
-    console.log("[CAL] displayedWorkshops.len  :", dw.length);
-    console.log("[CAL] displayedWorkshops.ids  :", dw.map(w => sid(w?._id || w?.id)));
-    console.log("[CAL] displayedWorkshops.sample:", sampleArr(dw, 2));
-
-    const umapKeys = Object.keys(userWorkshopMap || {});
-    console.log("[CAL] userWorkshopMap.keys.len:", umapKeys.length);
-    console.log("[CAL] userWorkshopMap.keys    :", umapKeys);
-
-    const fmapEntries = Object.entries(familyWorkshopMap || {}).map(([wid, arr]) => [sid(wid), (arr || []).map(sid)]);
-    console.log("[CAL] familyWorkshopMap.entries.len:", fmapEntries.length);
-    console.log("[CAL] familyWorkshopMap.entries    :", fmapEntries);
-
-    // אובייקט מסוכם אחד
-    console.log("[CAL] props.summary →", {
-      isLoggedIn,
-      loading,
-      hasError: Boolean(error),
-      userId: sid(user?._id),
-      familyCount: Array.isArray(user?.familyMembers) ? user.familyMembers.length : 0,
-      displayedWorkshopsLen: dw.length,
-      userWorkshopMapKeysLen: umapKeys.length,
-      familyWorkshopMapKeysLen: fmapEntries.length,
-    });
-  }, [isLoggedIn, loading, error, user, displayedWorkshops, userWorkshopMap, familyWorkshopMap]);
 
 
   /* ===== Build workshopsByEntity from maps (single source of truth) ===== */
-
-  // classic helpers
-  function isUserWorkshop(w) {
-    return Boolean(userWorkshopMap?.[w._id]);
-  }
-  function isMemberWorkshop(w, memberId) {
-    const arr = familyWorkshopMap?.[w._id];
-    return Array.isArray(arr) && arr.some((id) => String(id) === String(memberId));
-  }
 
   const workshopsByEntity = useMemo(() => {
     if (!user) return {};
 
     const list = Array.isArray(displayedWorkshops) ? displayedWorkshops : [];
     const map = {};
+    const isUserWorkshop = (w) => Boolean(userWorkshopMap?.[w._id]);
+    const isMemberWorkshop = (w, memberId) => {
+      const arr = familyWorkshopMap?.[w._id];
+      return Array.isArray(arr) && arr.some((id) => String(id) === String(memberId));
+    };
 
     // main user bucket
     map[user._id] = {
@@ -331,27 +289,10 @@ export default function MyWorkshopsOriginStyle() {
       }
     });
 
-    // Log per-entity expectations
-    console.log("[CAL] workshopsByEntity summary →", {
-      entities: Object.keys(map).length,
-      entityIds: Object.keys(map),
-      userBucketCount: map[user._id]?.workshops?.length || 0,
-    });
-
-    // Expected vs actual debug for user + family
-    const allIds = list.map((w) => String(w._id));
-    const expectedUser = Object.keys(userWorkshopMap || {}).filter((id) => allIds.includes(id));
-    const actualUser = (map[user._id]?.workshops || []).map((w) => String(w._id));
-    console.log("[CAL] User expected ids (from map∩displayed):", expectedUser);
-    console.log("[CAL] User actual   ids (bucketed):          ", actualUser);
-
-    (user.familyMembers || []).forEach((m) => {
-      const expectedFam = Object.entries(familyWorkshopMap || {})
-        .filter(([wid, ids]) => (ids || []).some((id) => String(id) === String(m._id)))
-        .map(([wid]) => wid);
-      const actualFam = (map[m._id]?.workshops || []).map((w) => String(w._id));
-      console.log(`[CAL] Member ${m.name} (${m._id}) expected:`, expectedFam);
-      console.log(`[CAL] Member ${m.name} (${m._id}) actual:  `, actualFam);
+    calLog("workshopsByEntity buckets built", {
+      bucketCount: Object.keys(map).length,
+      userWorkshops: map[user._id]?.workshops?.length || 0,
+      familyBuckets: Math.max(0, Object.keys(map).length - 1),
     });
 
     return map;
@@ -425,7 +366,7 @@ export default function MyWorkshopsOriginStyle() {
         }
       });
     }
-    console.log("[CAL] events flattened count:", out.length, "sample:", out.slice(0, 8));
+    calLog("events flattened", { total: out.length });
     return out;
   }, [workshopsByEntity, legendColorMap]);
 
@@ -433,7 +374,7 @@ export default function MyWorkshopsOriginStyle() {
   const { gridStart, gridEnd } = useMemo(() => {
     if (!events.length) {
       const res = { gridStart: DEFAULT_START_HOUR, gridEnd: DEFAULT_END_HOUR };
-      console.log("[CAL] grid hours (no events):", res);
+      calLog("grid hours (empty)", res);
       return res;
     }
     let minH = Infinity, maxH = -Infinity;
@@ -445,7 +386,7 @@ export default function MyWorkshopsOriginStyle() {
       gridStart: Math.max(0, Math.min(DEFAULT_START_HOUR, minH)),
       gridEnd: Math.min(23, Math.max(DEFAULT_END_HOUR, maxH)),
     };
-    console.log("[CAL] grid hours (from events):", res);
+    calLog("grid hours (derived)", res);
     return res;
   }, [events]);
 
@@ -473,12 +414,11 @@ export default function MyWorkshopsOriginStyle() {
       arr.sort((a, b) => a.hourFloat - b.hourFloat || a.title.localeCompare(b.title));
     }
 
-    // log non-empty buckets summary
-    const nonEmpty = [];
-    for (const [k, v] of map.entries()) {
-      if (v.length) nonEmpty.push([k, v.map(e => `${e.title}@${e.hourLabel}`)]);
+    let bucketCount = 0;
+    for (const arr of map.values()) {
+      if (arr.length) bucketCount += 1;
     }
-    console.log("[CAL] cellMap non-empty buckets (count):", nonEmpty.length, nonEmpty);
+    calLog("cellMap buckets prepared", { buckets: bucketCount });
 
     return map;
   }, [events, weekAnchor, gridStart, gridEnd]);
@@ -509,7 +449,7 @@ export default function MyWorkshopsOriginStyle() {
     }
     const INTERNAL = 10 /* dot */ + 6 /* gap */ + size.cardPad * 2 + 16 /* safety */;
     const val = Math.max(size.dayw, longestPx + INTERNAL);
-    console.log("[CAL] contentMinDayWidth:", val);
+    calLog("contentMinDayWidth", { pixels: val });
     return val;
   }, [events, size.dayw, size.cardPad, size.fontCardTitle, titleLines]);
 

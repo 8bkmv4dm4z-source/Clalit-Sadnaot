@@ -346,6 +346,7 @@ export default function WorkshopCard({
                     <button
                       onClick={() => {
                         setAdminOpen(false);
+                        // FIXED: keep WorkshopParticipantsModal as the single source for waitlist management
                         onManageParticipants?.(_id);
                       }}
                       className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"

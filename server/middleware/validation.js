@@ -384,6 +384,13 @@ const validateWorkshopUnregister = celebrate({
   }).unknown(true),
 });
 
+// SECURITY FIX: validate waitlist mutations to prevent unsafe payloads
+const validateWaitlistEntity = celebrate({
+  [Segments.BODY]: Joi.object({
+    familyId: Joi.string().hex().length(24).optional(),
+  }).unknown(false),
+});
+
 
 /* ============================================================
    👤 PROFILE VALIDATION
@@ -415,6 +422,7 @@ module.exports = {
   validateWorkshopEdit,
   validateWorkshopRegistration,
   validateWorkshopUnregister,
+  validateWaitlistEntity,
   validateProfile,
   validateSendOtp,
   validatePasswordResetRequest,

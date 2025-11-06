@@ -13,7 +13,14 @@
  * - Never hold stale data: every mutation refetches from server.
  */
 
-import React, { createContext, useContext, useEffect, useState, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+} from "react";
 import { useProfiles } from "../ProfileContext";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
@@ -25,21 +32,28 @@ try {
     const q = new URLSearchParams(window.location.search);
     if (q.get("debug") === "ws") localStorage.setItem("DEBUG_WS", "1");
   }
-} catch (_) {}
+} catch {
+  /* intentionally ignore query parsing errors */
+}
 
 const dbgCtx = (...args) => {
   try {
     if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
       console.log("[WS-CTX]", ...args);
     }
-  } catch (_) {}
+  } catch {
+    /* intentionally ignore logging errors */
+  }
 };
 
 const WorkshopContext = createContext();
 
-const log = (msg, data) => {
+const WORKSHOP_DEV = import.meta.env.MODE !== "production";
+// SECURITY FIX: avoid logging full payloads unless in development
+const log = (msg) => {
+  if (!WORKSHOP_DEV) return;
   const now = new Date().toLocaleTimeString("he-IL");
-  console.log(`%c[${now}] [WORKSHOP] ${msg}`, "color:#43a047;font-weight:bold;", data ?? "");
+  console.info(`%c[${now}] [WORKSHOP] ${msg}` , "color:#43a047;font-weight:bold;");
 };
 
 /* ───────────────────────── ID Helpers ───────────────────────── */
@@ -79,8 +93,41 @@ export const WorkshopProvider = ({ children }) => {
       if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
         console.log("%c[WS-CTX] DEBUG ENABLED", "color:#2962ff;font-weight:bold");
       }
-    } catch (_) {}
+    } catch {
+      /* intentionally ignore debug banner failures */
+    }
   }, []);
+
+  // FIXED: derive stable signatures to satisfy linted dependency arrays
+  const userId = useMemo(() => sid(user?._id), [user?._id]);
+  const familyMembersList = useMemo(
+    () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
+    [user?.familyMembers]
+  );
+  const familyMembersSignature = useMemo(
+    () => JSON.stringify(familyMembersList.map((m) => sid(m._id)).sort()),
+    [familyMembersList]
+  );
+  const workshopsSignature = useMemo(() => {
+    if (!Array.isArray(workshops)) return "[]";
+    return JSON.stringify(
+      workshops.map((w) => ({
+        id: sid(w?._id || w?.id),
+        isUserRegistered: !!w?.isUserRegistered,
+        participantsLen: Array.isArray(w?.participants) ? w.participants.length : 0,
+        userFamilyLen: Array.isArray(w?.userFamilyRegistrations)
+          ? w.userFamilyRegistrations.length
+          : 0,
+        familyRegsPairs: Array.isArray(w?.familyRegistrations)
+          ? w.familyRegistrations
+              .filter((fr) => fr && fr.parentUser && fr.familyMemberId)
+              .map((fr) => `${sid(fr.parentUser)}:${sid(fr.familyMemberId)}`)
+              .sort()
+              .join("|")
+          : "",
+      }))
+    );
+  }, [workshops]);
 
   /* ============================================================
      📦 Fetch all workshops (server source-of-truth)
@@ -207,7 +254,7 @@ export const WorkshopProvider = ({ children }) => {
   }
 
   function fetchWorkshops(force = false) {
-    log("🔁 fetchWorkshops() called", { force });
+    log(`🔁 fetchWorkshops() called | force=${force}`);
     dbgCtx("fetchWorkshops:call", { force });
     return fetchAllWorkshops(force);
   }
@@ -285,18 +332,14 @@ export const WorkshopProvider = ({ children }) => {
 
   // Reset maps only when user context effectively clears (logout / switch user)
   useEffect(() => {
-    const hasUser = !!user?._id;
+    const hasUser = !!userId;
     if (!hasUser) {
       setUserWorkshopMap({});
       setFamilyWorkshopMap({});
       setDisplayedWorkshops([]);
       setMapsReady(false);
     }
-  }, [
-    // user identity & family list (NO workshops here to avoid unnecessary resets)
-    sid(user?._id),
-    JSON.stringify((user?.familyMembers || []).map((m) => sid(m._id))),
-  ]);
+  }, [userId, familyMembersSignature]);
 
   // === Derived maps: built from current normalized list + current user ===
   useEffect(() => {
@@ -305,15 +348,15 @@ export const WorkshopProvider = ({ children }) => {
     setUserWorkshopMap({});
     setFamilyWorkshopMap({});
 
-    const hasUser = !!user?._id;
+    const hasUser = !!userId;
     const list = Array.isArray(workshops) ? workshops : [];
     if (!hasUser || list.length === 0) {
       // Not enough info — keep not-ready so UI can wait
       return;
     }
 
-    const currentUserId = sid(user._id);
-    const familyIds = (user.familyMembers || []).map((m) => sid(m._id));
+    const currentUserId = userId;
+    const familyIds = familyMembersList.map((m) => sid(m._id));
 
     const uMap = Object.create(null);
     const fMap = Object.create(null);
@@ -370,28 +413,7 @@ export const WorkshopProvider = ({ children }) => {
     setMapsReady(true);
 
     // Dependencies: user/family identity + relevant workshop content summary
-  }, [
-    // current user and family membership
-    sid(user?._id),
-    JSON.stringify((user?.familyMembers || []).map((m) => sid(m._id))),
-    // react when relevant workshop content changes (not only ids)
-    JSON.stringify((workshops || []).map((w) => ({
-      id: sid(w?._id || w?.id),
-      // “self” flags
-      isUserRegistered: !!w?.isUserRegistered,
-      participantsLen: Array.isArray(w?.participants) ? w.participants.length : 0,
-      // “family” — both shapes used in your API
-      userFamilyLen: Array.isArray(w?.userFamilyRegistrations)
-        ? w.userFamilyRegistrations.length : 0,
-      familyRegsPairs: Array.isArray(w?.familyRegistrations)
-        ? w.familyRegistrations
-            .filter(fr => fr && fr.parentUser && fr.familyMemberId)
-            .map(fr => `${sid(fr.parentUser)}:${sid(fr.familyMemberId)}`)
-            .sort()
-            .join("|")
-        : "",
-    }))),
-  ]);
+  }, [userId, familyMembersSignature, workshopsSignature, workshops, familyMembersList]);
 
   // Filter displayedWorkshops when viewMode === "mine" (only after mapsReady)
   useEffect(() => {

@@ -33,7 +33,9 @@ export async function apiFetch(path, options = {}) {
 
   // Handle token refresh if needed
   if (res.status === 401) {
-    console.warn("[apiFetch] Access token expired, attempting refresh...");
+    if (import.meta.env.MODE !== "production") {
+      console.warn("[apiFetch] Access token expired, attempting refresh...");
+    }
     try {
       const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: "POST",
@@ -42,7 +44,9 @@ export async function apiFetch(path, options = {}) {
 
       const refreshData = await refreshRes.json();
       if (refreshRes.ok && refreshData.accessToken) {
-        console.info("[apiFetch] ✅ Access token refreshed successfully");
+        if (import.meta.env.MODE !== "production") {
+          console.info("[apiFetch] ✅ Access token refreshed successfully");
+        }
         localStorage.setItem(ACCESS_TOKEN_KEY, refreshData.accessToken);
         headers.Authorization = `Bearer ${refreshData.accessToken}`;
 
@@ -53,11 +57,15 @@ export async function apiFetch(path, options = {}) {
           credentials: "include",
         });
       } else {
-        console.warn("[apiFetch] ❌ Refresh failed, forcing logout");
+        if (import.meta.env.MODE !== "production") {
+          console.warn("[apiFetch] ❌ Refresh failed, forcing logout");
+        }
         localStorage.removeItem(ACCESS_TOKEN_KEY);
       }
     } catch (err) {
-      console.error("[apiFetch] Refresh error:", err);
+      if (import.meta.env.MODE !== "production") {
+        console.error("[apiFetch] Refresh error:", err);
+      }
       localStorage.removeItem(ACCESS_TOKEN_KEY);
     }
   }

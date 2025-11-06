@@ -24,7 +24,10 @@ import {
 } from "../../utils/errorTranslator";
 
 /* ------------------------------ Logger ------------------------------ */
+const AUTH_DEV = import.meta.env.MODE !== "production";
+// SECURITY FIX: silence auth logs in production to protect credentials
 const log = (...args) => {
+  if (!AUTH_DEV) return;
   const time = new Date().toLocaleTimeString("he-IL");
   console.log(`%c[${time}] [AUTH]`, "color:#1976d2;font-weight:bold;", ...args);
 };
