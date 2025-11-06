@@ -16,6 +16,14 @@ const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
 const User = require("../models/User");
 
+// SECURITY FIX: centralize sanitized logging for auth flows
+const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
+const safeAuthLog = (message) => {
+  if (DEV_AUTH_LOG) {
+    console.info(`[AUTH] ${message}`);
+  }
+};
+
 /* ============================================================
    🔐 JWT Helpers
    ============================================================ */
@@ -44,7 +52,7 @@ function parseJwtExpToMs(exp) {
 
 function setRefreshCookie(res, refreshToken) {
   const isProd = process.env.NODE_ENV === "production";
-  const sameSite = isProd ? "None" : "Lax";
+  const sameSite = "Lax";
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
@@ -52,9 +60,7 @@ function setRefreshCookie(res, refreshToken) {
     path: "/",
     maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
   });
-  console.log(
-    `🍪 refreshToken cookie set | secure=${isProd} sameSite=${sameSite}`
-  );
+  safeAuthLog(`refreshToken cookie set | secure=${isProd}`);
 }
 
 /* ============================================================
@@ -195,7 +201,7 @@ defaultGmailTransport = gmailTransport;
    ✉️ Send Email (Resend → Gmail → Dev log)
    ============================================================ */
 async function sendEmail({ to, subject, text, html }) {
-  console.log("==> sendEmail called:", { to, subject });
+  safeAuthLog("sendEmail invoked");
 
   try {
     // 1️⃣ Primary: Resend (works in production)
@@ -209,7 +215,7 @@ async function sendEmail({ to, subject, text, html }) {
           subject,
           html: html || `<p>${text}</p>`,
         });
-        console.log(`📬 Resend sent email to ${to}`);
+        safeAuthLog("sendEmail delivered via Resend");
         return true;
       } catch (err) {
         console.warn(`⚠️ Resend failed: ${err.message}`);
@@ -226,7 +232,7 @@ async function sendEmail({ to, subject, text, html }) {
         subject,
         html: html || `<p>${text}</p>`,
       });
-      console.log(`📧 Gmail fallback sent email to ${to}`);
+      safeAuthLog("sendEmail delivered via Gmail fallback");
       return true;
     }
 
@@ -234,7 +240,7 @@ async function sendEmail({ to, subject, text, html }) {
     if (isDev) {
       const line = `${new Date().toISOString()},${to},${text}\n`;
       fs.appendFileSync(logFile, line);
-      console.log(`⚙️ [DEV] Logged email for ${to}: ${text}`);
+      safeAuthLog("sendEmail logged locally");
       return true;
     }
 
@@ -263,7 +269,8 @@ function resetTransports() {
    👤 Register User
    ============================================================ */
 exports.registerUser = async (req, res) => {
-  console.log("==> registerUser called:", req.body);
+  // SECURITY FIX: removed raw payload logging during registration
+  safeAuthLog("registerUser invoked");
   try {
     const {
       name,
@@ -289,7 +296,7 @@ exports.registerUser = async (req, res) => {
       ].filter(Boolean),
     });
 
-    console.log("🔍 Existing user found?", !!existing);
+    safeAuthLog(`registerUser existing=${existing ? "yes" : "no"}`);
     if (existing)
       return res
         .status(400)
@@ -325,7 +332,7 @@ exports.registerUser = async (req, res) => {
       role,
     });
 
-    console.log("✅ User registered:", user.email);
+    safeAuthLog("registerUser succeeded");
     return res.status(201).json({
       success: true,
       message: "User registered successfully.",
@@ -352,19 +359,20 @@ exports.registerUser = async (req, res) => {
    🔑 Login User
    ============================================================ */
 exports.loginUser = async (req, res) => {
-  console.log("==> loginUser called:", req.body);
+  // SECURITY FIX: removed sensitive login payload logging
+  safeAuthLog("loginUser invoked");
   try {
     const { email, password } = req.body;
     const user = await User.findOne({
       email: (email || "").toLowerCase().trim(),
     }).select("+passwordHash");
 
-    console.log("🔍 User found?", !!user);
+    safeAuthLog(`loginUser userFound=${user ? "yes" : "no"}`);
     if (!user)
       return res.status(400).json({ message: "Invalid email or password" });
 
     const match = await bcrypt.compare(password, user.passwordHash || "");
-    console.log("🔐 Password match:", match);
+    safeAuthLog(`loginUser passwordMatch=${match ? "yes" : "no"}`);
     if (!match)
       return res.status(400).json({ message: "Invalid email or password" });
 
@@ -377,7 +385,7 @@ exports.loginUser = async (req, res) => {
     await user.save();
     setRefreshCookie(res, refreshToken);
 
-    console.log("✅ Login successful:", email);
+    safeAuthLog("loginUser succeeded");
     return res.json({
       accessToken,
       user: { id: user._id, email: user.email, role: user.role, name: user.name },
@@ -393,27 +401,24 @@ exports.loginUser = async (req, res) => {
    ============================================================ */
 exports.sendOtp = async (req, res) => {
   try {
-    console.log("==> sendOtp called with body:", req.body);
-
     const email = (req.body?.email || "").trim().toLowerCase();
-    console.log("📩 Normalized email:", email);
+    safeAuthLog("sendOtp invoked");
 
     if (!email) return res.status(400).json({ message: "Email is required" });
 
     const user = await User.findOne({ email });
-    console.log("🔍 User found:", !!user);
+    safeAuthLog(`sendOtp userFound=${user ? "yes" : "no"}`);
 
     if (!user)
       return res.status(404).json({ message: "User with this email not found" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`⚙️ Generated OTP for ${email}:`, otp);
 
     user.otpCode = otp;
     user.otpExpires = Date.now() + 5 * 60 * 1000;
     user.otpAttempts = 0;
     await user.save();
-    console.log("✅ OTP saved to DB.");
+    safeAuthLog("sendOtp otpPersisted");
 
     const sent = await sendEmail({
       to: email,
@@ -421,7 +426,7 @@ exports.sendOtp = async (req, res) => {
       text: `Your verification code is ${otp}. It expires in 5 minutes.`,
       html: `<p>Your verification code is <b>${otp}</b>. It expires in 5 minutes.</p>`,
     });
-    console.log("📨 sendEmail result:", sent);
+    safeAuthLog(`sendOtp dispatched=${sent ? "yes" : "no"}`);
 
     if (!sent)
       return res.status(500).json({ message: "Failed to send OTP email." });
@@ -437,7 +442,7 @@ exports.sendOtp = async (req, res) => {
    ✅ Verify OTP
    ============================================================ */
 exports.verifyOtp = async (req, res) => {
-  console.log("==> verifyOtp called:", req.body);
+  safeAuthLog("verifyOtp invoked");
   try {
     const { email, otp } = req.body;
     const normalizedOtp = String(otp ?? "").trim();
@@ -445,18 +450,18 @@ exports.verifyOtp = async (req, res) => {
       email: (email || "").toLowerCase().trim(),
     }).select("+otpCode +otpExpires +otpAttempts");
 
-    console.log("🔍 User found:", !!user);
+    safeAuthLog(`verifyOtp userFound=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found." });
 
     // 🧭 Added: handle already verified user (no OTP left)
     if (!user.otpCode && !user.otpExpires) {
-      console.warn("⚠️ OTP already consumed or not generated for:", email);
+      console.warn("⚠️ OTP already consumed for account");
       return res.status(409).json({ message: "OTP already verified or missing." });
     }
 
     // Expired code
     if (!user.otpExpires || user.otpExpires < Date.now()) {
-      console.warn("⚠️ OTP expired for:", email);
+      console.warn("⚠️ OTP expired for account");
       user.otpCode = null;
       user.otpExpires = null;
       await user.save();
@@ -465,14 +470,14 @@ exports.verifyOtp = async (req, res) => {
 
     // Wrong code
     if (String(user.otpCode).trim() !== normalizedOtp) {
-      console.warn("❌ Invalid OTP for:", email);
+      console.warn("❌ Invalid OTP submitted");
       user.otpAttempts = (user.otpAttempts || 0) + 1;
       await user.save();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
     // ✅ Valid one-time OTP
-    console.log("✅ OTP verified:", email);
+    safeAuthLog("verifyOtp succeeded");
     user.otpCode = null;
     user.otpExpires = null;
     await user.save();
@@ -487,7 +492,7 @@ exports.verifyOtp = async (req, res) => {
 
     setRefreshCookie(res, refreshToken);
 
-    console.log("🎟️ Tokens issued for:", email);
+    safeAuthLog("verifyOtp tokensIssued");
     return res.json({
       accessToken,
       user: {
@@ -508,7 +513,7 @@ exports.verifyOtp = async (req, res) => {
    ============================================================ */
 async function handlePasswordResetRequest(req, res) {
   const emailRaw = req.body?.email;
-  console.log("==> requestPasswordReset called:", { email: emailRaw });
+  safeAuthLog("requestPasswordReset invoked");
   try {
     const email = (emailRaw || "").trim().toLowerCase();
     if (!email) {
@@ -518,7 +523,7 @@ async function handlePasswordResetRequest(req, res) {
     const user = await User.findOne({ email }).select(
       "+passwordResetTokenHash +passwordResetTokenExpires"
     );
-    console.log("🔍 User found for reset:", !!user);
+    safeAuthLog(`requestPasswordReset userFound=${user ? "yes" : "no"}`);
 
     const genericResponse = {
       success: true,
@@ -558,13 +563,13 @@ async function handlePasswordResetRequest(req, res) {
     });
 
     if (!sent) {
-      console.warn("⚠️ Password reset email dispatch failed:", email);
+      console.warn("⚠️ Password reset email dispatch failed");
       return res
         .status(500)
         .json({ message: "Failed to send password reset email" });
     }
 
-    console.log("📨 Password reset email dispatched for:", email);
+    safeAuthLog("requestPasswordReset dispatched");
     return res.json(genericResponse);
   } catch (e) {
     console.error("❌ requestPasswordReset error:", e);
@@ -578,12 +583,7 @@ exports.recoverPassword = handlePasswordResetRequest;
 exports.requestPasswordReset = handlePasswordResetRequest;
 
 exports.resetPassword = async (req, res) => {
-  const safeBody = {
-    email: req.body?.email,
-    hasOtp: Boolean(req.body?.otp),
-    hasToken: Boolean(req.body?.token),
-  };
-  console.log("==> resetPassword called:", safeBody);
+  safeAuthLog("resetPassword invoked");
   try {
     const { email, otp, newPassword, token } = req.body;
     if (!email || !newPassword) {
@@ -598,7 +598,7 @@ exports.resetPassword = async (req, res) => {
       "+passwordHash +otpCode +otpExpires +otpAttempts +passwordResetTokenHash +passwordResetTokenExpires"
     );
 
-    console.log("🔍 User found:", !!user);
+    safeAuthLog(`resetPassword userFound=${user ? "yes" : "no"}`);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -614,11 +614,11 @@ exports.resetPassword = async (req, res) => {
         !user.passwordResetTokenExpires ||
         now > user.passwordResetTokenExpires
       ) {
-        console.warn("⚠️ Reset token expired for:", email);
+        console.warn("⚠️ Reset token expired");
         return res.status(400).json({ message: "Reset token expired" });
       }
       if (hashed !== user.passwordResetTokenHash) {
-        console.warn("❌ Invalid reset token for:", email);
+        console.warn("❌ Invalid reset token");
         return res.status(400).json({ message: "Invalid reset token" });
       }
       verified = true;
@@ -629,11 +629,11 @@ exports.resetPassword = async (req, res) => {
         return res.status(400).json({ message: "OTP or token required" });
       }
       if (!user.otpCode || !user.otpExpires || now > user.otpExpires) {
-        console.warn("⚠️ OTP expired for reset:", email);
+        console.warn("⚠️ OTP expired for reset");
         return res.status(400).json({ message: "OTP expired" });
       }
       if (String(otp).trim() !== String(user.otpCode).trim()) {
-        console.warn("❌ Invalid reset OTP for:", email);
+        console.warn("❌ Invalid reset OTP");
         return res.status(400).json({ message: "Invalid OTP" });
       }
       verified = true;
@@ -653,7 +653,7 @@ exports.resetPassword = async (req, res) => {
     user.passwordResetTokenExpires = 0;
     user.passwordResetTokenIssuedAt = null;
     await user.save();
-    console.log("✅ Password reset successful for:", email);
+    safeAuthLog("resetPassword succeeded");
 
     return res.json({ success: true, message: "Password reset successfully" });
   } catch (e) {
@@ -668,12 +668,12 @@ exports.resetPassword = async (req, res) => {
    👤 User Profile & Password Update
    ============================================================ */
 exports.getUserProfile = async (req, res) => {
-  console.log("==> getUserProfile called for:", req.user?._id);
+  safeAuthLog("getUserProfile invoked");
   try {
     const user = await User.findById(req.user._id).select(
       "-passwordHash -otpCode"
     );
-    console.log("🔍 Profile found:", !!user);
+    safeAuthLog(`getUserProfile found=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found." });
     res.json(user);
   } catch (e) {
@@ -683,15 +683,15 @@ exports.getUserProfile = async (req, res) => {
 };
 
 exports.updatePassword = async (req, res) => {
-  console.log("==> updatePassword called:", req.body);
+  safeAuthLog("updatePassword invoked");
   try {
     const { currentPassword, newPassword } = req.body;
     const user = await User.findById(req.user._id).select("+passwordHash");
-    console.log("🔍 User found:", !!user);
+    safeAuthLog(`updatePassword userFound=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const match = await bcrypt.compare(currentPassword, user.passwordHash);
-    console.log("🔐 Current password match:", match);
+    safeAuthLog(`updatePassword match=${match ? "yes" : "no"}`);
     if (!match)
       return res.status(400).json({ message: "Current password incorrect." });
 
@@ -700,7 +700,7 @@ exports.updatePassword = async (req, res) => {
     user.temporaryPassword = false;
     await user.save();
 
-    console.log("✅ Password updated successfully for:", user.email);
+    safeAuthLog("updatePassword succeeded");
     res.json({ success: true, message: "Password updated successfully." });
   } catch (e) {
     console.error("❌ updatePassword error:", e);
@@ -712,24 +712,24 @@ exports.updatePassword = async (req, res) => {
    🔁 Token Refresh & Logout
    ============================================================ */
 exports.refreshAccessToken = async (req, res) => {
-  console.log("==> refreshAccessToken called");
+  safeAuthLog("refreshAccessToken invoked");
   try {
     const token = req.cookies?.refreshToken;
-    console.log("🍪 Refresh token present?", !!token);
+    safeAuthLog(`refreshAccessToken hasToken=${token ? "yes" : "no"}`);
     if (!token) return res.status(401).json({ message: "No refresh token" });
 
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(payload.id);
-    console.log("🔍 User found for refresh:", !!user);
+    safeAuthLog(`refreshAccessToken userFound=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const session = user.refreshTokens.find((rt) => rt.token === token);
-    console.log("🔐 Refresh session valid?", !!session);
+    safeAuthLog(`refreshAccessToken session=${session ? "yes" : "no"}`);
     if (!session)
       return res.status(403).json({ message: "Refresh not recognized" });
 
     const newAccess = generateAccessToken(user);
-    console.log("✅ New access token generated for:", user.email);
+    safeAuthLog("refreshAccessToken issued");
     return res.json({ accessToken: newAccess });
   } catch (e) {
     console.error("❌ refreshAccessToken error:", e);
@@ -741,13 +741,13 @@ exports.refreshAccessToken = async (req, res) => {
    🚪 Logout (Full Logs)
    ============================================================ */
 exports.logout = async (req, res) => {
-  console.log("==> logout called");
+  safeAuthLog("logout invoked");
   try {
     const token = req.cookies?.refreshToken;
-    console.log("🍪 Refresh token found?", !!token);
+    safeAuthLog(`logout hasToken=${token ? "yes" : "no"}`);
 
     const isProd = process.env.NODE_ENV === "production";
-    const sameSite = isProd ? "None" : "Lax";
+    const sameSite = "Lax";
     const clearOptions = {
       httpOnly: true,
       secure: isProd,
@@ -757,24 +757,21 @@ exports.logout = async (req, res) => {
 
     // Always clear cookie first
     res.clearCookie("refreshToken", clearOptions);
-    console.log(
-      `✅ Cleared refreshToken cookie (secure=${isProd} sameSite=${sameSite}).`
-    );
+    safeAuthLog("logout clearedCookie");
 
     if (token) {
       try {
-        console.log("🧾 Verifying refresh token to remove from DB...");
+        safeAuthLog("logout verifyingToken");
         const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
         const user = await User.findById(payload.id);
         if (user) {
-          console.log("👤 User found for logout:", user.email);
           const before = user.refreshTokens.length;
           user.refreshTokens = user.refreshTokens.filter(
             (rt) => rt.token !== token
           );
           await user.save();
-          console.log(
-            `🧹 Removed refresh token from DB (${before} → ${user.refreshTokens.length})`
+          safeAuthLog(
+            `logout tokenRemoved before=${before} after=${user.refreshTokens.length}`
           );
         } else {
           console.warn("⚠️ Logout: User not found for provided token.");
@@ -786,7 +783,7 @@ exports.logout = async (req, res) => {
       console.warn("⚠️ No refresh token cookie to clear.");
     }
 
-    console.log("✅ Logout successful — cookie cleared and session cleaned.");
+    safeAuthLog("logout completed");
     return res.json({ success: true });
   } catch (e) {
     console.error("❌ logout error:", e);
@@ -804,4 +801,4 @@ exports.__test = {
   resetTransports,
 };
 
-console.log("🧩 authController.js loaded successfully.");
+safeAuthLog("authController loaded");

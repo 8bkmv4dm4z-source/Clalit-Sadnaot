@@ -30,6 +30,14 @@ const jwt = require("jsonwebtoken");
 const app = express();
 app.set("trust proxy", 1);
 
+// SECURITY FIX: enforce Helmet globally with relaxed cross-origin policy for assets
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
+  })
+);
+
 /* ----------------------------
  * Helpers
  * -------------------------- */
@@ -55,7 +63,9 @@ function logToFile(level, msg) {
   try {
     const line = `[${new Date().toISOString()}] [${level}] ${msg}\n`;
     fs.appendFile(logFilePath, line, () => {});
-  } catch (_) {}
+  } catch {
+    /* SECURITY FIX: ignore log persistence errors quietly */
+  }
 }
 
 ["log", "info", "warn", "error"].forEach((m) => {
@@ -97,13 +107,6 @@ mongoose.connection.on("error", (err) => {
  * ========================================================== */
 const api = express.Router();
 
-// Security middleware (API only)
-api.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginOpenerPolicy: false, // silence COOP on LAN http
-  })
-);
 api.use(hpp());
 api.use(mongoSanitize());
 api.use(compression());
@@ -181,7 +184,9 @@ const workshopWriteLimiter = rateLimit({
       const email = String(decoded.email || "").toLowerCase();
       if (uid && ADMIN_WHITELIST_IDS.includes(uid)) return true;
       if (email && ADMIN_WHITELIST_EMAILS.includes(email)) return true;
-    } catch (_) {}
+    } catch {
+      /* SECURITY FIX: suppress JWT decode errors during limiter skip */
+    }
     return false;
   },
 });

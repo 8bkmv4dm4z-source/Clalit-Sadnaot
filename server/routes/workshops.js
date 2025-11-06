@@ -15,6 +15,7 @@ const {
   validateWorkshopEdit,
   validateWorkshopRegistration,
   validateWorkshopUnregister,
+  validateWaitlistEntity,
 } = require("../middleware/validation");
 
 /* ============================================================
@@ -66,10 +67,20 @@ router.delete(
 );
 
 // ✅ הוספה לרשימת המתנה (משתמש או בן משפחה)
-router.post("/:id/waitlist-entity", protect, workshopController.addEntityToWaitlist);
+router.post(
+  "/:id/waitlist-entity",
+  protect,
+  validateWaitlistEntity,
+  workshopController.addEntityToWaitlist
+);
 
 // ✅ הסרה מרשימת המתנה (משתמש או בן משפחה)
-router.delete("/:id/waitlist-entity", protect, workshopController.removeEntityFromWaitlist);
+router.delete(
+  "/:id/waitlist-entity",
+  protect,
+  validateWaitlistEntity,
+  workshopController.removeEntityFromWaitlist
+);
 
 /* ============================================================
    🟣 ADMIN ROUTES

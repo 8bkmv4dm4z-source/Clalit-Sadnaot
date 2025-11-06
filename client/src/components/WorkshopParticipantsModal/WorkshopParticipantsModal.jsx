@@ -31,7 +31,7 @@
  * See README for more information about the overarching data flow.
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -174,8 +174,8 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     fetchWorkshops,
     registerEntityToWorkshop,
     unregisterEntityFromWorkshop,
-    registerToWaitlist,
     unregisterFromWaitlist,
+    workshops,
   } = useWorkshops();
   const { refreshMe } = useAuth();
 
@@ -187,26 +187,82 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
 
+  const workshopId = useMemo(() => String(workshop?._id ?? ""), [workshop?._id]);
+
+  // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
+  const contextWorkshop = useMemo(() => {
+    if (!workshopId) return null;
+    return (workshops || []).find((w) => String(w?._id) === workshopId) || null;
+  }, [workshops, workshopId]);
+
+  const activeWorkshop = useMemo(() => contextWorkshop || workshop || {}, [
+    contextWorkshop,
+    workshop,
+  ]);
+
+  const activeWorkshopId = useMemo(
+    () => activeWorkshop?._id || workshopId,
+    [activeWorkshop, workshopId]
+  );
+
+  const participantsTotal = useMemo(() => {
+    if (participants.length > 0) return participants.length;
+    if (typeof activeWorkshop.participantsCount === "number") {
+      return activeWorkshop.participantsCount;
+    }
+    const direct = Array.isArray(activeWorkshop.participants)
+      ? activeWorkshop.participants.length
+      : 0;
+    const family = Array.isArray(activeWorkshop.familyRegistrations)
+      ? activeWorkshop.familyRegistrations.length
+      : 0;
+    return direct + family;
+  }, [participants, activeWorkshop]);
+
+  const capacityLimit = useMemo(() => {
+    const max = Number(activeWorkshop.maxParticipants || 0);
+    return Number.isFinite(max) ? max : 0;
+  }, [activeWorkshop]);
+
+  const waitlistLimit = useMemo(() => {
+    const max = Number(activeWorkshop.waitingListMax || 0);
+    return Number.isFinite(max) ? max : 0;
+  }, [activeWorkshop]);
+
+  const waitlistTotal = useMemo(() => {
+    if (waitlist.length > 0) return waitlist.length;
+    if (Array.isArray(activeWorkshop.waitingList)) {
+      return activeWorkshop.waitingList.length;
+    }
+    return 0;
+  }, [waitlist, activeWorkshop]);
+
+  const isCapacityFull = useMemo(() => {
+    if (!capacityLimit) return false;
+    return participantsTotal >= capacityLimit;
+  }, [participantsTotal, capacityLimit]);
+
   /** Load both lists */
   const fetchAll = useCallback(async () => {
-    if (!workshop?._id) return;
+    if (!activeWorkshopId) return;
     setLoading(true);
     try {
       const [resP, resW] = await Promise.all([
-        apiFetch(`/api/workshops/${workshop._id}/participants`),
-        apiFetch(`/api/workshops/${workshop._id}/waitlist`),
+        apiFetch(`/api/workshops/${activeWorkshopId}/participants`),
+        apiFetch(`/api/workshops/${activeWorkshopId}/waitlist`),
       ]);
       const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
       if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
       setParticipants(Array.isArray(dataP.participants) ? dataP.participants : []);
       setWaitlist(Array.isArray(dataW) ? dataW : []);
     } catch (e) {
-      console.error("❌ fetchAll:", e);
+      // SECURITY FIX: log only sanitized error messages (no stack traces)
+      console.error("❌ fetchAll", e?.message || e);
       setMessage("❌ " + e.message);
     } finally {
       setLoading(false);
     }
-  }, [workshop?._id]);
+  }, [activeWorkshopId]);
 
   useEffect(() => {
     fetchAll();
@@ -220,9 +276,9 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       // Use context helpers depending on whether we remove from waitlist or participants
       let result;
       if (fromWaitlist) {
-        result = await unregisterFromWaitlist(workshop._id, familyId);
+        result = await unregisterFromWaitlist(activeWorkshopId, familyId);
       } else {
-        result = await unregisterEntityFromWorkshop(workshop._id, familyId);
+        result = await unregisterEntityFromWorkshop(activeWorkshopId, familyId);
       }
       if (!result || result.success === false) {
         throw new Error(result?.message || "שגיאה בביטול");
@@ -240,22 +296,17 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     try {
       const familyId = wl.familyMemberId || null;
       // בדיקת מקום
-      const isFull =
-        (workshop.participantsCount ??
-          (workshop.participants?.length || 0) +
-            (workshop.familyRegistrations?.length || 0)) >=
-        (workshop.maxParticipants || 0);
-      if (isFull) {
+      if (isCapacityFull) {
         alert("❌ אין מקום פנוי לקידום משתתף זה.");
         return;
       }
       // שלב 1: הסר מרשימת ההמתנה באמצעות context
-      const unres = await unregisterFromWaitlist(workshop._id, familyId);
+      const unres = await unregisterFromWaitlist(activeWorkshopId, familyId);
       if (!unres || unres.success === false) {
         throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
       }
       // שלב 2: רשום לרשימת המשתתפים באמצעות context
-      const regRes = await registerEntityToWorkshop(workshop._id, familyId);
+      const regRes = await registerEntityToWorkshop(activeWorkshopId, familyId);
       if (!regRes || regRes.success === false) {
         throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
       }
@@ -271,7 +322,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const handleExport = async () => {
     const type = view === "participants" ? "current" : "waitlist";
     try {
-      const res = await apiFetch(`/api/workshops/${workshop._id}/export?type=${type}`, {
+      const res = await apiFetch(`/api/workshops/${activeWorkshopId}/export?type=${type}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -283,17 +334,11 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   };
 
   /** Render waitlist item */
- const renderWaitlistItem = (wl) => {
-  const age = calcAge(wl.birthDate);
+  const renderWaitlistItem = (wl) => {
+    const age = calcAge(wl.birthDate);
 
-  const isFull =
-    (workshop.participantsCount ??
-      (workshop.participants?.length || 0) +
-        (workshop.familyRegistrations?.length || 0)) >=
-    (workshop.maxParticipants || 0);
-
-  // 🧩 הגדרת ערכי fallback מהאב
-  const phone = wl.phone || wl.parentUser?.phone || "-";
+    // 🧩 הגדרת ערכי fallback מהאב
+    const phone = wl.phone || wl.parentUser?.phone || "-";
   const email = wl.email || wl.parentUser?.email || "-";
   const city = wl.city || wl.parentUser?.city || "-";
 
@@ -305,7 +350,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       <div className="flex justify-between items-center mb-2">
         <h4 className="text-lg font-semibold text-gray-800">{wl.name}</h4>
         <div className="flex gap-3 text-xs">
-          {!isFull && (
+          {!isCapacityFull && (
             <button
               onClick={() => handlePromote(wl)}
               className="text-green-600 hover:underline"
@@ -398,7 +443,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         <div className="flex flex-wrap items-center justify-between mb-6 gap-2">
           <h3 className="text-xl font-bold text-gray-800">
             {view === "participants" ? "משתתפים בסדנה" : "רשימת המתנה"}:{" "}
-            <span className="text-indigo-600">{workshop.title}</span>
+            <span className="text-indigo-600">{activeWorkshop.title}</span>
           </h3>
           <div className="flex flex-wrap gap-2 items-center">
             <button
@@ -442,6 +487,24 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
               ✕ סגור
             </button>
           </div>
+        </div>
+
+        <div className="flex flex-wrap gap-3 text-xs text-gray-600 mb-4">
+          <span className="inline-flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-lg">
+            👥
+            {participantsTotal}
+            {capacityLimit ? ` / ${capacityLimit}` : ""}
+          </span>
+          <span className="inline-flex items-center gap-1 bg-amber-50 px-2 py-1 rounded-lg">
+            ⏳
+            {waitlistTotal}
+            {waitlistLimit ? ` / ${waitlistLimit}` : ""}
+          </span>
+          {isCapacityFull && (
+            <span className="inline-flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded-lg font-medium">
+              ⚠️ אין מקומות פנויים
+            </span>
+          )}
         </div>
 
         {showProfiles && (

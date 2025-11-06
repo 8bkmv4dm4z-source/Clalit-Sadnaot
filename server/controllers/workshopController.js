@@ -718,9 +718,6 @@ exports.getWorkshopParticipants = async (req, res) => {
  * - Uses shared services for consistency.
  */
 exports.registerEntityToWorkshop = async (req, res) => {
-  console.log("📩 [registerEntityToWorkshop] body:", req.body);
-  console.log("👤 Auth user:", req.user?._id);
-
   try {
     const { familyId } = req.body;
     let workshop = await Workshop.findById(req.params.id);
@@ -857,7 +854,12 @@ exports.registerEntityToWorkshop = async (req, res) => {
     res.json({ success: true, workshop: populated });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
-    res.status(500).json({ message: "Server error during registration", error: err.message });
+    // SECURITY FIX: avoid leaking raw error messages to clients
+    const payload = { success: false, message: "Server error during registration" };
+    if (process.env.NODE_ENV !== "production") {
+      payload.detail = err.message;
+    }
+    res.status(500).json(payload);
   }
 };
 
