@@ -155,4 +155,10 @@ test('verifyOtp accepts OTP with trailing whitespace', async () => {
   assert.equal(userDoc.otpExpires, null);
   assert.equal(userDoc.refreshTokens.length, 1);
   assert.equal(userDoc.refreshTokens[0].userAgent, 'node-test');
+  assert.equal(typeof userDoc.refreshTokens[0].token, 'string');
+  assert.equal(userDoc.refreshTokens[0].token.length, 64);
+  assert.notEqual(
+    userDoc.refreshTokens[0].token,
+    res.cookies.refreshToken?.value
+  );
 });

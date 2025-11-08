@@ -87,6 +87,34 @@ function hashResetToken(rawToken) {
   return crypto.createHash("sha256").update(String(rawToken)).digest("hex");
 }
 
+// SECURITY NOTE: see README.md "Security Hardening Highlights" for context on
+// hashed refresh tokens and compatibility behaviour.
+function hashRefreshToken(rawToken) {
+  return crypto.createHash("sha256").update(String(rawToken || "")).digest("hex");
+}
+
+function tokensMatch(storedToken, candidateToken) {
+  if (!storedToken || !candidateToken) return false;
+
+  const stored = Buffer.from(String(storedToken));
+  const candidateHashed = Buffer.from(hashRefreshToken(candidateToken));
+
+  const safeEqual = (a, b) => {
+    if (a.length !== b.length) return false;
+    try {
+      return crypto.timingSafeEqual(a, b);
+    } catch (err) {
+      console.warn("⚠️ timingSafeEqual failed:", err.message);
+      return false;
+    }
+  };
+
+  if (safeEqual(stored, candidateHashed)) return true;
+
+  const candidateRaw = Buffer.from(String(candidateToken));
+  return safeEqual(stored, candidateRaw);
+}
+
 function resolveClientBaseUrl(req) {
   const envUrl =
     process.env.PASSWORD_RESET_BASE_URL ||
@@ -379,7 +407,7 @@ exports.loginUser = async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
     user.refreshTokens.push({
-      token: refreshToken,
+      token: hashRefreshToken(refreshToken),
       userAgent: req.headers["user-agent"] || "",
     });
     await user.save();
@@ -485,7 +513,7 @@ exports.verifyOtp = async (req, res) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
     user.refreshTokens.push({
-      token: refreshToken,
+      token: hashRefreshToken(refreshToken),
       userAgent: req.headers["user-agent"] || "",
     });
     await user.save();
@@ -723,7 +751,7 @@ exports.refreshAccessToken = async (req, res) => {
     safeAuthLog(`refreshAccessToken userFound=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const session = user.refreshTokens.find((rt) => rt.token === token);
+    const session = user.refreshTokens.find((rt) => tokensMatch(rt.token, token));
     safeAuthLog(`refreshAccessToken session=${session ? "yes" : "no"}`);
     if (!session)
       return res.status(403).json({ message: "Refresh not recognized" });
@@ -767,7 +795,7 @@ exports.logout = async (req, res) => {
         if (user) {
           const before = user.refreshTokens.length;
           user.refreshTokens = user.refreshTokens.filter(
-            (rt) => rt.token !== token
+            (rt) => !tokensMatch(rt.token, token)
           );
           await user.save();
           safeAuthLog(
