@@ -18,10 +18,26 @@ const authenticate = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select("-otpCode -otpExpires -otpAttempts");
+    const user = await User.findById(decoded.id).select(
+      "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash"
+    );
     if (!user) {
       console.warn("[AUTH] User not found for provided token");
       return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
+    if (!user.isRoleIntegrityValid()) {
+      console.warn("[AUTH] Role integrity hash mismatch", { id: user._id, role: user.role });
+      return res.status(403).json({ message: "Role integrity check failed" });
+    }
+
+    if (!user.roleIntegrityHash || !user.idNumberHash) {
+      try {
+        user.refreshIntegrityHashes();
+        await user.save({ validateBeforeSave: false });
+      } catch (err) {
+        console.warn("[AUTH] Unable to refresh integrity hashes", err.message);
+      }
     }
 
     req.user = user;

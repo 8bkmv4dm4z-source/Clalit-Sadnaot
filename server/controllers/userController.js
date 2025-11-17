@@ -4,6 +4,7 @@ const Workshop = require("../models/Workshop");
 
 
 const mongoose = require("mongoose");
+const { runUserIntegrityAudit, getAuditSnapshot } = require("../services/auditService");
 
 
 // routes stay the same: router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser)
@@ -444,6 +445,25 @@ exports.getAllUsers = async (req, res) => {
   } catch (err) {
     console.error("❌ [getAllUsers] Error:", err);
     return res.status(500).json({ message: "Server error loading users", error: err.message });
+  }
+};
+
+/* ============================================================
+   🛡️ Integrity audit (admin only)
+   ============================================================ */
+exports.getUserAuditReport = async (_req, res) => {
+  try {
+    const report = await runUserIntegrityAudit({ reason: "admin-request", force: true });
+    return res.json({ success: true, report });
+  } catch (err) {
+    const snapshot = getAuditSnapshot();
+    console.error("❌ [getUserAuditReport] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Audit scan failed",
+      lastAudit: snapshot?.lastAuditResult || null,
+      error: err.message,
+    });
   }
 };
 

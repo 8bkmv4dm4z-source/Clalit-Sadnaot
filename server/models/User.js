@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 /**
  * FamilyMemberSchema
@@ -44,6 +45,16 @@ const UserSchema = new mongoose.Schema(
 
     // 🔑 Role & Access
     role: { type: String, enum: ["user", "admin"], default: "user" },
+
+    /**
+     * Integrity fingerprints for tamper detection
+     * ------------------------------------------------------------
+     * These hashes do NOT replace the plain fields (role/idNumber).
+     * They simply allow us to verify that sensitive values were not
+     * altered without going through application code.
+     */
+    roleIntegrityHash: { type: String, select: false },
+    idNumberHash: { type: String, select: false },
 
     // 🔒 OTP Authentication
     otpCode: { type: String, select: false },
@@ -104,6 +115,50 @@ const UserSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/* ============================================================
+   🧾 Integrity Hash Helpers
+   ============================================================ */
+
+const ROLE_HASH_SECRET =
+  process.env.ROLE_HASH_SECRET || process.env.JWT_SECRET || "role-hash-fallback";
+
+const hashValue = (value, salt = ROLE_HASH_SECRET) => {
+  if (!value) return null;
+  return crypto.createHash("sha256").update(`${salt}:${value}`).digest("hex");
+};
+
+UserSchema.statics.computeRoleHash = function (userId, role) {
+  if (!userId || !role) return null;
+  return hashValue(`${userId}:${role}`);
+};
+
+UserSchema.statics.computeIdNumberHash = function (idNumber) {
+  if (!idNumber) return null;
+  return hashValue(String(idNumber));
+};
+
+UserSchema.methods.refreshIntegrityHashes = function () {
+  this.roleIntegrityHash = this.constructor.computeRoleHash(this._id, this.role);
+  this.idNumberHash = this.constructor.computeIdNumberHash(this.idNumber);
+};
+
+UserSchema.methods.isRoleIntegrityValid = function () {
+  if (!this.role) return true; // no role to validate
+  const expected = this.constructor.computeRoleHash(this._id, this.role);
+  return !expected || this.roleIntegrityHash === expected;
+};
+
+UserSchema.methods.hasIdNumberIntegrity = function () {
+  if (!this.idNumber) return true;
+  const expected = this.constructor.computeIdNumberHash(this.idNumber);
+  return !expected || this.idNumberHash === expected;
+};
+
+UserSchema.pre("save", function (next) {
+  this.refreshIntegrityHashes();
+  next();
+});
 
 /* ============================================================
    🔒 Password Helpers

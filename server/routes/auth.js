@@ -67,6 +67,43 @@ const otpLimiter = rateLimit({
   },
 });
 const otpRequests = new Map();
+const registrationVelocity = new Map();
+
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // three registrations per IP per hour
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV === "loadtest",
+  handler: (req, res) => {
+    console.warn("[LIMITER] registration IP cap reached", req.ip);
+    res
+      .status(429)
+      .json({ message: "Too many registrations from this network. Try again later." });
+  },
+});
+
+function enforceRegistrationVelocity(req, res, next) {
+  const email = (req.body.email || "").toLowerCase();
+  const key = `${req.ip}|${email || "unknown"}`;
+  const now = Date.now();
+  const windowMs = 30 * 60 * 1000; // 30 minutes rolling window
+  const maxAttempts = 5;
+
+  const attempts = registrationVelocity.get(key) || [];
+  const recent = attempts.filter((ts) => now - ts < windowMs);
+  recent.push(now);
+  registrationVelocity.set(key, recent);
+
+  if (recent.length > maxAttempts) {
+    console.warn("[LIMITER] registration velocity blocked", { ip: req.ip, email });
+    return res.status(429).json({
+      message: "Registration attempts are temporarily blocked for this address.",
+    });
+  }
+
+  next();
+}
 
 function otpEmailLimiter(req, res, next) {
   const email = req.body.email?.toLowerCase();
@@ -95,7 +132,14 @@ function otpEmailLimiter(req, res, next) {
 // ============================================================
 
 // 🟢 Register new user
-router.post("/register", generalAuthLimiter, validateRegister, registerUser);
+router.post(
+  "/register",
+  generalAuthLimiter,
+  registrationLimiter,
+  enforceRegistrationVelocity,
+  validateRegister,
+  registerUser
+);
 
 // 🔵 Login existing user
 router.post("/login", generalAuthLimiter, validateLogin, loginUser);

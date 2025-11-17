@@ -22,10 +22,12 @@ const rateLimit = require("express-rate-limit");
 const hpp = require("hpp");
 const compression = require("compression");
 const mongoSanitize = require("express-mongo-sanitize");
+const sanitizeBody = require("./middleware/sanitizeBody");
 const cookieParser = require("cookie-parser");
 const mongoose = require("mongoose");
 const { errors: celebrateErrors, CelebrateError } = require("celebrate");
 const jwt = require("jsonwebtoken");
+const { startAuditScheduler } = require("./services/auditService");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -108,6 +110,7 @@ mongoose.connection.on("error", (err) => {
 const api = express.Router();
 
 api.use(hpp());
+api.use(sanitizeBody);
 api.use(mongoSanitize());
 api.use(compression());
 
@@ -307,6 +310,8 @@ const HOST = process.env.HOST || "0.0.0.0";
       autoIndex: true,
       serverSelectionTimeoutMS: 10000,
     });
+
+    startAuditScheduler();
 
     const server = app.listen(PORT, HOST, () => {
       const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
