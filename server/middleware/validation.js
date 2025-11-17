@@ -15,6 +15,15 @@ const { celebrate, Joi, Segments } = require("celebrate");
 const safeText = /^[^<>${}]{1,}$/; // allows normal text, blocks <, >, $, {, }
 const phonePattern = /^[0-9+\-\s]{6,20}$/;
 const idPattern = /^[0-9]{5,10}$/;
+const familyMemberSchema = Joi.object({
+  name: Joi.string().trim().pattern(safeText).max(80).required(),
+  relation: Joi.string().trim().pattern(safeText).max(50).allow("").optional(),
+  idNumber: Joi.string().trim().pattern(idPattern).optional(),
+  phone: Joi.string().trim().allow("").pattern(phonePattern).optional(),
+  email: Joi.string().email().lowercase().trim().allow("").optional(),
+  city: Joi.string().trim().pattern(safeText).allow("").optional(),
+  birthDate: Joi.date().iso().optional(),
+}).unknown(false);
 
 /* ============================================================
    🔐 AUTH VALIDATION
@@ -29,13 +38,14 @@ const validateRegister = celebrate({
       .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include a letter, number, and special character.")
       .required(),
-      
+
     phone: Joi.string().trim().pattern(phonePattern).optional(),
     city: Joi.string().trim().pattern(safeText).max(60).optional(),
     idNumber: Joi.string().trim().pattern(idPattern).optional(),
-    role: Joi.string().valid("user").default("user")
-
-  }).unknown(true),
+    canCharge: Joi.boolean().optional(),
+    familyMembers: Joi.array().items(familyMemberSchema).max(20).optional(),
+    role: Joi.string().valid("user").optional(),
+  }).unknown(false),
 });
 
 const validateLogin = celebrate({

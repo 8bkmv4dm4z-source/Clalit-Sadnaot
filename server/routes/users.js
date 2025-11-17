@@ -31,6 +31,14 @@ router.get("/search", protect, usersController.searchUsers);
 // 🔹 Get all users (Admin only)
 router.get("/", protect, authorizeAdmin, usersController.getAllUsers);
 
+// 🔍 Data integrity report (Admin only)
+router.get(
+  "/audit/report",
+  protect,
+  authorizeAdmin,
+  usersController.getUserAuditReport
+);
+
 // 🔹 Create new user (Admin only)
 router.post("/", protect, authorizeAdmin, validateUserRegistration, usersController.createUser);
 
