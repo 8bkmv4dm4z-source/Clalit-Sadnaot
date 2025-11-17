@@ -15,6 +15,7 @@ const path = require("path");
 const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
 const User = require("../models/User");
+const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
 
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
@@ -364,18 +365,7 @@ exports.registerUser = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "User registered successfully.",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        city: user.city,
-        idNumber: user.idNumber,
-        birthDate: user.birthDate,
-        canCharge: user.canCharge,
-        role: user.role,
-        familyMembers: user.familyMembers,
-      },
+      user: sanitizeUserForResponse(user, user),
     });
   } catch (e) {
     console.error("❌ registerUser error:", e);
@@ -416,7 +406,7 @@ exports.loginUser = async (req, res) => {
     safeAuthLog("loginUser succeeded");
     return res.json({
       accessToken,
-      user: { id: user._id, email: user.email, role: user.role, name: user.name },
+      user: sanitizeUserForResponse(user, user),
     });
   } catch (e) {
     console.error("❌ loginUser error:", e);
@@ -704,7 +694,7 @@ exports.getUserProfile = async (req, res) => {
     );
     safeAuthLog(`getUserProfile found=${user ? "yes" : "no"}`);
     if (!user) return res.status(404).json({ message: "User not found." });
-    res.json(user);
+    res.json(sanitizeUserForResponse(user, req.user));
   } catch (e) {
     console.error("❌ getUserProfile error:", e);
     res.status(500).json({ message: "Server error retrieving profile." });

@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
+const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
 
 
 
@@ -395,7 +396,7 @@ exports.getMe = async (req, res) => {
     const user = await User.findById(req.user._id).select("-passwordHash -otpCode -otpAttempts");
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.json(user);
+    res.json(sanitizeUserForResponse(user, req.user));
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
@@ -432,14 +433,15 @@ exports.getAllUsers = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const enriched = users.map((u) => ({
-      ...u,
-      canCharge: Boolean(u.canCharge),
-      familyMembers: (u.familyMembers || []).map((f) => ({
+    const enriched = users.map((u) => {
+      const clean = sanitizeUserForResponse(u, req.user);
+      clean.canCharge = Boolean(u.canCharge);
+      clean.familyMembers = (u.familyMembers || []).map((f) => ({
         ...f,
         canCharge: Boolean(u.canCharge),
-      })),
-    }));
+      }));
+      return clean;
+    });
 
     return res.json(enriched);
   } catch (err) {
@@ -473,11 +475,18 @@ exports.getUserAuditReport = async (_req, res) => {
 exports.getUserById = async (req, res) => {
   try {
     const id = req.params.id;
+    const requester = req.user;
+
+    if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
 
     let user = await User.findById(id).select("-passwordHash -otpCode -otpAttempts");
     if (!user) {
       const parent = await User.findOne({ "familyMembers._id": id }).select("name email familyMembers");
       if (parent) {
+        const isOwner = String(parent._id) === String(requester._id);
+        const isAdmin = requester.role === "admin";
+        if (!isOwner && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
+
         const member = parent.familyMembers.id(id);
         return res.json({
           ...member.toObject(),
@@ -487,7 +496,11 @@ exports.getUserById = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(user);
+    const isSelf = String(requester._id) === String(user._id);
+    const isAdmin = requester.role === "admin";
+    if (!isSelf && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
+
+    res.json(sanitizeUserForResponse(user, requester));
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
@@ -499,11 +512,22 @@ exports.getUserById = async (req, res) => {
 exports.getEntityById = async (req, res) => {
   try {
     const id = req.params.id;
+    const requester = req.user;
+    if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
+
     const user = await User.findById(id).select("-passwordHash -otpCode -otpAttempts");
-    if (user) return res.json({ type: "user", entity: user });
+    const isAdmin = requester.role === "admin";
+    if (user) {
+      const isSelf = String(requester._id) === String(user._id);
+      if (!isSelf && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
+      return res.json({ type: "user", entity: sanitizeUserForResponse(user, requester) });
+    }
 
     const parent = await User.findOne({ "familyMembers._id": id }).select("familyMembers name email");
     if (parent) {
+      const isOwner = String(parent._id) === String(requester._id);
+      if (!isOwner && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
+
       const member = parent.familyMembers.id(id);
       return res.json({
         type: "familyMember",
@@ -530,7 +554,10 @@ exports.createUser = async (req, res) => {
     if (password) await user.setPassword(password);
     await user.save();
 
-    res.status(201).json({ message: "User created successfully", user });
+    res.status(201).json({
+      message: "User created successfully",
+      user: sanitizeUserForResponse(user, req.user),
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error creating user" });
   }
@@ -544,6 +571,7 @@ exports.updateEntity = async (req, res) => {
     // body: { userId?, familyId?, parentUserId?, updates: {...} }
     const { userId, familyId, parentUserId, updates } = req.body;
     const requester = req.user;
+    const isAdmin = requester?.role === "admin";
 
     if (!userId && !familyId)
       return res.status(400).json({ message: "Missing userId or familyId" });
@@ -551,39 +579,33 @@ exports.updateEntity = async (req, res) => {
     if (!updates || typeof updates !== "object")
       return res.status(400).json({ message: "Missing updates payload" });
 
+    const baseAllowedKeys = ["name", "idNumber", "birthDate", "phone", "city", "familyMembers"];
+    const adminOnlyKeys = ["canCharge", "role"];
+    const allowedKeys = isAdmin ? [...baseAllowedKeys, ...adminOnlyKeys] : baseAllowedKeys;
+
+    const requestedKeys = Object.keys(updates || {});
+    const invalidKeys = requestedKeys.filter((key) => !allowedKeys.includes(key));
+    if (invalidKeys.length)
+      return res.status(403).json({ message: "Some fields require admin access", fields: invalidKeys });
+
     /* =========================
        🔹 Case 1: Update main user
     ========================== */
     if (userId && !familyId) {
-      if (requester.role !== "admin" && String(requester._id) !== String(userId))
+      if (!isAdmin && String(requester._id) !== String(userId))
         return res.status(403).json({ message: "Unauthorized" });
 
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ message: "User not found" });
 
-      const allowed = [
-        "name",
-        "idNumber",
-        "birthDate",
-        "phone",
-        "city",
-        "canCharge",
-        "role",
-        "familyMembers",
-      ];
-
-      for (const key of allowed)
+      for (const key of allowedKeys)
         if (updates[key] !== undefined) user[key] = updates[key];
 
       await user.save();
-      const cleanUser = user.toObject();
-      delete cleanUser.passwordHash;
-      delete cleanUser.otpCode;
-      delete cleanUser.otpAttempts;
       return res.json({
         success: true,
         message: "User updated successfully",
-        user: cleanUser,
+        user: sanitizeUserForResponse(user, requester),
       });
     }
 
@@ -592,6 +614,9 @@ exports.updateEntity = async (req, res) => {
     ========================== */
     if (familyId) {
       const targetUserId = parentUserId || userId || requester._id;
+
+      if (!isAdmin && String(targetUserId) !== String(requester._id))
+        return res.status(403).json({ message: "Unauthorized" });
 
       const user = await User.findById(targetUserId);
       if (!user) return res.status(404).json({ message: "Parent user not found" });
@@ -635,15 +660,10 @@ await Workshop.updateMany(
 );
 
 
-      const cleanUser = user.toObject();
-      delete cleanUser.passwordHash;
-      delete cleanUser.otpCode;
-      delete cleanUser.otpAttempts;
-
       return res.json({
         success: true,
         message: "Family member updated successfully (synced)",
-        user: cleanUser,
+        user: sanitizeUserForResponse(user, requester),
       });
     }
   } catch (err) {

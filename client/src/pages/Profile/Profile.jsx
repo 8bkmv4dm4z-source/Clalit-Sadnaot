@@ -127,7 +127,7 @@ export default function Profile() {
               {form.name || "משתמש"}
             </h2>
             <p className="text-gray-600 mt-1">
-              {user.role === "admin" ? "מנהל מערכת" : "משתמש רגיל"}
+              {user.isAdmin ? "מנהל מערכת" : "משתמש רגיל"}
             </p>
           </div>
         </div>

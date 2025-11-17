@@ -226,10 +226,20 @@ export const AuthProvider = ({ children }) => {
           throw new Error(data?.message || "Failed to load profile");
         }
 
+        const isAdminFlag = Boolean(data?.isAdmin || data?.role === "admin");
+
         setUser(data);
         setIsLoggedIn(true);
-        setIsAdmin(data.role === "admin");
-        log("✅ User loaded:", data?.name || data?.email, "| role:", data.role);
+        setIsAdmin(isAdminFlag);
+        log(
+          "✅ User loaded:",
+          data?.name || data?.email,
+          "| admin:",
+          isAdminFlag,
+          "| fingerprint:",
+          data?.roleFingerprint ? `${String(data.roleFingerprint).slice(0, 8)}…` : "none"
+        );
+
         return data;
       } catch (err) {
         log("❌ fetchMe error:", err.message);
