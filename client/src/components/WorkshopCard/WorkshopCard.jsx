@@ -145,21 +145,21 @@ export default function WorkshopCard({
   }, [participants]);
 
   const waitRows = useMemo(() => {
-    const list = Array.isArray(waitingList) ? waitingList : [];
-    return list.map((w) => {
-      const ids = getEntityIdentifiers({
-        ...w,
-        parentUserId: w?.parentUser?._id ?? w?.parentUser,
-        familyMemberId: w?.familyMemberId?._id ?? w?.familyMemberId ?? w?.familyMember?._id,
-      });
-      return { parentUserId: str(ids.userId), familyMemberId: str(ids.familyId) };
-    });
-  }, [waitingList]);
+  const list = Array.isArray(waitingList) ? waitingList : [];
+  return list.map((w) => {
+    const ids = getEntityIdentifiers(w);
+    return {
+      userId: str(ids.userId),
+      familyId: str(ids.familyId),
+    };
+  });
+}, [waitingList]);
 
-  const selfOnWaitlist = useMemo(
-    () => waitRows.some((e) => e.parentUserId === userId && !e.familyMemberId),
-    [waitRows, userId]
-  );
+const selfOnWaitlist = useMemo(
+  () => waitRows.some((e) => e.userId === userId && !e.familyId),
+  [waitRows, userId]
+);
+
 
   const isWorkshopFull =
     Number(maxParticipants) > 0 &&
