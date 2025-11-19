@@ -17,6 +17,13 @@ import { MoreVertical } from "lucide-react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useProfiles } from "../../layouts/ProfileContext";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import {
+  ENTITY_TYPE_FAMILY_MEMBER,
+  ENTITY_TYPE_USER,
+  getEntityIdentifiers,
+  isFamilyEntity as isFamilyEntityHelper,
+  withEntityFlags,
+} from "../../utils/entityTypes";
 
 /* ---------------- helpers ---------------- */
 const calcAge = (dateStr) => {
@@ -30,10 +37,9 @@ const calcAge = (dateStr) => {
   return a;
 };
 
-const isFamilyEntity = (row) => row?.entityType === "familyMember";
+const isFamilyEntity = (row) => isFamilyEntityHelper(row);
 
-const buildEntityId = (row) =>
-  isFamilyEntity(row) ? [String(row.parentId), String(row._id)] : [String(row?._id)];
+const buildEntityKey = (row) => getEntityIdentifiers(row).key;
 
 
 
@@ -165,7 +171,7 @@ function ActionMenu({
 
 
 /* ---------------- main component ---------------- */
-export default function AllProfiles() {
+export default function AllProfiles({ mode = "manage", onSelectUser, existingIds = [] }) {
   const { isAdmin } = useAuth();
   const {
     profiles: contextProfiles = [],
@@ -181,6 +187,9 @@ export default function AllProfiles() {
 
   // workshops context (for unregister)
   const { unregisterEntityFromWorkshop, fetchWorkshops } = useWorkshops();
+
+  const isSelectMode = mode === "select" && typeof onSelectUser === "function";
+  const existingKeySet = useMemo(() => new Set((existingIds || []).map(String)), [existingIds]);
 
   // Local view-model
   const [search, setSearch] = useState("");
@@ -226,7 +235,7 @@ export default function AllProfiles() {
   }, [search, searchProfiles, allRows]);
 
   const startEdit = async (row) => {
-    const rowKey = buildEntityId(row).join(":");
+    const rowKey = buildEntityKey(row);
     setEditingId(rowKey);
     setEditBuffer({ ...row });
     setEntityLoadingId(rowKey);
@@ -257,9 +266,7 @@ export default function AllProfiles() {
 
   const saveEdit = async () => {
     try {
-      const isFamily = isFamilyEntity(editBuffer);
-      const userId = isFamily ? String(editBuffer.parentId) : String(editBuffer._id);
-      const familyId = isFamily ? String(editBuffer._id) : null;
+      const { isFamily, userId, familyId, key } = getEntityIdentifiers(editBuffer);
 
       const allowedKeys = isFamily
         ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
@@ -272,9 +279,9 @@ export default function AllProfiles() {
         ? { userId, familyId, parentUserId: userId, updates }
         : { userId, updates };
 
-      const rowKey = editingId;
+      const rowKey = key || editingId;
       optimisticPatchEverywhere((r) => {
-        const k = buildEntityId(r).join(":");
+        const k = buildEntityKey(r);
         return k === rowKey ? { ...r, ...updates } : r;
       });
 
@@ -302,9 +309,7 @@ export default function AllProfiles() {
       setModalLoading(true);
       setShowModal(true);
 
-      const isFamily = isFamilyEntity(row);
-      const userId = isFamily ? String(row.parentId) : String(row._id);
-      const familyId = isFamily ? String(row._id) : undefined;
+      const { isFamily, userId, familyId } = getEntityIdentifiers(row);
 
       const list = await getUserWorkshops({ userId, familyId });
       setUserWorkshops(Array.isArray(list) ? list : []);
@@ -319,7 +324,7 @@ export default function AllProfiles() {
 
   // 🗑 Remove this entity from all workshops (not DB delete)
   const bulkRemoveFromWorkshops = async (row) => {
-    const isFamily = isFamilyEntity(row);
+    const { isFamily, userId, familyId, key } = getEntityIdentifiers(row);
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     if (
       !window.confirm(
@@ -328,12 +333,9 @@ export default function AllProfiles() {
     )
       return;
 
-    const rowKey = buildEntityId(row).join(":");
+    const rowKey = key;
     try {
       setBusyRowKey(rowKey);
-
-      const userId = isFamily ? String(row.parentId) : String(row._id);
-      const familyId = isFamily ? String(row._id) : undefined;
 
       const list = await getUserWorkshops({ userId, familyId });
       const workshopIds = (Array.isArray(list) ? list : [])
@@ -367,20 +369,20 @@ export default function AllProfiles() {
   };
 
   const handleDeleteEntity = async (row) => {
-    const isFamily = isFamilyEntity(row);
+    const { isFamily, familyId, userId, key } = getEntityIdentifiers(row);
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     const confirmMessage = isFamily
       ? `האם למחוק את ${displayName}? פעולה זו תסיר אותו מכל הסדנאות.`
       : `האם למחוק את המשתמש "${displayName}" וכל בני המשפחה המקושרים?`;
     if (!window.confirm(confirmMessage)) return;
 
-    const rowKey = buildEntityId(row).join(":");
+    const rowKey = key;
     setDeletingRowId(rowKey);
     try {
       const response = await deleteEntity({
-        entityId: String(row._id),
-        entityType: isFamily ? "familyMember" : "user",
-        parentId: isFamily ? row.parentId : undefined,
+        entityId: isFamily ? String(familyId) : String(userId),
+        entityType: isFamily ? ENTITY_TYPE_FAMILY_MEMBER : ENTITY_TYPE_USER,
+        parentId: isFamily ? userId : undefined,
       });
       if (!response?.success) throw new Error(response?.message || "Delete failed");
       alert(response.message || (isFamily ? "בן המשפחה נמחק" : "המשתמש נמחק"));
@@ -509,20 +511,22 @@ export default function AllProfiles() {
                 </tr>
               ) : (
                 profiles.map((r, idx) => {
-                  const rowKey = buildEntityId(r).join(":");
+                  const normalizedRow = withEntityFlags(r);
+                  const rowKey = buildEntityKey(normalizedRow);
+                  const alreadySelected = existingKeySet.has(rowKey);
                   const isEditing = editingId === rowKey;
                   const busy = busyRowKey === rowKey;
                   const isDeleting = deletingRowId === rowKey;
-                  const isFamily = isFamilyEntity(r);
-                  const displayEmail = r.email || r.parentEmail || "-";
-                  const displayPhone = r.phone || r.parentPhone || "-";
-                  const displayCity = r.city || r.parentCity || "-";
-                  const displayIdNumber = r.idNumber || r.parentIdNumber || "-";
+                  const isFamily = normalizedRow.isFamily;
+                  const displayEmail = normalizedRow.email || normalizedRow.parentEmail || "-";
+                  const displayPhone = normalizedRow.phone || normalizedRow.parentPhone || "-";
+                  const displayCity = normalizedRow.city || normalizedRow.parentCity || "-";
+                  const displayIdNumber = normalizedRow.idNumber || normalizedRow.parentIdNumber || "-";
                   const displayAge =
-                    typeof r.age === "number"
-                      ? r.age
-                      : r.birthDate
-                      ? calcAge(r.birthDate)
+                    typeof normalizedRow.age === "number"
+                      ? normalizedRow.age
+                      : normalizedRow.birthDate
+                      ? calcAge(normalizedRow.birthDate)
                       : null;
 
                   return (
@@ -538,10 +542,12 @@ export default function AllProfiles() {
                     >
                       {/* name */}
                       <td className="p-3 font-medium text-gray-800">
-                        {isEditing ? renderEditInput("name", editBuffer?.name ?? r.name) : r.name}
+                        {isEditing
+                          ? renderEditInput("name", editBuffer?.name ?? normalizedRow.name)
+                          : normalizedRow.name}
                         {isFamily && (
                           <span className="mr-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                            בן משפחה של {r.parentName}
+                            בן משפחה של {normalizedRow.parentName}
                           </span>
                         )}
                       </td>
@@ -549,28 +555,28 @@ export default function AllProfiles() {
                       {/* email */}
                       <td className="p-3">
                         {isEditing
-                          ? renderEditInput("email", editBuffer?.email ?? r.email)
+                          ? renderEditInput("email", editBuffer?.email ?? normalizedRow.email)
                           : displayEmail}
                       </td>
 
                       {/* phone */}
                       <td className="p-3">
                         {isEditing
-                          ? renderEditInput("phone", editBuffer?.phone ?? r.phone)
+                          ? renderEditInput("phone", editBuffer?.phone ?? normalizedRow.phone)
                           : displayPhone}
                       </td>
 
                       {/* city */}
                       <td className="p-3">
                         {isEditing
-                          ? renderEditInput("city", editBuffer?.city ?? r.city)
+                          ? renderEditInput("city", editBuffer?.city ?? normalizedRow.city)
                           : displayCity}
                       </td>
 
                       {/* idNumber */}
                       <td className="p-3">
                         {isEditing
-                          ? renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)
+                          ? renderEditInput("idNumber", editBuffer?.idNumber ?? normalizedRow.idNumber)
                           : displayIdNumber}
                       </td>
 
@@ -582,10 +588,10 @@ export default function AllProfiles() {
                         {isEditing
                           ? renderEditInput(
                               "relation",
-                              editBuffer?.relation ?? (isFamily ? r.relation ?? "" : "")
+                              editBuffer?.relation ?? (isFamily ? normalizedRow.relation ?? "" : "")
                             )
                           : isFamily
-                          ? r.relation || "בן משפחה"
+                          ? normalizedRow.relation || "בן משפחה"
                           : "-"}
                       </td>
 
@@ -605,7 +611,7 @@ export default function AllProfiles() {
                             {editBuffer?.canCharge ? "✅" : "❌"}
                           </button>
                         ) : (
-                          <span>{r.canCharge ? "✅" : "❌"}</span>
+                          <span>{normalizedRow.canCharge ? "✅" : "❌"}</span>
                         )}
                       </td>
 
@@ -631,23 +637,36 @@ export default function AllProfiles() {
                           <div className="text-xs text-gray-400">טוען נתונים...</div>
                         )}
                       </div>
+                    ) : isSelectMode ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          className="btn bg-indigo-600 text-white text-xs px-3 py-1 disabled:opacity-50"
+                          onClick={() => onSelectUser?.(withEntityFlags(normalizedRow))}
+                          disabled={alreadySelected}
+                        >
+                          {alreadySelected ? "כבר רשום" : "בחר"}
+                        </button>
+                        {alreadySelected && (
+                          <div className="text-xs text-gray-500">קיים בסדנה</div>
+                        )}
+                      </div>
                     ) : (
-    <div className="inline-block relative z-[2000]">
-      <ActionMenu
-        onEdit={() => startEdit(r)}
-        onShowWorkshops={() => showWorkshops(r)}
-        onDeleteFromWorkshops={() => bulkRemoveFromWorkshops(r)}
-        onDeleteEntity={() => handleDeleteEntity(r)}
-        disabled={busy || isDeleting}
-      />
-      {busy && (
-        <div className="mt-1 text-xs text-gray-500">מוחק מסדנאות...</div>
-      )}
-      {isDeleting && (
-        <div className="mt-1 text-xs text-red-500">מוחק פרופיל...</div>
-      )}
-    </div>
-  )}
+                      <div className="inline-block relative z-[2000]">
+                        <ActionMenu
+                          onEdit={() => startEdit(normalizedRow)}
+                          onShowWorkshops={() => showWorkshops(normalizedRow)}
+                          onDeleteFromWorkshops={() => bulkRemoveFromWorkshops(normalizedRow)}
+                          onDeleteEntity={() => handleDeleteEntity(normalizedRow)}
+                          disabled={busy || isDeleting}
+                        />
+                        {busy && (
+                          <div className="mt-1 text-xs text-gray-500">מוחק מסדנאות...</div>
+                        )}
+                        {isDeleting && (
+                          <div className="mt-1 text-xs text-red-500">מוחק פרופיל...</div>
+                        )}
+                      </div>
+                    )}
 </td>
 
                     </motion.tr>
@@ -676,20 +695,22 @@ export default function AllProfiles() {
             </div>
           ) : (
             profiles.map((r) => {
-              const rowKey = buildEntityId(r).join(":");
+              const normalizedRow = withEntityFlags(r);
+              const rowKey = buildEntityKey(normalizedRow);
+              const alreadySelected = existingKeySet.has(rowKey);
               const isEditing = editingId === rowKey;
               const busy = busyRowKey === rowKey;
               const isDeleting = deletingRowId === rowKey;
-              const isFamily = isFamilyEntity(r);
-              const displayEmail = r.email || r.parentEmail || "-";
-              const displayPhone = r.phone || r.parentPhone || "-";
-              const displayCity = r.city || r.parentCity || "-";
-              const displayIdNumber = r.idNumber || r.parentIdNumber || "-";
+              const isFamily = normalizedRow.isFamily;
+              const displayEmail = normalizedRow.email || normalizedRow.parentEmail || "-";
+              const displayPhone = normalizedRow.phone || normalizedRow.parentPhone || "-";
+              const displayCity = normalizedRow.city || normalizedRow.parentCity || "-";
+              const displayIdNumber = normalizedRow.idNumber || normalizedRow.parentIdNumber || "-";
               const displayAge =
-                typeof r.age === "number"
-                  ? r.age
-                  : r.birthDate
-                  ? calcAge(r.birthDate)
+                typeof normalizedRow.age === "number"
+                  ? normalizedRow.age
+                  : normalizedRow.birthDate
+                  ? calcAge(normalizedRow.birthDate)
                   : null;
 
               return (
@@ -712,22 +733,34 @@ export default function AllProfiles() {
 
                   <div className="px-4 pt-3 pb-2 flex items-center justify-between">
                     <div className="font-semibold text-indigo-700 text-base">
-                      {isEditing ? renderEditInput("name", editBuffer?.name ?? r.name) : r.name}
+                      {isEditing
+                        ? renderEditInput("name", editBuffer?.name ?? normalizedRow.name)
+                        : normalizedRow.name}
                     </div>
                     {isFamily && (
                       <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        בן משפחה של {r.parentName}
+                        בן משפחה של {normalizedRow.parentName}
                       </span>
                     )}
                     {!isEditing && (
                       <div className="flex items-center gap-2">
-                        <ActionMenu
-                          onEdit={() => startEdit(r)}
-                          onShowWorkshops={() => showWorkshops(r)}
-                          onDeleteFromWorkshops={() => bulkRemoveFromWorkshops(r)}
-                          onDeleteEntity={() => handleDeleteEntity(r)}
-                          disabled={busy || isDeleting}
-                        />
+                        {isSelectMode ? (
+                          <button
+                            className="btn bg-indigo-600 text-white text-xs px-3 py-1 disabled:opacity-50"
+                            onClick={() => onSelectUser?.(withEntityFlags(normalizedRow))}
+                            disabled={alreadySelected}
+                          >
+                            {alreadySelected ? "כבר רשום" : "בחר"}
+                          </button>
+                        ) : (
+                          <ActionMenu
+                            onEdit={() => startEdit(normalizedRow)}
+                            onShowWorkshops={() => showWorkshops(normalizedRow)}
+                            onDeleteFromWorkshops={() => bulkRemoveFromWorkshops(normalizedRow)}
+                            onDeleteEntity={() => handleDeleteEntity(normalizedRow)}
+                            disabled={busy || isDeleting}
+                          />
+                        )}
                       </div>
                     )}
                   </div>
@@ -743,34 +776,34 @@ export default function AllProfiles() {
                       label="אימייל"
                       isEditing={isEditing}
                       value={displayEmail}
-                      input={renderEditInput("email", editBuffer?.email ?? r.email)}
+                      input={renderEditInput("email", editBuffer?.email ?? normalizedRow.email)}
                     />
                     <Field
                       label="טלפון"
                       isEditing={isEditing}
                       value={displayPhone}
-                      input={renderEditInput("phone", editBuffer?.phone ?? r.phone)}
+                      input={renderEditInput("phone", editBuffer?.phone ?? normalizedRow.phone)}
                     />
                     <Field
                       label="עיר"
                       isEditing={isEditing}
                       value={displayCity}
-                      input={renderEditInput("city", editBuffer?.city ?? r.city)}
+                      input={renderEditInput("city", editBuffer?.city ?? normalizedRow.city)}
                     />
                     <Field
                       label="ת.ז"
                       isEditing={isEditing}
                       value={displayIdNumber}
-                      input={renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)}
+                      input={renderEditInput("idNumber", editBuffer?.idNumber ?? normalizedRow.idNumber)}
                     />
                     <Field label="גיל" isEditing={false} value={displayAge ?? "-"} />
                     <Field
                       label="קשר"
                       isEditing={isEditing}
-                      value={isFamily ? r.relation || "בן משפחה" : "-"}
+                      value={isFamily ? normalizedRow.relation || "בן משפחה" : "-"}
                       input={renderEditInput(
                         "relation",
-                        editBuffer?.relation ?? (isFamily ? r.relation ?? "" : "")
+                        editBuffer?.relation ?? (isFamily ? normalizedRow.relation ?? "" : "")
                       )}
                     />
                     <div className="col-span-2">
@@ -788,7 +821,7 @@ export default function AllProfiles() {
                           {editBuffer?.canCharge ? "✅" : "❌"}
                         </button>
                       ) : (
-                        <span className="text-lg">{r.canCharge ? "✅" : "❌"}</span>
+                        <span className="text-lg">{normalizedRow.canCharge ? "✅" : "❌"}</span>
                       )}
                     </div>
                     {busy && (

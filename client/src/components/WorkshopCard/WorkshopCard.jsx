@@ -14,6 +14,7 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import { getEntityIdentifiers } from "../../utils/entityTypes";
 import {
   MapPin,
   Users,
@@ -145,10 +146,14 @@ export default function WorkshopCard({
 
   const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
-    return list.map((w) => ({
-      parentUserId: str(w?.parentUser?._id || w?.parentUser || ""),
-      familyMemberId: str(w?.familyMemberId?._id || w?.familyMemberId || ""),
-    }));
+    return list.map((w) => {
+      const ids = getEntityIdentifiers({
+        ...w,
+        parentUserId: w?.parentUser?._id ?? w?.parentUser,
+        familyMemberId: w?.familyMemberId?._id ?? w?.familyMemberId ?? w?.familyMember?._id,
+      });
+      return { parentUserId: str(ids.userId), familyMemberId: str(ids.familyId) };
+    });
   }, [waitingList]);
 
   const selfOnWaitlist = useMemo(
@@ -196,7 +201,8 @@ export default function WorkshopCard({
         ? familyWorkshopMap[_id]
         : undefined;
     const src = fromMap ?? userFamilyRegistrations ?? [];
-    return new Set((src || []).map(str));
+    const normalizeId = (entry) => getEntityIdentifiers(entry).familyId || str(entry);
+    return new Set((src || []).map(normalizeId).filter(Boolean));
   }, [familyWorkshopMap, userFamilyRegistrations, _id]);
 
   // ---------------- Button factory ----------------
