@@ -34,7 +34,9 @@ const calcAge = (dateStr) => {
   return a;
 };
 
-const normalizeParent = (u) => ({
+const hasValue = (value) => !(value === undefined || value === null || value === "");
+
+const normalizeParent = (u = {}) => ({
   ...u,
   _id: String(u._id),
   isFamily: false,
@@ -44,21 +46,40 @@ const normalizeParent = (u) => ({
   parentCanCharge: Boolean(u.canCharge),
   age: calcAge(u.birthDate),
   displayEmail: u.email || "",
+  email: u.email || "",
+  phone: u.phone || "",
+  city: u.city || "",
+  idNumber: u.idNumber || "",
+  birthDate: u.birthDate || "",
   canCharge: Boolean(u.canCharge),
 });
 
-const normalizeMember = (f, parent) => ({
-  ...f,
-  _id: String(f._id),
-  isFamily: true,
-  parentId: String(parent._id),
-  parentName: parent.name || "",
-  parentEmail: parent.email || "",
-  parentCanCharge: Boolean(parent.canCharge),
-  age: calcAge(f.birthDate),
-  displayEmail: f.email || parent.email || "",
-  canCharge: Boolean(parent.canCharge),
-});
+const normalizeMember = (f = {}, parent = {}) => {
+  const fallback = (field) => (hasValue(f[field]) ? f[field] : parent[field] || "");
+  const email = fallback("email");
+  const phone = fallback("phone");
+  const city = fallback("city");
+  const idNumber = fallback("idNumber");
+  const birthDate = fallback("birthDate");
+
+  return {
+    ...f,
+    _id: String(f._id),
+    email,
+    phone,
+    city,
+    idNumber,
+    birthDate,
+    isFamily: true,
+    parentId: String(parent._id),
+    parentName: parent.name || "",
+    parentEmail: parent.email || "",
+    parentCanCharge: Boolean(parent.canCharge),
+    age: calcAge(birthDate),
+    displayEmail: email,
+    canCharge: Boolean(parent.canCharge),
+  };
+};
 
 /** Turn server “users with familyMembers” list into flat rows */
 const flattenUsersForUI = (users = []) => {
@@ -356,6 +377,50 @@ const deleteUser = async (userId, { cascade = true } = {}) => {
   }
 };
 
+  const getEntityDetails = useCallback(
+    async (rowOrId) => {
+      const fallbackRow = typeof rowOrId === "object" && rowOrId !== null ? rowOrId : null;
+      const entityId =
+        typeof rowOrId === "string"
+          ? rowOrId
+          : fallbackRow && fallbackRow._id
+          ? String(fallbackRow._id)
+          : null;
+
+      if (!entityId) throw new Error("Missing entity ID");
+
+      const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Failed to load entity");
+
+      if (data.type === "user") {
+        const merged = { ...(fallbackRow || {}), ...(data.entity || {}) };
+        return normalizeParent(merged);
+      }
+
+      if (data.type === "familyMember") {
+        const entity = { ...(fallbackRow || {}), ...(data.entity || {}) };
+        const parent = {
+          _id: entity.parentId || fallbackRow?.parentId || null,
+          name: entity.parentName ?? fallbackRow?.parentName ?? "",
+          email: entity.parentEmail ?? fallbackRow?.parentEmail ?? "",
+          phone: entity.parentPhone ?? fallbackRow?.parentPhone ?? "",
+          city: entity.parentCity ?? fallbackRow?.parentCity ?? "",
+          idNumber: entity.parentIdNumber ?? fallbackRow?.parentIdNumber ?? "",
+          birthDate: entity.parentBirthDate ?? fallbackRow?.parentBirthDate ?? "",
+          canCharge:
+            typeof entity.parentCanCharge === "boolean"
+              ? entity.parentCanCharge
+              : fallbackRow?.parentCanCharge ?? entity.canCharge,
+        };
+        return normalizeMember(entity, parent);
+      }
+
+      throw new Error("Unsupported entity type");
+    },
+    []
+  );
+
   const value = {
     // data
     profiles: rows,         // flattened + normalized rows
@@ -367,6 +432,7 @@ const deleteUser = async (userId, { cascade = true } = {}) => {
     getUserWorkshops,       // workshops for user/family
     updateEntity,         // unified update passthrough
     deleteUser,           // deleteUser
+    getEntityDetails,     // fetch & normalize specific user/family
   };
 
   return <ProfileCtx.Provider value={value}>{children}</ProfileCtx.Provider>;

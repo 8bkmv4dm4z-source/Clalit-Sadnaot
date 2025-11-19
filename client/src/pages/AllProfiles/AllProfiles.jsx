@@ -167,6 +167,7 @@ export default function AllProfiles() {
     fetchProfiles,
     searchProfiles,
     getUserWorkshops,
+    getEntityDetails,
     loading: ctxLoading,
     error: ctxError,
   } = useProfiles();
@@ -177,6 +178,7 @@ export default function AllProfiles() {
   // Local view-model
   const [search, setSearch] = useState("");
   const [profiles, setProfiles] = useState([]);
+  const [entityLoadingId, setEntityLoadingId] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
   const [busyRowKey, setBusyRowKey] = useState(null); // for disabling buttons during bulk remove
 
@@ -215,9 +217,22 @@ export default function AllProfiles() {
     return () => clearTimeout(t);
   }, [search, searchProfiles, allRows]);
 
-  const startEdit = (row) => {
-    setEditingId(buildEntityId(row).join(":"));
-    setEditBuffer({ ...row });
+  const startEdit = async (row) => {
+    const rowKey = buildEntityId(row).join(":");
+    setEditingId(rowKey);
+    setEditBuffer(normalizeRow(row));
+    setEntityLoadingId(rowKey);
+    try {
+      const enriched = await getEntityDetails(row);
+      setEditBuffer(normalizeRow(enriched));
+    } catch (err) {
+      console.error("Failed to load entity details", err);
+      alert(err?.message || "שגיאה בטעינת נתונים");
+      setEditingId(null);
+      setEditBuffer({});
+    } finally {
+      setEntityLoadingId(null);
+    }
   };
 
   const cancelEdit = () => {
@@ -365,6 +380,7 @@ export default function AllProfiles() {
       onChange={(e) => setEditBuffer((p) => ({ ...p, [field]: e.target.value }))}
       placeholder={placeholder}
       type={field === "birthDate" ? "date" : "text"}
+      disabled={entityLoadingId === editingId}
     />
   );
 
@@ -541,22 +557,27 @@ export default function AllProfiles() {
 
                       {/* actions */}
                       <td className="p-3 text-center relative overflow-visible z-[1000]">
-  {isEditing ? (
-    <div className="flex gap-2 justify-center">
-      <button
-        className="btn bg-green-600 text-white text-xs px-3 py-1"
-        onClick={saveEdit}
-      >
-        ✅ שמור
-      </button>
-      <button
-        className="btn bg-gray-300 text-xs px-3 py-1"
-        onClick={cancelEdit}
-      >
-        ❌ בטל
-      </button>
-    </div>
-  ) : (
+                    {isEditing ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            className="btn bg-green-600 text-white text-xs px-3 py-1"
+                            onClick={saveEdit}
+                          >
+                            ✅ שמור
+                          </button>
+                          <button
+                            className="btn bg-gray-300 text-xs px-3 py-1"
+                            onClick={cancelEdit}
+                          >
+                            ❌ בטל
+                          </button>
+                        </div>
+                        {entityLoadingId === rowKey && (
+                          <div className="text-xs text-gray-400">טוען נתונים...</div>
+                        )}
+                      </div>
+                    ) : (
     <div className="inline-block relative z-[2000]">
       <ActionMenu
         onEdit={() => startEdit(r)}
@@ -703,19 +724,24 @@ export default function AllProfiles() {
                   </div>
 
                   {isEditing && (
-                    <div className="px-4 pb-3 flex gap-2">
-                      <button
-                        className="btn bg-green-600 text-white text-xs px-3 py-2 flex-1"
-                        onClick={saveEdit}
-                      >
-                        שמור
-                      </button>
-                      <button
-                        className="btn bg-gray-300 text-xs px-3 py-2 flex-1"
-                        onClick={cancelEdit}
-                      >
-                        בטל
-                      </button>
+                    <div className="px-4 pb-3 flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <button
+                          className="btn bg-green-600 text-white text-xs px-3 py-2 flex-1"
+                          onClick={saveEdit}
+                        >
+                          שמור
+                        </button>
+                        <button
+                          className="btn bg-gray-300 text-xs px-3 py-2 flex-1"
+                          onClick={cancelEdit}
+                        >
+                          בטל
+                        </button>
+                      </div>
+                      {entityLoadingId === rowKey && (
+                        <div className="text-xs text-gray-400 text-center">טוען נתונים...</div>
+                      )}
                     </div>
                   )}
                 </motion.div>
