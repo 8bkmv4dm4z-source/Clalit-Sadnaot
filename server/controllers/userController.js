@@ -436,10 +436,7 @@ exports.getAllUsers = async (req, res) => {
     const enriched = users.map((u) => {
       const clean = sanitizeUserForResponse(u, req.user);
       clean.canCharge = Boolean(u.canCharge);
-      clean.familyMembers = (u.familyMembers || []).map((f) => ({
-        ...f,
-        canCharge: Boolean(u.canCharge),
-      }));
+      clean.familyMembers = (u.familyMembers || []).map((f) => hydrateFamilyMember(f, clean));
       return clean;
     });
 
@@ -488,10 +485,7 @@ exports.getUserById = async (req, res) => {
         if (!isOwner && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
 
         const member = parent.familyMembers.id(id);
-        return res.json({
-          ...member.toObject(),
-          parentId: parent._id,
-        });
+        return res.json(hydrateFamilyMember(member, parent));
       }
       return res.status(404).json({ message: "User not found" });
     }
@@ -531,7 +525,7 @@ exports.getEntityById = async (req, res) => {
       const member = parent.familyMembers.id(id);
       return res.json({
         type: "familyMember",
-        entity: { ...member.toObject(), parentId: parent._id },
+        entity: hydrateFamilyMember(member, parent),
       });
     }
     return res.status(404).json({ message: "Entity not found" });
@@ -766,3 +760,27 @@ exports.getUserWorkshopsList = async (req, res) => {
   }
 };
 
+const toPlain = (doc) => (doc && typeof doc.toObject === "function" ? doc.toObject() : doc || {});
+const hasValue = (val) => !(val === undefined || val === null || val === "");
+const withFallback = (value, fallback) => (hasValue(value) ? value : fallback);
+
+const hydrateFamilyMember = (memberDoc, parentDoc) => {
+  const member = { ...toPlain(memberDoc) };
+  const parent = toPlain(parentDoc);
+  const merged = { ...member };
+
+  const fields = ["email", "phone", "city", "idNumber", "birthDate"];
+  for (const field of fields) {
+    merged[field] = withFallback(member[field], parent[field]);
+  }
+
+  merged.parentId = parent._id || member.parentId || null;
+  merged.parentName = parent.name || member.parentName || "";
+  merged.parentEmail = parent.email || member.parentEmail || "";
+  merged.parentPhone = parent.phone || member.parentPhone || "";
+  merged.parentCity = parent.city || member.parentCity || "";
+  merged.parentCanCharge = typeof parent.canCharge === "boolean" ? parent.canCharge : !!member.parentCanCharge;
+  merged.canCharge = Boolean(parent.canCharge);
+
+  return merged;
+};
