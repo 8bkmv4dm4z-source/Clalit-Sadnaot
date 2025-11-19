@@ -15,6 +15,10 @@ const fs = require("fs");
 const path = require("path");
 const { safeFetch } = require("../utils/safeFetch");
 const fallbackCities = require("../config/fallbackCities.json");
+const {
+  hydrateFamilyMember,
+  hydrateParentFields,
+} = require("../services/entities/hydration");
 
 /* ============================================================
    🔍 Workshop Search Helpers
@@ -27,6 +31,47 @@ function normalizeWorkshopQuery(q) {
     .trim()
     .toLowerCase()
     .replace(/[^\w@.\s\u0590-\u05FF]/g, "");
+}
+
+const pickValue = (value, fallback = "") =>
+  value !== undefined && value !== null && value !== "" ? value : fallback;
+
+function buildRegistrationEntry({ parentUser, memberDoc = null }) {
+  if (!parentUser) throw new Error("Parent user is required");
+
+  const parent = hydrateParentFields(parentUser);
+  const base = {
+    parentUser: parentUser._id,
+    name: pickValue(parent.name, parentUser.name || ""),
+    relation: "self",
+    idNumber: pickValue(parent.idNumber),
+    phone: pickValue(parent.phone),
+    birthDate: pickValue(parent.birthDate),
+  };
+
+  if (!memberDoc) {
+    return base;
+  }
+
+  const hydrated = hydrateFamilyMember(memberDoc, parentUser);
+  return {
+    parentUser: parentUser._id,
+    familyMemberId: memberDoc._id,
+    name: pickValue(hydrated.name, pickValue(memberDoc.name, base.name)),
+    relation: pickValue(hydrated.relation, pickValue(memberDoc.relation, "")),
+    idNumber: pickValue(
+      hydrated.idNumber,
+      pickValue(memberDoc.idNumber, pickValue(parent.idNumber, base.idNumber))
+    ),
+    phone: pickValue(
+      hydrated.phone,
+      pickValue(memberDoc.phone, pickValue(parent.phone, base.phone))
+    ),
+    birthDate: pickValue(
+      hydrated.birthDate,
+      pickValue(memberDoc.birthDate, pickValue(parent.birthDate, base.birthDate))
+    ),
+  };
 }
 /* ------------------------------------------------------------
    🔧 Internal helper: automatically promote from the waiting list
@@ -787,15 +832,10 @@ exports.registerEntityToWorkshop = async (req, res) => {
         });
       }
 
-      const entry = {
-        parentUser: parentUser._id,
-        familyMemberId: isFamily ? member._id : undefined,
-        name: isFamily ? member.name : parentUser.name,
-        relation: isFamily ? member.relation : "self",
-        idNumber: isFamily ? member.idNumber : parentUser.idNumber,
-        phone: isFamily ? member.phone : parentUser.phone,
-        birthDate: isFamily ? member.birthDate : parentUser.birthDate,
-      };
+      const entry = buildRegistrationEntry({
+        parentUser,
+        memberDoc: isFamily ? member : null,
+      });
       workshop.waitingList.push(entry);
       await workshop.save();
 
@@ -810,15 +850,11 @@ exports.registerEntityToWorkshop = async (req, res) => {
        ✅ Normal registration
        ============================================================ */
     if (isFamily) {
-      workshop.familyRegistrations.push({
-        parentUser: parentUser._id,
-        familyMemberId: member._id,
-        name: member.name,
-        relation: member.relation,
-        idNumber: member.idNumber,
-        phone: member.phone,
-        birthDate: member.birthDate,
+      const familyEntry = buildRegistrationEntry({
+        parentUser,
+        memberDoc: member,
       });
+      workshop.familyRegistrations.push(familyEntry);
 
       // update familyWorkshopMap
       const existing = parentUser.familyWorkshopMap.find(f =>
@@ -978,15 +1014,10 @@ exports.addEntityToWaitlist = async (req, res) => {
       ? user.familyMembers?.id(familyId)
       : null;
 
-    const entry = {
-      parentUser: user._id,
-      familyMemberId: familyId || undefined,
-      name: member ? member.name : user.name,
-      relation: member ? member.relation : "self",
-      idNumber: member ? member.idNumber : user.idNumber,
-      phone: member ? member.phone : user.phone,
-      birthDate: member ? member.birthDate : user.birthDate,
-    };
+    const entry = buildRegistrationEntry({
+      parentUser: user,
+      memberDoc: member,
+    });
 
     workshop.waitingList.push(entry);
     await workshop.save();
@@ -1399,15 +1430,10 @@ exports.addToWaitlist = async (req, res) => {
     });
     if (duplicate) return res.status(400).json({ message: "Already on waiting list" });
     // Build entry
-    const entry = {
-      parentUser: user._id,
-      familyMemberId: familyId || undefined,
-      name: familyId ? member.name : user.name,
-      relation: familyId ? member.relation : "self",
-      idNumber: familyId ? member.idNumber : user.idNumber,
-      phone: familyId ? member.phone : user.phone,
-      birthDate: familyId ? member.birthDate : user.birthDate,
-    };
+    const entry = buildRegistrationEntry({
+      parentUser: user,
+      memberDoc: member,
+    });
     workshop.waitingList.push(entry);
     await workshop.save();
     return res.json({ success: true, message: "Added to waiting list", waitlist: workshop.waitingList });
