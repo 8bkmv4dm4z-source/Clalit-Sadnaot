@@ -253,8 +253,18 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       ]);
       const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
       if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
+      if (!resW.ok) throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
       setParticipants(Array.isArray(dataP.participants) ? dataP.participants : []);
-      setWaitlist(Array.isArray(dataW) ? dataW : []);
+
+      // 🐛 server returns an object { success, count, waitingList }.
+      // The previous code assumed the response itself was an array,
+      // so waitlisted entries were discarded and the modal stayed empty.
+      const normalizedWaitlist = Array.isArray(dataW?.waitingList)
+        ? dataW.waitingList
+        : Array.isArray(dataW)
+        ? dataW
+        : [];
+      setWaitlist(normalizedWaitlist);
     } catch (e) {
       // SECURITY FIX: log only sanitized error messages (no stack traces)
       console.error("❌ fetchAll", e?.message || e);
