@@ -497,51 +497,47 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const registerToWaitlist = async (workshopId, familyId = null) => {
-    dbgCtx("waitlistRegister:start", { workshopId, familyId });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
-        method: "POST",
-        body: JSON.stringify({ familyId }),
-      });
-      const data = await res.json();
-      dbgCtx("waitlistRegister:raw-response", { ok: res.ok, message: data?.message });
+  const registerToWaitlist = async (workshopId, familyId) => {
+  dbgCtx("waitlistRegister:start", { workshopId, familyId });
 
-      if (!res.ok) throw new Error(data.message || "Failed to register to waitlist");
+  const body = familyId ? { familyId } : {};
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      dbgCtx("waitlistRegister:success", { workshopId, familyId });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ registerToWaitlist error:", err);
-      dbgCtx("waitlistRegister:error", { workshopId, familyId, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
 
-  const unregisterFromWaitlist = async (workshopId, familyId = null) => {
-    dbgCtx("waitlistUnregister:start", { workshopId, familyId });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
-        method: "DELETE",
-        body: JSON.stringify(familyId ? { familyId } : {}),
-      });
-      const data = await res.json();
-      dbgCtx("waitlistUnregister:raw-response", { ok: res.ok, message: data?.message });
+    const data = await res.json();
+    dbgCtx("waitlistRegister:done", data);
 
-      if (!res.ok) throw new Error(data.message || "Failed to remove from waitlist");
+    await refreshWorkshop(workshopId, true);
+  } catch (e) {
+    dbgCtx("waitlistRegister:error", e);
+    throw e;
+  }
+};
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      dbgCtx("waitlistUnregister:success", { workshopId, familyId });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ unregisterFromWaitlist error:", err);
-      dbgCtx("waitlistUnregister:error", { workshopId, familyId, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
+
+  const unregisterFromWaitlist = async (workshopId, familyId) => {
+  const body = familyId ? { familyId } : {};
+
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    await res.json();
+    await refreshWorkshop(workshopId, true);
+  } catch (e) {
+    throw e;
+  }
+};
 
   /* ============================================================
    🛠️ Admin: Create & Update Workshops

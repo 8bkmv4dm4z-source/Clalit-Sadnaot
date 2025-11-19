@@ -214,25 +214,37 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   }, [allRows, search]);
 
   useEffect(() => {
-    const q = search.trim();
-    if (!q) {
-      setProfiles(allRows.slice(0, 100));
-      return;
+  const q = search.trim();
+
+  // Default view (no search) MUST use withEntityFlags
+  if (!q) {
+    const defaults = allRows.slice(0, 100).map((row) => withEntityFlags(row));
+    setProfiles(defaults);
+    return;
+  }
+
+  setIsFetching(true);
+
+  const t = setTimeout(async () => {
+    try {
+      const result = await searchProfiles(q);
+
+      const list = Array.isArray(result)
+        ? result.map((r) => withEntityFlags(r))
+        : [];
+
+      setProfiles(list);
+    } catch (e) {
+      console.error("searchProfiles error:", e);
+      setProfiles([]);
+    } finally {
+      setIsFetching(false);
     }
-    setIsFetching(true);
-    const t = setTimeout(async () => {
-      try {
-        const result = await searchProfiles(q);
-        setProfiles(Array.isArray(result) ? result : []);
-      } catch (e) {
-        console.error("searchProfiles error:", e);
-        setProfiles([]);
-      } finally {
-        setIsFetching(false);
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [search, searchProfiles, allRows]);
+  }, 350);
+
+  return () => clearTimeout(t);
+}, [search, searchProfiles, allRows]);
+
 
   const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);

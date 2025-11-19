@@ -189,17 +189,20 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [showProfiles, setShowProfiles] = useState(false);
 
   const normalizeEntity = useCallback((entity) => {
-    const flagged = withEntityFlags(entity);
-    return {
-      ...flagged,
-      parentName:
-        flagged.parentName ||
-        flagged.parentUser?.name ||
-        flagged.parentUser?.fullName ||
-        flagged.parentUser?.email ||
-        flagged.parentUser?.phone,
-    };
-  }, []);
+  const flagged = withEntityFlags(entity);
+
+  return {
+    ...flagged,
+
+    // repaired inherited fields
+    phone: flagged.phone || flagged.parentPhone || "",
+    email: flagged.email || flagged.parentEmail || "",
+    city: flagged.city || flagged.parentCity || "",
+
+    parentName: flagged.parentName || "",
+  };
+}, []);
+
 
   const workshopId = useMemo(() => String(workshop?._id ?? ""), [workshop?._id]);
 
@@ -368,10 +371,10 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const renderWaitlistItem = (wl) => {
     const age = calcAge(wl.birthDate);
 
-    // 🧩 הגדרת ערכי fallback מהאב
-    const phone = wl.phone || wl.parentUser?.phone || "-";
-  const email = wl.email || wl.parentUser?.email || "-";
-  const city = wl.city || wl.parentUser?.city || "-";
+   const phone = wl.phone || wl.parentPhone || "-";
+const email = wl.email || wl.parentEmail || "-";
+const city = wl.city || wl.parentCity || "-";
+
 
   return (
     <div

@@ -1483,20 +1483,33 @@ exports.getWaitlist = async (req, res) => {
     }
 
     const waitingList = (workshop.waitingList || []).map((w) => {
-      const parent = w.parentUser || {};
-      const member = w.familyMemberId || {};
-      return {
-        _id: w._id,
-        name: w.name || member.name || "",
-        relation: w.relation || member.relation || "",
-        parentName: parent.name || "",
-        parentEmail: parent.email || "",
-        parentPhone: parent.phone || "",
-        idNumber: member.idNumber || w.idNumber || "",
-        birthDate: member.birthDate || w.birthDate || null,
-        canCharge: parent.canCharge ? "כן" : "לא",
-      };
-    });
+  const parent = w.parentUser || {};
+  const member = w.familyMemberId || {};
+
+  return {
+    _id: w._id,
+
+    // visible identity
+    name: member.name || w.name || "",
+    relation: member.relation || "",
+    parentName: parent.name || "",
+
+    // inherited fields
+    phone: member.phone || parent.phone || "",
+    email: member.email || parent.email || "",
+    city: member.city || parent.city || "",
+
+    // charging flag
+    canCharge: typeof w.canCharge === "boolean"
+      ? w.canCharge
+      : !!parent.canCharge,
+
+    // identifiers for WorkshopCard
+    parentUserId: parent._id,
+    familyMemberId: member._id || null,
+  };
+});
+
 
     return res.json({
       success: true,
@@ -1509,10 +1522,8 @@ exports.getWaitlist = async (req, res) => {
   }
 };
 
-// ✅ מחזיר רשימת ערים בישראל ממקור ממשלתי (או fallback ל-local)
 exports.getAvailableCities = async (req, res) => {
   try {
-    // ✅ ניסיון ראשון – קריאה ל-API ממשלתי
     const url =
       "https://data.gov.il/api/3/action/datastore_search?resource_id=bb040a11-b8b0-46a9-bc48-63a972df2a5b&limit=5000";
     const response = await safeFetch(url, {
