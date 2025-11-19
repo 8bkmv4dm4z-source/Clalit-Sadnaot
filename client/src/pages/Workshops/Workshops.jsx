@@ -306,6 +306,7 @@ export default function Workshops() {
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
                     onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
                     searchQuery={searchQuery}
+                    refreshWorkshops={fetchWorkshops}
                   />
                 ))}
               </div>
@@ -334,6 +335,7 @@ export default function Workshops() {
               onEditWorkshop={() => handleEditWorkshop(w._id)}
               onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
               searchQuery={searchQuery}
+              refreshWorkshops={fetchWorkshops}
             />
           ))}
         </div>
@@ -344,6 +346,7 @@ export default function Workshops() {
         <WorkshopParticipantsModal
           workshop={selectedWorkshop}
           onClose={handleModalClose}
+          refreshWorkshops={fetchWorkshops}
         />
       )}
     </div>
