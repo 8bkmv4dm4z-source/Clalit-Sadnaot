@@ -36,6 +36,7 @@ import { apiFetch } from "../../utils/apiFetch";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAuth } from "../../layouts/AuthLayout";
 import AllProfiles from "../../pages/AllProfiles";
+import { getEntityIdentifiers, withEntityFlags } from "../../utils/entityTypes";
 
 const calcAge = (d) => {
   if (!d) return null;
@@ -187,6 +188,19 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
 
+  const normalizeEntity = useCallback((entity) => {
+    const flagged = withEntityFlags(entity);
+    return {
+      ...flagged,
+      parentName:
+        flagged.parentName ||
+        flagged.parentUser?.name ||
+        flagged.parentUser?.fullName ||
+        flagged.parentUser?.email ||
+        flagged.parentUser?.phone,
+    };
+  }, []);
+
   const workshopId = useMemo(() => String(workshop?._id ?? ""), [workshop?._id]);
 
   // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
@@ -237,6 +251,12 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     return 0;
   }, [waitlist, activeWorkshop]);
 
+  const existingKeys = useMemo(
+    () =>
+      [...participants, ...waitlist].map((p) => p.__entityKey || getEntityIdentifiers(p).key),
+    [participants, waitlist]
+  );
+
   const isCapacityFull = useMemo(() => {
     if (!capacityLimit) return false;
     return participantsTotal >= capacityLimit;
@@ -254,7 +274,8 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
       if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
       if (!resW.ok) throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
-      setParticipants(Array.isArray(dataP.participants) ? dataP.participants : []);
+      const participantList = Array.isArray(dataP.participants) ? dataP.participants : [];
+      setParticipants(participantList.map(normalizeEntity));
 
       // 🐛 server returns an object { success, count, waitingList }.
       // The previous code assumed the response itself was an array,
@@ -264,7 +285,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         : Array.isArray(dataW)
         ? dataW
         : [];
-      setWaitlist(normalizedWaitlist);
+      setWaitlist(normalizedWaitlist.map(normalizeEntity));
     } catch (e) {
       // SECURITY FIX: log only sanitized error messages (no stack traces)
       console.error("❌ fetchAll", e?.message || e);
@@ -272,7 +293,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [activeWorkshopId]);
+  }, [activeWorkshopId, normalizeEntity]);
 
   useEffect(() => {
     fetchAll();
@@ -282,13 +303,13 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const handleUnregister = async (person, fromWaitlist = false) => {
     if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
     try {
-      const familyId = person.isFamily ? person._id : null;
+      const { familyId } = getEntityIdentifiers(person);
       // Use context helpers depending on whether we remove from waitlist or participants
       let result;
       if (fromWaitlist) {
-        result = await unregisterFromWaitlist(activeWorkshopId, familyId);
+        result = await unregisterFromWaitlist(activeWorkshopId, familyId || undefined);
       } else {
-        result = await unregisterEntityFromWorkshop(activeWorkshopId, familyId);
+        result = await unregisterEntityFromWorkshop(activeWorkshopId, familyId || undefined);
       }
       if (!result || result.success === false) {
         throw new Error(result?.message || "שגיאה בביטול");
@@ -304,7 +325,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   /** Promote from waitlist → participants */
   const handlePromote = async (wl) => {
     try {
-      const familyId = wl.familyMemberId || null;
+      const { familyId } = getEntityIdentifiers(wl);
       // בדיקת מקום
       if (isCapacityFull) {
         alert("❌ אין מקום פנוי לקידום משתתף זה.");
@@ -354,7 +375,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 
   return (
     <div
-      key={wl._id}
+      key={wl.__entityKey || wl._id}
       className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
     >
       <div className="flex justify-between items-center mb-2">
@@ -399,7 +420,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     const age = calcAge(p.birthDate);
     return (
       <div
-        key={p._id}
+        key={p.__entityKey || p._id}
         className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
       >
         <div className="flex justify-between items-start gap-3">
@@ -523,8 +544,8 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
               mode="select"
               onSelectUser={async (p) => {
                 try {
-                  const familyId = p.isFamily ? p._id : null;
-                  const res = await registerEntityToWorkshop(workshop._id, familyId);
+                  const { familyId } = getEntityIdentifiers(p);
+                  const res = await registerEntityToWorkshop(activeWorkshopId, familyId || undefined);
                   if (!res || res.success === false) {
                     throw new Error(res?.message || "שגיאה בהרשמה");
                   }
@@ -536,7 +557,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
                   alert("❌ " + e.message);
                 }
               }}
-              existingIds={participants.map((p) => p._id)}
+              existingIds={existingKeys}
             />
           </div>
         )}
