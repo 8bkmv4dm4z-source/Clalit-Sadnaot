@@ -514,8 +514,9 @@ export const WorkshopProvider = ({ children }) => {
     const data = await res.json();
     dbgCtx("waitlistRegister:done", data);
 
-    await refreshWorkshop(workshopId, true);
-  } catch (e) {
+await fetchAllWorkshops(true);
+await fetchRegisteredWorkshops();
+await fetchProfiles();  } catch (e) {
     dbgCtx("waitlistRegister:error", e);
     throw e;
   }
@@ -533,8 +534,9 @@ export const WorkshopProvider = ({ children }) => {
     });
 
     await res.json();
-    await refreshWorkshop(workshopId, true);
-  } catch (e) {
+await fetchAllWorkshops(true);
+await fetchRegisteredWorkshops();
+await fetchProfiles();  } catch (e) {
     throw e;
   }
 };
