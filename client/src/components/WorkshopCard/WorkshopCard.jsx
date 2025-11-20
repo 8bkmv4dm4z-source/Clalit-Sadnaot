@@ -43,7 +43,13 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-export default function WorkshopCard({ _id, searchQuery = "" }) {
+export default function WorkshopCard({
+  _id,
+  searchQuery = "",
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+}) {
   /* ---------------- Context ---------------- */
   const { user, isLoggedIn, isAdmin } = useAuth();
   const {
@@ -350,6 +356,9 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
                 adminOpen={adminOpen}
                 setAdminOpen={setAdminOpen}
                 workshopId={wid}
+                onManageParticipants={onManageParticipants}
+                onEditWorkshop={onEditWorkshop}
+                onDeleteWorkshop={onDeleteWorkshop}
               />
             )}
           </div>
@@ -628,25 +637,36 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
 }
 
 /* ---------- Admin menu extracted for clarity ---------- */
-function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
-  // נשים את ה־callbacks בדפים שמרנדרים את WorkshopCard (כמו קודם)
-  // דרך onManageParticipants / onEditWorkshop / onDeleteWorkshop שעוברים ב־props
-  // כאן פשוט נשתמש ב-CustomEvent כדי לא לשבור API:
+function AdminMenu({
+  adminMenuRef,
+  adminOpen,
+  setAdminOpen,
+  workshopId,
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+}) {
   const handleEmit = (type) => {
-    window.dispatchEvent(
-      new CustomEvent("workshop-admin-action", {
-        detail: { type, workshopId },
-      })
-    );
-  };
+    const fallback = () =>
+      window.dispatchEvent(
+        new CustomEvent("workshop-admin-action", {
+          detail: { type, workshopId },
+        })
+      );
 
-  useEffect(() => {
-    const handler = (e) => {
-      // no-op placeholder; הדפים themselves מאזינים לאיבנט אם צריכים
+    const map = {
+      manage: onManageParticipants,
+      edit: onEditWorkshop,
+      delete: onDeleteWorkshop,
     };
-    window.addEventListener("workshop-admin-action", handler);
-    return () => window.removeEventListener("workshop-admin-action", handler);
-  }, []);
+
+    const fn = map[type];
+    if (typeof fn === "function") {
+      fn();
+    } else {
+      fallback();
+    }
+  };
 
   return (
     <div className="relative" ref={adminMenuRef}>
