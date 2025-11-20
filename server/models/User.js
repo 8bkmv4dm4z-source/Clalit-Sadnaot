@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");
+const nodeCrypto = require("node:crypto");
 
 /**
  * FamilyMemberSchema
@@ -10,6 +10,11 @@ const crypto = require("crypto");
  */
 const FamilyMemberSchema = new mongoose.Schema(
   {
+    entityKey: {
+      type: String,
+      default: () => nodeCrypto.randomUUID(),
+      index: true,
+    },
     name: { type: String, required: true },
     relation: { type: String, default: "" },
     idNumber: { type: String, default: "" },
@@ -31,6 +36,12 @@ const FamilyMemberSchema = new mongoose.Schema(
 const UserSchema = new mongoose.Schema(
   {
     // 👤 Basic Info
+    entityKey: {
+      type: String,
+      default: () => nodeCrypto.randomUUID(),
+      index: true,
+      unique: true,
+    },
     name: { type: String, default: "" },
     email: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, select: false },
@@ -125,7 +136,18 @@ const ROLE_HASH_SECRET =
 
 const hashValue = (value, salt = ROLE_HASH_SECRET) => {
   if (!value) return null;
-  return crypto.createHash("sha256").update(`${salt}:${value}`).digest("hex");
+  return nodeCrypto.createHash("sha256").update(`${salt}:${value}`).digest("hex");
+};
+
+const ensureEntityKeys = (userDoc) => {
+  if (!userDoc.entityKey) {
+    userDoc.entityKey = nodeCrypto.randomUUID();
+  }
+  if (Array.isArray(userDoc.familyMembers)) {
+    userDoc.familyMembers.forEach((member) => {
+      if (!member.entityKey) member.entityKey = nodeCrypto.randomUUID();
+    });
+  }
 };
 
 UserSchema.statics.computeRoleHash = function (userId, role) {
@@ -142,6 +164,11 @@ UserSchema.methods.refreshIntegrityHashes = function () {
   this.roleIntegrityHash = this.constructor.computeRoleHash(this._id, this.role);
   this.idNumberHash = this.constructor.computeIdNumberHash(this.idNumber);
 };
+
+UserSchema.pre("validate", function (next) {
+  ensureEntityKeys(this);
+  next();
+});
 
 UserSchema.methods.isRoleIntegrityValid = function () {
   if (!this.role) return true; // no role to validate
@@ -186,7 +213,6 @@ UserSchema.methods.validatePassword = async function (plainPassword) {
    ============================================================ */
 
 // Basic field indexes
-UserSchema.index({ email: 1 }, { unique: true, sparse: true });
 UserSchema.index({ phone: 1 });
 UserSchema.index({ idNumber: 1 });
 UserSchema.index({ city: 1 });

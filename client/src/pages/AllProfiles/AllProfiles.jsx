@@ -278,7 +278,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
   const saveEdit = async () => {
     try {
-      const { isFamily, userId, familyId, key } = getEntityIdentifiers(editBuffer);
+      const { isFamily, entityKey, key } = getEntityIdentifiers(editBuffer);
 
       const allowedKeys = isFamily
         ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
@@ -287,9 +287,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       const updates = {};
       for (const k of allowedKeys) if (editBuffer[k] !== undefined) updates[k] = editBuffer[k];
 
-      const payload = isFamily
-        ? { userId, familyId, parentUserId: userId, updates }
-        : { userId, updates };
+      const payload = { entityKey, updates };
 
       const rowKey = key || editingId;
       optimisticPatchEverywhere((r) => {
@@ -303,7 +301,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       if (typeof fetchProfiles === "function") {
         try {
           await fetchProfiles({ limit: 1000, compact: 1 });
-        } catch {}
+        } catch (refreshErr) {
+          console.warn("profiles refresh failed", refreshErr);
+        }
       }
 
       setEditingId(null);
@@ -321,9 +321,12 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       setModalLoading(true);
       setShowModal(true);
 
-      const { isFamily, userId, familyId } = getEntityIdentifiers(row);
+      const { isFamily, entityKey, parentKey } = getEntityIdentifiers(row);
 
-      const list = await getUserWorkshops({ userId, familyId });
+      const list = await getUserWorkshops({
+        entityKey: isFamily ? parentKey : entityKey,
+        familyEntityKey: isFamily ? entityKey : undefined,
+      });
       setUserWorkshops(Array.isArray(list) ? list : []);
       setModalTitle(isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name);
     } catch (e) {
@@ -336,7 +339,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
   // 🗑 Remove this entity from all workshops (not DB delete)
   const bulkRemoveFromWorkshops = async (row) => {
-    const { isFamily, userId, familyId, key } = getEntityIdentifiers(row);
+    const { isFamily, entityKey, parentKey, key } = getEntityIdentifiers(row);
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     if (
       !window.confirm(
@@ -349,14 +352,16 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     try {
       setBusyRowKey(rowKey);
 
-      const list = await getUserWorkshops({ userId, familyId });
+      const list = await getUserWorkshops({
+        entityKey: isFamily ? parentKey : entityKey,
+        familyEntityKey: isFamily ? entityKey : undefined,
+      });
       const workshopIds = (Array.isArray(list) ? list : [])
-        .map((w) => String(w.workshopId || w._id || w.id))
+        .map((w) => String(w.workshopKey || w.workshopId || w.id))
         .filter(Boolean);
 
       for (const wid of workshopIds) {
-        // familyId present => unregister family member, else unregister user
-        await unregisterEntityFromWorkshop(wid, familyId || null);
+        await unregisterEntityFromWorkshop(wid, isFamily ? entityKey : null);
       }
 
       // Optional refreshes
@@ -381,7 +386,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   };
 
   const handleDeleteEntity = async (row) => {
-    const { isFamily, familyId, userId, key } = getEntityIdentifiers(row);
+    const { isFamily, entityKey, parentKey, key } = getEntityIdentifiers(row);
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     const confirmMessage = isFamily
       ? `האם למחוק את ${displayName}? פעולה זו תסיר אותו מכל הסדנאות.`
@@ -391,11 +396,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const rowKey = key;
     setDeletingRowId(rowKey);
     try {
-      const response = await deleteEntity({
-        entityId: isFamily ? String(familyId) : String(userId),
-        entityType: isFamily ? ENTITY_TYPE_FAMILY_MEMBER : ENTITY_TYPE_USER,
-        parentId: isFamily ? userId : undefined,
-      });
+      const response = await deleteEntity({ entityKey: isFamily ? entityKey : entityKey });
       if (!response?.success) throw new Error(response?.message || "Delete failed");
       alert(response.message || (isFamily ? "בן המשפחה נמחק" : "המשתמש נמחק"));
     } catch (err) {

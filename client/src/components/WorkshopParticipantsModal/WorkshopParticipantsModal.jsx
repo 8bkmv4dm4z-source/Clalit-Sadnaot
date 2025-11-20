@@ -65,16 +65,10 @@ function QuickEdit({ person, onClose, onSaved }) {
   const save = async () => {
     try {
       setSaving(true);
-      const payload = person.isFamily
-        ? {
-            familyId: person._id,
-            parentUserId: person.parentId || person.parentUser?._id,
-            updates: { ...form },
-          }
-        : {
-            userId: person._id,
-            updates: { ...form },
-          };
+      const payload = {
+        entityKey: person.entityKey,
+        updates: { ...form },
+      };
 
       const res = await apiFetch("/api/users/update-entity", {
         method: "PUT",
@@ -83,7 +77,7 @@ function QuickEdit({ person, onClose, onSaved }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "עדכון נכשל");
 
-      onSaved?.({ _id: person._id, ...form });
+      onSaved?.({ entityKey: person.entityKey, ...form });
       onClose?.();
     } catch (e) {
       alert("❌ שגיאה בעדכון: " + e.message);

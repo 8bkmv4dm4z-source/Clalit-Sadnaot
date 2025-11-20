@@ -91,7 +91,7 @@ export default function WorkshopCard({
   }, []);
 
   /* ---------------- Derived data from workshop (context) ---------------- */
-  const userId = str(user?._id);
+  const userKey = str(user?.entityKey);
 
   const {
     title = "",
@@ -147,30 +147,25 @@ export default function WorkshopCard({
     return new Set(participantsArr.map((p) => str(p)).filter(Boolean));
   }, [participantsArr]);
 
-  // טורי רשימת המתנה: מחלץ userId + familyId מכל אובייקט ברשימה
+  // טורי רשימת המתנה: מחלץ parentKey + entityKey מכל אובייקט ברשימה
   const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
     return list.map((w) => {
       const ids = getEntityIdentifiers({
-        ...w,
-        parentUserId: w?.parentUser?._id ?? w?.parentUser,
-        familyMemberId:
-          w?.familyMemberId?._id ??
-          w?.familyMemberId ??
-          w?.familyMember?._id ??
-          w?.familyMember,
+        entityKey: w?.familyMemberKey || w?.entityKey || w?.familyMemberId,
+        parentKey: w?.parentKey,
       });
       return {
-        userId: str(ids.userId),
-        familyId: str(ids.familyId),
+        parentKey: str(ids.parentKey),
+        entityKey: str(ids.entityKey),
       };
     });
   }, [waitingList]);
 
   // אני עצמי ברשימת המתנה (רק parent, בלי בן משפחה)
   const selfOnWaitlist = useMemo(
-    () => waitRows.some((e) => e.userId === userId && !e.familyId),
-    [waitRows, userId]
+    () => waitRows.some((e) => e.parentKey === userKey && !e.entityKey),
+    [waitRows, userKey]
   );
 
   const isWorkshopFull =
@@ -181,7 +176,7 @@ export default function WorkshopCard({
 
   /* ---------------- Registered state (SELF) ---------------- */
   const isSelfRegistered = useMemo(() => {
-    if (!userId || !wid) return false;
+    if (!userKey || !wid) return false;
 
     // 1) ids שנשלפים מהשרת לפי הרשמה
     if (Array.isArray(registeredWorkshopIds) && registeredWorkshopIds.includes(wid)) {
@@ -196,8 +191,8 @@ export default function WorkshopCard({
     if (workshop?.isUserRegistered) return true;
 
     // 4) fallback אחרון: מופיע ב-participants
-    return participantIdSet.has(userId);
-  }, [registeredWorkshopIds, userWorkshopMap, wid, workshop, participantIdSet, userId]);
+    return participantIdSet.has(userKey);
+  }, [registeredWorkshopIds, userWorkshopMap, wid, workshop, participantIdSet, userKey]);
 
   /* ---------------- Registered state (FAMILY) ---------------- */
   const familyRegisteredIdSet = useMemo(() => {
@@ -206,19 +201,18 @@ export default function WorkshopCard({
         ? familyWorkshopMap[wid]
         : undefined;
     const src = fromMap ?? userFamilyRegistrations ?? [];
-    const normalizeId = (entry) => getEntityIdentifiers(entry).familyId || str(entry);
+    const normalizeId = (entry) => getEntityIdentifiers(entry).entityKey || str(entry);
     return new Set((src || []).map(normalizeId).filter(Boolean));
   }, [familyWorkshopMap, wid, userFamilyRegistrations]);
 
   /* ---------------- Button factory (self / family) ---------------- */
   const getEntityButton = (entity) => {
-    // אם זה בן משפחה, יש לו _id; אם זה "אני" → אין familyId
-    const familyId = typeof entity === "object" ? str(entity?._id) : "";
-    const isSelf = !familyId;
+    const entityKey = typeof entity === "object" ? str(entity?.entityKey) : "";
+    const isSelf = !entityKey;
 
-    const memberRegistered = familyId ? familyRegisteredIdSet.has(familyId) : false;
-    const memberOnWaitlist = familyId
-      ? waitRows.some((e) => e.userId === userId && e.familyId === familyId)
+    const memberRegistered = entityKey ? familyRegisteredIdSet.has(entityKey) : false;
+    const memberOnWaitlist = entityKey
+      ? waitRows.some((e) => e.parentKey === userKey && e.entityKey === entityKey)
       : false;
 
     const registered = isSelf ? isSelfRegistered : memberRegistered;
@@ -236,7 +230,7 @@ export default function WorkshopCard({
       return {
         label: "בטל הרשמה",
         color: "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: async () => unregisterEntityFromWorkshop(wid, familyId || undefined),
+        action: async () => unregisterEntityFromWorkshop(wid, entityKey || undefined),
       };
     }
 
@@ -244,7 +238,7 @@ export default function WorkshopCard({
       return {
         label: "בטל רשימת המתנה",
         color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => unregisterFromWaitlist(wid, familyId || undefined),
+        action: async () => unregisterFromWaitlist(wid, entityKey || undefined),
       };
     }
 
@@ -259,14 +253,14 @@ export default function WorkshopCard({
       return {
         label: "הצטרף לרשימת המתנה",
         color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => registerToWaitlist(wid, familyId || undefined),
+        action: async () => registerToWaitlist(wid, entityKey || undefined),
       };
     }
 
     return {
       label: "הירשם",
       color: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: async () => registerEntityToWorkshop(wid, familyId || undefined),
+      action: async () => registerEntityToWorkshop(wid, entityKey || undefined),
     };
   };
 
@@ -480,13 +474,13 @@ export default function WorkshopCard({
           {/* Primary action (self) */}
           {isLoggedIn && (
             <button
-              onClick={() => runEntityAction(userId)}
-              disabled={loading || !getEntityButton(userId)?.action}
+              onClick={() => runEntityAction(userKey)}
+              disabled={loading || !getEntityButton(userKey)?.action}
               className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
-                getEntityButton(userId).color
+                getEntityButton(userKey).color
               }`}
             >
-              {loading ? "..." : getEntityButton(userId).label}
+              {loading ? "..." : getEntityButton(userKey).label}
             </button>
           )}
 
@@ -523,11 +517,11 @@ export default function WorkshopCard({
 
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1.5">
               {(user?.familyMembers || []).map((member) => {
-                const key = str(member?._id);
+                const key = str(member?.entityKey);
                 const familyId = key;
                 const isRegisteredFamily = familyRegisteredIdSet.has(familyId);
                 const isWL = waitRows.some(
-                  (e) => e.userId === userId && e.familyId === familyId
+                  (e) => e.parentKey === userKey && e.entityKey === familyId
                 );
                 const btn = getEntityButton(member);
                 const isActionable = !!btn?.action;

@@ -5,12 +5,11 @@ const {
   buildEntityFromUserDoc,
   buildEntityFromFamilyMemberDoc,
 } = require("../services/entities/buildEntity");
-const { hydrateFamilyMember } = require("../services/entities/hydration");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
+const { resolveEntityByKey } = require("../services/entities/resolveEntity");
 
 
 
-const mongoose = require("mongoose");
 const { runUserIntegrityAudit, getAuditSnapshot } = require("../services/auditService");
 
 
@@ -18,6 +17,37 @@ const { runUserIntegrityAudit, getAuditSnapshot } = require("../services/auditSe
 
 const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop} =
   require("../services/workshopRegistration");
+
+const FORBIDDEN_IDENTITY_FIELDS = [
+  "entityType",
+  "parentId",
+  "userId",
+  "familyId",
+  "_id",
+  "parentUserId",
+  "workshopId",
+];
+
+const rejectForbiddenFields = (payload = {}) => {
+  const sent = Object.keys(payload || {});
+  const forbidden = sent.filter((f) => FORBIDDEN_IDENTITY_FIELDS.includes(f));
+  if (forbidden.length) {
+    const error = new Error("Invalid or forbidden field");
+    error.statusCode = 400;
+    error.fields = forbidden;
+    throw error;
+  }
+};
+
+const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
+  const isAdmin = requester?.role === "admin";
+  const isOwner = ownerId && requester?._id && String(ownerId) === String(requester._id);
+  if (!isOwner && !isAdmin) {
+    const error = new Error("Unauthorized");
+    error.statusCode = 403;
+    throw error;
+  }
+};
 
 /**
  * deleteUser
@@ -27,81 +57,77 @@ const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop} =
  */
 exports.deleteUser = async (req, res) => {
   try {
-    const entityId = req.params.id;
-    const typeSource = req.query.entityType || req.body?.entityType || "user";
-    const entityType = String(typeSource).toLowerCase();
-    const parentParam = req.query.parentId || req.body?.parentId || null;
+    rejectForbiddenFields(req.body);
 
-    if (entityType === "familymember") {
-      const parent = parentParam
-        ? await User.findById(parentParam).select("familyMembers familyWorkshopMap")
-        : await User.findOne({ "familyMembers._id": entityId }).select(
-            "familyMembers familyWorkshopMap"
-          );
+    const entityKey = req.params.id;
+    const resolved = await resolveEntityByKey(entityKey);
 
-      if (!parent) {
-        return res.status(404).json({ success: false, message: "Parent user not found" });
+    if (!resolved) {
+      return res.status(404).json({ success: false, message: "Entity not found" });
+    }
+
+    if (resolved.type === "user") {
+      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester: req.user });
+
+      const user = await User.findById(resolved.userDoc._id).select(
+        "userWorkshopMap familyWorkshopMap"
+      );
+
+      for (const workshopId of user.userWorkshopMap || []) {
+        await unregisterUserFromWorkshop({ workshopId, userId: user._id });
       }
 
-      const member = parent.familyMembers.id(entityId);
-      if (!member) {
-        return res.status(404).json({ success: false, message: "Family member not found" });
+      for (const familyEntry of user.familyWorkshopMap || []) {
+        for (const workshopId of familyEntry.workshops || []) {
+          await unregisterFamilyFromWorkshop({
+            workshopId,
+            parentUserId: user._id,
+            familyId: familyEntry.familyMemberId,
+          });
+        }
       }
 
-      const mapEntry = (parent.familyWorkshopMap || []).find(
-        (entry) => String(entry.familyMemberId) === String(entityId)
-      );
-      const workshopIds = mapEntry?.workshops || [];
-      for (const workshopId of workshopIds) {
-        await unregisterFamilyFromWorkshop({
-          workshopId,
-          parentUserId: parent._id,
-          familyId: entityId,
-        });
-      }
-
-      parent.familyMembers = parent.familyMembers.filter(
-        (m) => String(m._id) !== String(entityId)
-      );
-      parent.familyWorkshopMap = (parent.familyWorkshopMap || []).filter(
-        (entry) => String(entry.familyMemberId) !== String(entityId)
-      );
-      await parent.save();
-
+      await User.findByIdAndDelete(user._id);
       return res.json({
         success: true,
-        message: "בן המשפחה נמחק והוסר מכל הסדנאות",
+        message: "המשתמש וכל בני המשפחה המקושרים נמחקו",
       });
     }
 
-    const userId = entityId;
-    const user = await User.findById(userId).select("userWorkshopMap familyWorkshopMap");
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+    const parent = resolved.userDoc;
+    const member = resolved.memberDoc;
+    assertOwnershipOrAdmin({ ownerId: parent._id, requester: req.user });
+
+    const mapEntry = (parent.familyWorkshopMap || []).find(
+      (entry) => String(entry.familyMemberId) === String(member._id)
+    );
+    const workshopIds = mapEntry?.workshops || [];
+    for (const workshopId of workshopIds) {
+      await unregisterFamilyFromWorkshop({
+        workshopId,
+        parentUserId: parent._id,
+        familyId: member._id,
+      });
     }
 
-    for (const workshopId of user.userWorkshopMap || []) {
-      await unregisterUserFromWorkshop({ workshopId, userId });
-    }
+    parent.familyMembers = (parent.familyMembers || []).filter(
+      (m) => String(m._id) !== String(member._id)
+    );
+    parent.familyWorkshopMap = (parent.familyWorkshopMap || []).filter(
+      (entry) => String(entry.familyMemberId) !== String(member._id)
+    );
+    await parent.save();
 
-    for (const familyEntry of user.familyWorkshopMap || []) {
-      for (const workshopId of familyEntry.workshops || []) {
-        await unregisterFamilyFromWorkshop({
-          workshopId,
-          parentUserId: userId,
-          familyId: familyEntry.familyMemberId,
-        });
-      }
-    }
-
-    await User.findByIdAndDelete(userId);
     return res.json({
       success: true,
-      message: "המשתמש וכל בני המשפחה המקושרים נמחקו",
+      message: "בן המשפחה נמחק והוסר מכל הסדנאות",
     });
   } catch (err) {
     console.error("❌ deleteUser error:", err);
-    return res.status(500).json({ success: false, message: "Server error deleting entity" });
+    const status = err.statusCode || 500;
+    return res
+      .status(status)
+      .json({ success: false, message: err.message || "Server error deleting entity" });
   }
 };
 
@@ -208,10 +234,11 @@ exports.searchUsers = async (req, res) => {
         { $limit: Math.max(limit, 40) },
         {
           $project: {
+            entityKey: 1,
             name: 1, email: 1, phone: 1, idNumber: 1, city: 1,
             role: 1, canCharge: 1, birthDate: 1,
             familyMembers: {
-              _id: 1, name: 1, email: 1, phone: 1,
+              entityKey: 1, name: 1, email: 1, phone: 1,
               idNumber: 1, city: 1, relation: 1, birthDate: 1,
             },
             score: { $meta: "searchScore" },
@@ -348,9 +375,10 @@ exports.getAllUsers = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit || "1000", 10), 5000);
     // compact projection for the list
     const projection = {
+      entityKey: 1,
       name: 1, email: 1, phone: 1, idNumber: 1, city: 1, birthDate: 1,
       role: 1, canCharge: 1,
-      "familyMembers._id": 1,
+      "familyMembers.entityKey": 1,
       "familyMembers.name": 1,
       "familyMembers.email": 1,
       "familyMembers.phone": 1,
@@ -399,30 +427,22 @@ exports.getUserAuditReport = async (_req, res) => {
    ============================================================ */
 exports.getUserById = async (req, res) => {
   try {
-    const id = req.params.id;
+    const entityKey = req.params.id;
     const requester = req.user;
 
     if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
 
-    let user = await User.findById(id).select("-passwordHash -otpCode -otpAttempts");
-    if (!user) {
-      const parent = await User.findOne({ "familyMembers._id": id }).select("name email familyMembers");
-      if (parent) {
-        const isOwner = String(parent._id) === String(requester._id);
-        const isAdmin = requester.role === "admin";
-        if (!isOwner && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
+    const resolved = await resolveEntityByKey(entityKey);
+    if (!resolved) return res.status(404).json({ message: "User not found" });
 
-        const member = parent.familyMembers.id(id);
-        return res.json(hydrateFamilyMember(member, parent));
-      }
-      return res.status(404).json({ message: "User not found" });
+    if (resolved.type === "user") {
+      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+      return res.json(sanitizeUserForResponse(resolved.userDoc, requester));
     }
 
-    const isSelf = String(requester._id) === String(user._id);
-    const isAdmin = requester.role === "admin";
-    if (!isSelf && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
-
-    res.json(sanitizeUserForResponse(user, requester));
+    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
+    return res.json(entity);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
@@ -433,34 +453,22 @@ exports.getUserById = async (req, res) => {
    ============================================================ */
 exports.getEntityById = async (req, res) => {
   try {
-    const id = req.params.id;
+    const entityKey = req.params.id;
     const requester = req.user;
     if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
 
-    const user = await User.findById(id).select(
-      "name email phone city idNumber birthDate canCharge familyMembers"
-    );
-    const isAdmin = requester.role === "admin";
-    if (user) {
-      const isSelf = String(requester._id) === String(user._id);
-      if (!isSelf && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
-      const entity = buildEntityFromUserDoc(user);
+    const resolved = await resolveEntityByKey(entityKey);
+    if (!resolved) return res.status(404).json({ message: "Entity not found" });
+
+    if (resolved.type === "user") {
+      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+      const entity = buildEntityFromUserDoc(resolved.userDoc);
       return res.json(entity);
     }
 
-    const parent = await User.findOne({ "familyMembers._id": id }).select(
-      "familyMembers name email phone city idNumber birthDate canCharge"
-    );
-    if (parent) {
-      const isOwner = String(parent._id) === String(requester._id);
-      if (!isOwner && !isAdmin) return res.status(403).json({ message: "Unauthorized" });
-
-      const member = parent.familyMembers.id(id);
-      if (!member) return res.status(404).json({ message: "Entity not found" });
-      const entity = buildEntityFromFamilyMemberDoc(member, parent);
-      return res.json(entity);
-    }
-    return res.status(404).json({ message: "Entity not found" });
+    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
+    return res.json(entity);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching entity" });
   }
@@ -494,109 +502,91 @@ exports.createUser = async (req, res) => {
    ============================================================ */
 exports.updateEntity = async (req, res) => {
   try {
-    // body: { userId?, familyId?, parentUserId?, updates: {...} }
-    const { userId, familyId, parentUserId, updates } = req.body;
+    rejectForbiddenFields(req.body);
+    const { entityKey, updates } = req.body;
     const requester = req.user;
     const isAdmin = requester?.role === "admin";
 
-    if (!userId && !familyId)
-      return res.status(400).json({ message: "Missing userId or familyId" });
-
+    if (!entityKey) return res.status(400).json({ message: "Missing entityKey" });
     if (!updates || typeof updates !== "object")
       return res.status(400).json({ message: "Missing updates payload" });
 
-    const baseAllowedKeys = ["name", "idNumber", "birthDate", "phone", "city", "familyMembers"];
+    const resolved = await resolveEntityByKey(entityKey);
+    if (!resolved) return res.status(404).json({ message: "Entity not found" });
+
+    const baseAllowedKeys = ["name", "phone", "city", "email"];
+    const userAllowed = [...baseAllowedKeys, "birthDate", "idNumber"];
     const adminOnlyKeys = ["canCharge", "role"];
-    const allowedKeys = isAdmin ? [...baseAllowedKeys, ...adminOnlyKeys] : baseAllowedKeys;
+    const userAllowedFields = isAdmin ? [...userAllowed, ...adminOnlyKeys] : userAllowed;
+    const familyAllowed = [...baseAllowedKeys, "relation", "birthDate", "idNumber"];
 
-    const requestedKeys = Object.keys(updates || {});
-    const invalidKeys = requestedKeys.filter((key) => !allowedKeys.includes(key));
-    if (invalidKeys.length)
-      return res.status(403).json({ message: "Some fields require admin access", fields: invalidKeys });
+    if (resolved.type === "user") {
+      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
 
-    /* =========================
-       🔹 Case 1: Update main user
-    ========================== */
-    if (userId && !familyId) {
-      if (!isAdmin && String(requester._id) !== String(userId))
-        return res.status(403).json({ message: "Unauthorized" });
+      const requestedKeys = Object.keys(updates || {});
+      const invalidKeys = requestedKeys.filter((key) => !userAllowedFields.includes(key));
+      if (invalidKeys.length) {
+        return res
+          .status(403)
+          .json({ message: "Some fields require admin access", fields: invalidKeys });
+      }
 
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      for (const key of allowedKeys)
-        if (updates[key] !== undefined) user[key] = updates[key];
-
-      await user.save();
+      for (const key of userAllowedFields) {
+        if (updates[key] !== undefined) resolved.userDoc[key] = updates[key];
+      }
+      await resolved.userDoc.save();
       return res.json({
         success: true,
         message: "User updated successfully",
-        user: sanitizeUserForResponse(user, requester),
+        user: sanitizeUserForResponse(resolved.userDoc, requester),
       });
     }
 
-    /* =========================
-       🔹 Case 2: Update family member
-    ========================== */
-    if (familyId) {
-      const targetUserId = parentUserId || userId || requester._id;
-
-      if (!isAdmin && String(targetUserId) !== String(requester._id))
-        return res.status(403).json({ message: "Unauthorized" });
-
-      const user = await User.findById(targetUserId);
-      if (!user) return res.status(404).json({ message: "Parent user not found" });
-
-      const member = user.familyMembers.id(familyId);
-      if (!member) return res.status(404).json({ message: "Family member not found" });
-
-      const allowed = [
-        "name",
-        "relation",
-        "idNumber",
-        "phone",
-        "birthDate",
-        "email",
-        "city",
-      ];
-
-      for (const key of allowed)
-        if (updates[key] !== undefined) member[key] = updates[key];
-
-      await user.save();
-
-      // 🔁 Sync updated family member info into all workshops
-// 🔁 Sync with all workshops where this family member is registered
-await Workshop.updateMany(
-  { "familyRegistrations.familyMemberId": member._id },
-  {
-    $set: {
-      "familyRegistrations.$[f].name": member.name,
-      "familyRegistrations.$[f].relation": member.relation,
-      "familyRegistrations.$[f].idNumber": member.idNumber,
-      "familyRegistrations.$[f].phone": member.phone || user.phone, // fallback
-      "familyRegistrations.$[f].birthDate": member.birthDate,
-      "familyRegistrations.$[f].city": member.city,
-      "familyRegistrations.$[f].parentEmail": user.email,
-    },
-  },
-  {
-    arrayFilters: [{ "f.familyMemberId": member._id }],
-  }
-);
-
-
-      return res.json({
-        success: true,
-        message: "Family member updated successfully (synced)",
-        user: sanitizeUserForResponse(user, requester),
-      });
+    const requestedKeys = Object.keys(updates || {});
+    const invalidKeys = requestedKeys.filter((key) => !familyAllowed.includes(key));
+    if (invalidKeys.length) {
+      return res
+        .status(400)
+        .json({ message: "Invalid fields for family member", fields: invalidKeys });
     }
+
+    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    const member = resolved.memberDoc;
+    for (const key of familyAllowed) {
+      if (updates[key] !== undefined) member[key] = updates[key];
+    }
+
+    await resolved.userDoc.save();
+
+    await Workshop.updateMany(
+      { "familyRegistrations.familyMemberId": member._id },
+      {
+        $set: {
+          "familyRegistrations.$[f].name": member.name,
+          "familyRegistrations.$[f].relation": member.relation,
+          "familyRegistrations.$[f].idNumber": member.idNumber,
+          "familyRegistrations.$[f].phone": member.phone || resolved.userDoc.phone,
+          "familyRegistrations.$[f].birthDate": member.birthDate,
+          "familyRegistrations.$[f].city": member.city,
+          "familyRegistrations.$[f].parentEmail": resolved.userDoc.email,
+        },
+      },
+      {
+        arrayFilters: [{ "f.familyMemberId": member._id }],
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: "Family member updated successfully (synced)",
+      user: sanitizeUserForResponse(resolved.userDoc, requester),
+    });
   } catch (err) {
     console.error("❌ [updateEntity] Error:", err);
+    const status = err.statusCode || 500;
     res
-      .status(500)
-      .json({ message: "Server error updating entity", error: err.message });
+      .status(status)
+      .json({ message: err.message || "Server error updating entity" });
   }
 };
 
@@ -606,89 +596,96 @@ await Workshop.updateMany(
    ============================================================ */
 exports.getUserWorkshopsList = async (req, res) => {
   try {
-    const { id } = req.params; // parentUserId
-    const familyIdQuery = req.query.familyId || null;
+    rejectForbiddenFields(req.query);
 
-    // Always treat `id` as the parent user ID.  This endpoint should be
-    // invoked as /api/users/:userId/workshops for the user themselves or
-    // /api/users/:parentUserId/workshops?familyId=:familyId for a specific
-    // family member.  Do not attempt to infer a family member from the
-    // route parameter.
-    const parentUser = await User.findById(id).select("familyMembers name email");
-    if (!parentUser) {
+    const { id } = req.params; // parent entityKey
+    const familyEntityKey = req.query.familyEntityKey || null;
+
+    const resolvedParent = await resolveEntityByKey(id);
+    if (!resolvedParent || resolvedParent.type !== "user") {
       return res.status(404).json({ message: "User not found" });
     }
 
+    assertOwnershipOrAdmin({ ownerId: resolvedParent.userDoc._id, requester: req.user });
+
+    const parentUser = resolvedParent.userDoc;
+    const parentId = parentUser._id;
     const summaries = [];
 
-    // 🟢 Branch A: fetch summaries for the parent user and all family members
-    // if no specific familyId is requested.
-    if (!familyIdQuery) {
-      // Pull workshops where either the user or any of their family
-      // registrations exist.  Only project the fields we actually return.
+    const memberById = new Map(
+      (parentUser.familyMembers || []).map((member) => [String(member._id), member])
+    );
+    const memberByKey = new Map(
+      (parentUser.familyMembers || []).map((member) => [String(member.entityKey), member])
+    );
+
+    if (!familyEntityKey) {
       const workshops = await Workshop.find({
         $or: [
-          { participants: parentUser._id },
-          { "familyRegistrations.parentUser": parentUser._id },
+          { participants: parentId },
+          { "familyRegistrations.parentUser": parentId },
         ],
-      }).select("title coach day hour participants familyRegistrations");
+      }).select("title coach day hour participants familyRegistrations workshopKey");
 
       workshops.forEach((w) => {
-        // Add an entry for direct user registrations
-        if ((w.participants || []).map(String).includes(String(parentUser._id))) {
+        if ((w.participants || []).map(String).includes(String(parentId))) {
           summaries.push({
-            workshopId: w._id,
+            workshopKey: w.workshopKey || null,
             title: w.title,
             coach: w.coach,
             day: w.day,
             hour: w.hour,
             relation: "self",
+            entityKey: parentUser.entityKey,
           });
         }
-        // Add entries for each of the parent's family registrations
+
         (w.familyRegistrations || []).forEach((fr) => {
-          if (String(fr.parentUser) !== String(parentUser._id)) return;
+          if (String(fr.parentUser) !== String(parentId)) return;
+          const member = memberById.get(String(fr.familyMemberId));
           summaries.push({
-            workshopId: w._id,
+            workshopKey: w.workshopKey || null,
             title: w.title,
             coach: w.coach,
             day: w.day,
             hour: w.hour,
             relation: `${fr.name || ""}${fr.relation ? ` (${fr.relation})` : ""}`,
-            familyMemberId: fr.familyMemberId,
+            familyMemberKey: member?.entityKey || null,
+            parentKey: parentUser.entityKey,
           });
         });
       });
       return res.json(summaries);
     }
 
-    // 🟢 Branch B: fetch only the workshops for a specific family member
-    const famId = familyIdQuery;
-    // Validate that this family member belongs to the parent user
-    const familyMember = parentUser.familyMembers.id(famId);
-    if (!familyMember) {
+    const member = memberByKey.get(String(familyEntityKey));
+    if (!member) {
       return res.status(404).json({ message: "Family member not found" });
     }
+
     const workshopsForFamily = await Workshop.find({
-      "familyRegistrations.parentUser": parentUser._id,
-      "familyRegistrations.familyMemberId": familyMember._id,
-    }).select("title coach day hour familyRegistrations");
+      "familyRegistrations.parentUser": parentId,
+      "familyRegistrations.familyMemberId": member._id,
+    }).select("title coach day hour familyRegistrations workshopKey");
 
     workshopsForFamily.forEach((w) => {
       summaries.push({
-        workshopId: w._id,
+        workshopKey: w.workshopKey || null,
         title: w.title,
         coach: w.coach,
         day: w.day,
         hour: w.hour,
-        relation: `${familyMember.name || ""}${familyMember.relation ? ` (${familyMember.relation})` : ""}`,
-        familyMemberId: familyMember._id,
+        relation: `${member.name || ""}${member.relation ? ` (${member.relation})` : ""}`,
+        familyMemberKey: member.entityKey || null,
+        parentKey: parentUser.entityKey,
       });
     });
     return res.json(summaries);
   } catch (err) {
     console.error("❌ getUserWorkshopsList error:", err);
-    res.status(500).json({ message: "Server error fetching workshops list", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Server error fetching workshops list", error: err.message });
   }
 };
 

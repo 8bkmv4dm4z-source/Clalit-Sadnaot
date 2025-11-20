@@ -58,13 +58,6 @@ const log = (msg) => {
 
 /* ───────────────────────── ID Helpers ───────────────────────── */
 const sid = (x) => String(x ?? "");
-const toId = (v) =>
-  typeof v === "string"
-    ? v
-    : v?.familyMemberId
-    ? String(v.familyMemberId)
-    : String(v?._id ?? v ?? "");
-
 /* ================================================================== */
 
 export const WorkshopProvider = ({ children }) => {
@@ -99,13 +92,13 @@ export const WorkshopProvider = ({ children }) => {
   }, []);
 
   // FIXED: derive stable signatures to satisfy linted dependency arrays
-  const userId = useMemo(() => sid(user?._id), [user?._id]);
+  const userKey = useMemo(() => sid(user?.entityKey), [user?.entityKey]);
   const familyMembersList = useMemo(
     () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
     [user?.familyMembers]
   );
   const familyMembersSignature = useMemo(
-    () => JSON.stringify(familyMembersList.map((m) => sid(m._id)).sort()),
+    () => JSON.stringify(familyMembersList.map((m) => sid(m.entityKey || m._id)).sort()),
     [familyMembersList]
   );
   const workshopsSignature = useMemo(() => {
@@ -162,17 +155,24 @@ export const WorkshopProvider = ({ children }) => {
 
       // Normalize ONLY. Do not build maps here (maps are derived below).
       const list = workshopsArray.map((w, idx) => {
+        const wid = String(w?.workshopKey || w?.id || "");
+        const participantKeys = (w.participants || []).map((p) => sid(p));
+        const familyRegs = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
+        const familyRegKeys = familyRegs.map((f) => sid(f.familyMemberKey || f.familyMemberId));
+        const waitingList = Array.isArray(w.waitingList) ? w.waitingList : [];
+
         const normalized = {
           ...w,
-          _id: String(w?._id ?? w?.id ?? ""), // ← make workshop id a plain string
+          workshopKey: wid,
+          _id: wid,
           address: w.address || "",
           city: w.city || "",
           studio: w.studio || "",
           coach: w.coach || "",
-          participants: (w.participants || []).map(toId),
-          familyRegistrations: w.familyRegistrations || [],
-          userFamilyRegistrations: (w.userFamilyRegistrations || []).map(toId),
-          waitingList: Array.isArray(w.waitingList) ? w.waitingList : [],
+          participants: participantKeys,
+          familyRegistrations: familyRegs,
+          userFamilyRegistrations: (w.userFamilyRegistrations || []).map((v) => sid(v)),
+          waitingList,
           maxParticipants: Number(w.maxParticipants ?? 0),
           waitingListMax: Number(w.waitingListMax ?? 0),
           isUserRegistered: !!w.isUserRegistered,
@@ -187,9 +187,7 @@ export const WorkshopProvider = ({ children }) => {
           normalized.userFamilyRegistrations = [
             ...new Set([
               ...normalized.userFamilyRegistrations,
-              ...w.familyRegistrations.map((f) =>
-                (f.familyMemberId?._id ?? f.familyMemberId ?? f?._id ?? "").toString()
-              ),
+              ...familyRegKeys,
             ]),
           ];
         }
@@ -197,7 +195,7 @@ export const WorkshopProvider = ({ children }) => {
         // 🔍 Compact per-workshop log
         dbgCtx("normalize", {
           i: idx,
-          wid: String(normalized?._id || ""),
+          wid: String(normalized?.workshopKey || ""),
           title: normalized?.title,
           isUserRegistered: normalized.isUserRegistered,
           participantsLen: pLen,
@@ -238,7 +236,7 @@ export const WorkshopProvider = ({ children }) => {
 
       if (!res.ok) throw new Error(regIds.message || "Failed to load registrations");
       const parsed = (Array.isArray(regIds) ? regIds : []).map((v) =>
-        typeof v === "string" ? v : String(v?._id ?? v ?? "")
+        typeof v === "string" ? v : String(v?.workshopKey ?? v ?? "")
       );
       log(`✅ Registered workshops loaded (${parsed.length})`);
       dbgCtx("fetchRegisteredWorkshops:parsed", { count: parsed.length, sample: parsed.slice(0, 5) });
@@ -332,14 +330,14 @@ export const WorkshopProvider = ({ children }) => {
 
   // Reset maps only when user context effectively clears (logout / switch user)
   useEffect(() => {
-    const hasUser = !!userId;
+    const hasUser = !!userKey;
     if (!hasUser) {
       setUserWorkshopMap({});
       setFamilyWorkshopMap({});
       setDisplayedWorkshops([]);
       setMapsReady(false);
     }
-  }, [userId, familyMembersSignature]);
+  }, [userKey, familyMembersSignature]);
 
   // === Derived maps: built from current normalized list + current user ===
   useEffect(() => {
@@ -348,21 +346,21 @@ export const WorkshopProvider = ({ children }) => {
     setUserWorkshopMap({});
     setFamilyWorkshopMap({});
 
-    const hasUser = !!userId;
+    const hasUser = !!userKey;
     const list = Array.isArray(workshops) ? workshops : [];
     if (!hasUser || list.length === 0) {
       // Not enough info — keep not-ready so UI can wait
       return;
     }
 
-    const currentUserId = userId;
-    const familyIds = familyMembersList.map((m) => sid(m._id));
+    const currentUserId = userKey;
+    const familyIds = familyMembersList.map((m) => sid(m.entityKey || m._id));
 
     const uMap = Object.create(null);
     const fMap = Object.create(null);
 
     for (const w of list) {
-      const wid = sid(w?._id || w?.id);
+      const wid = sid(w?.workshopKey || w?._id || w?.id);
 
       // user map: prefer isUserRegistered; otherwise check participants
       if (w?.isUserRegistered) {
@@ -413,7 +411,7 @@ export const WorkshopProvider = ({ children }) => {
     setMapsReady(true);
 
     // Dependencies: user/family identity + relevant workshop content summary
-  }, [userId, familyMembersSignature, workshopsSignature, workshops, familyMembersList]);
+  }, [userKey, familyMembersSignature, workshopsSignature, workshops, familyMembersList]);
 
   // Filter displayedWorkshops when viewMode === "mine" (only after mapsReady)
   useEffect(() => {
@@ -449,12 +447,12 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const registerEntityToWorkshop = async (workshopId, familyId = null) => {
-    dbgCtx("registerEntity:start", { workshopId, familyId });
+  const registerEntityToWorkshop = async (workshopKey, entityKey = null) => {
+    dbgCtx("registerEntity:start", { workshopKey, entityKey });
     try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/register-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopKey}/register-entity`, {
         method: "POST",
-        body: JSON.stringify({ familyId }),
+        body: JSON.stringify(entityKey ? { entityKey } : {}),
       });
       const data = await res.json();
       dbgCtx("registerEntity:raw-response", { ok: res.ok, message: data?.message });
@@ -464,21 +462,21 @@ export const WorkshopProvider = ({ children }) => {
       await fetchAllWorkshops(true);
       await fetchRegisteredWorkshops();
       await fetchProfiles();
-      dbgCtx("registerEntity:success", { workshopId, familyId });
+      dbgCtx("registerEntity:success", { workshopKey, entityKey });
       return { success: true, data };
     } catch (err) {
       console.error("❌ registerEntityToWorkshop error:", err);
-      dbgCtx("registerEntity:error", { workshopId, familyId, message: err.message });
+      dbgCtx("registerEntity:error", { workshopKey, entityKey, message: err.message });
       return { success: false, message: err.message };
     }
   };
 
-  const unregisterEntityFromWorkshop = async (workshopId, familyId = null) => {
-    dbgCtx("unregisterEntity:start", { workshopId, familyId });
+  const unregisterEntityFromWorkshop = async (workshopKey, entityKey = null) => {
+    dbgCtx("unregisterEntity:start", { workshopKey, entityKey });
     try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/unregister-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopKey}/unregister-entity`, {
         method: "DELETE",
-        body: JSON.stringify(familyId ? { familyId } : {}),
+        body: JSON.stringify(entityKey ? { entityKey } : {}),
       });
       const data = await res.json();
       dbgCtx("unregisterEntity:raw-response", { ok: res.ok, message: data?.message });
@@ -488,21 +486,21 @@ export const WorkshopProvider = ({ children }) => {
       await fetchAllWorkshops(true);
       await fetchRegisteredWorkshops();
       await fetchProfiles();
-      dbgCtx("unregisterEntity:success", { workshopId, familyId });
+      dbgCtx("unregisterEntity:success", { workshopKey, entityKey });
       return { success: true, data };
     } catch (err) {
       console.error("❌ unregisterEntityFromWorkshop error:", err);
-      dbgCtx("unregisterEntity:error", { workshopId, familyId, message: err.message });
+      dbgCtx("unregisterEntity:error", { workshopKey, entityKey, message: err.message });
       return { success: false, message: err.message };
     }
   };
 
-  const registerToWaitlist = async (workshopId, familyId) => {
-    dbgCtx("waitlistRegister:start", { workshopId, familyId });
-    const body = familyId ? { familyId } : {};
+  const registerToWaitlist = async (workshopKey, entityKey) => {
+    dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
+    const body = entityKey ? { entityKey } : {};
 
     try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -518,7 +516,7 @@ export const WorkshopProvider = ({ children }) => {
       await fetchAllWorkshops(true);
       await fetchRegisteredWorkshops();
       await fetchProfiles();
-      dbgCtx("waitlistRegister:success", { workshopId, familyId });
+      dbgCtx("waitlistRegister:success", { workshopKey, entityKey });
       return { success: true, data };
     } catch (e) {
       dbgCtx("waitlistRegister:error", e);
@@ -526,12 +524,12 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const unregisterFromWaitlist = async (workshopId, familyId) => {
-    dbgCtx("waitlistUnregister:start", { workshopId, familyId });
-    const body = familyId ? { familyId } : {};
+  const unregisterFromWaitlist = async (workshopKey, entityKey) => {
+    dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
+    const body = entityKey ? { entityKey } : {};
 
     try {
-      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -545,7 +543,7 @@ export const WorkshopProvider = ({ children }) => {
       await fetchAllWorkshops(true);
       await fetchRegisteredWorkshops();
       await fetchProfiles();
-      dbgCtx("waitlistUnregister:success", { workshopId, familyId });
+      dbgCtx("waitlistUnregister:success", { workshopKey, entityKey });
       return { success: true, data };
     } catch (e) {
       dbgCtx("waitlistUnregister:error", e);
