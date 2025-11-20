@@ -355,7 +355,7 @@ exports.getMe = async (req, res) => {
     const user = await User.findById(req.user._id).select("-passwordHash -otpCode -otpAttempts");
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.json(sanitizeUserForResponse(user, req.user));
+    res.json(sanitizeUserForResponse(user, req.user, { includeFull: true }));
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
@@ -376,8 +376,16 @@ exports.getAllUsers = async (req, res) => {
     // compact projection for the list
     const projection = {
       entityKey: 1,
-      name: 1, email: 1, phone: 1, idNumber: 1, city: 1, birthDate: 1,
-      role: 1, canCharge: 1,
+      name: 1,
+      email: 1,
+      phone: 1,
+      idNumber: 1,
+      city: 1,
+      birthDate: 1,
+      role: 1,
+      canCharge: 1,
+      createdAt: 1,
+      updatedAt: 1,
       "familyMembers.entityKey": 1,
       "familyMembers.name": 1,
       "familyMembers.email": 1,
@@ -386,6 +394,8 @@ exports.getAllUsers = async (req, res) => {
       "familyMembers.city": 1,
       "familyMembers.birthDate": 1,
       "familyMembers.relation": 1,
+      "familyMembers.createdAt": 1,
+      "familyMembers.updatedAt": 1,
     };
 
     const users = await User.find({}, projection)

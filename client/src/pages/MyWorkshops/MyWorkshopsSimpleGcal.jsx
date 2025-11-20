@@ -212,7 +212,7 @@ function MyWorkshopsScreen() {
     const map = Object.create(null);
 
     // Current user bucket — only workshops where user is registered
-    const uid = sid(user._id);
+    const uid = sid(user?.entityKey || user?._id);
     map[uid] = {
       name: user.fullName || user.name || "Me",
       relation: "",
@@ -221,7 +221,7 @@ function MyWorkshopsScreen() {
 
     // Family buckets — ensure we don't accidentally include the user as a family member
     (user.familyMembers || []).forEach((m) => {
-      const mid = sid(m._id);
+      const mid = sid(m.entityKey || m._id);
       const ws = list.filter((w) => {
         const arr = (familyWorkshopMap?.[sid(w._id)] || []).map(sid);
         if (arr.includes(uid)) return false; // guard: never attribute via family channel to the user
