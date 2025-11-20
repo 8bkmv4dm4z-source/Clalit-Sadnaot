@@ -84,14 +84,14 @@ const loadWorkshopByIdentifier = (id) => {
 
 const findWorkshopByKey = async (workshopKey) => {
   if (!workshopKey) return null;
-  const byHash = await Workshop.findOne({ hashedId: workshopKey });
-  if (byHash) return byHash;
-  const byKey = await Workshop.findOne({ workshopKey });
-  if (byKey) return byKey;
-  const resolvedId = resolveWorkshopObjectId(workshopKey);
-  if (resolvedId) {
-    return Workshop.findById(resolvedId);
-  }
+  return loadWorkshopByIdentifier(workshopKey);
+};
+
+const normalizeEntityKey = (entity) => {
+  if (!entity) return null;
+  if (typeof entity === "string") return entity;
+  if (entity.entityKey) return entity.entityKey;
+  if (entity._id) return String(entity._id);
   return null;
 };
 
@@ -100,46 +100,52 @@ const formatRegistration = ({
 }) => {
   const normalizedWorkshop = ensureHashedWorkshop(workshop);
   const hashedId = normalizedWorkshop?.hashedId || "";
+  const ownerKey = normalizeEntityKey(normalizedWorkshop?.__ownerKey);
   const participants = (normalizedWorkshop?.participants || [])
-    .map((p) => p?.entityKey || (p?._id ? String(p._id) : null))
+    .map((p) => normalizeEntityKey(p))
     .filter(Boolean);
 
   const familyRegistrations = (normalizedWorkshop?.familyRegistrations || []).map((fr) => {
-    const parent = fr.parentUser || {};
-    const member = fr.familyMemberId || {};
+    const parentKey = normalizeEntityKey(fr.parentKey || fr.parentUser || {});
+    const memberKey = normalizeEntityKey(fr.familyMemberKey || fr.familyMemberId || {});
+    const memberObj = fr.familyMemberId || {};
     return {
-      parentKey: parent.entityKey || null,
-      familyMemberKey: member.entityKey || null,
-      name: fr.name || member.name || "",
-      relation: fr.relation || member.relation || "",
+      parentKey,
+      familyMemberKey: memberKey,
+      name: fr.name || memberObj.name || "",
+      relation: fr.relation || memberObj.relation || "",
     };
   });
 
   const waitingList = (normalizedWorkshop?.waitingList || []).map((wl) => {
-    const parent = wl.parentUser || {};
-    const member = wl.familyMemberId || {};
+    const parentKey = normalizeEntityKey(wl.parentKey || wl.parentUser || {});
+    const memberKey = normalizeEntityKey(wl.familyMemberKey || wl.familyMemberId || {});
+    const memberObj = wl.familyMemberId || {};
     return {
-      parentKey: parent.entityKey || null,
-      familyMemberKey: member.entityKey || null,
-      name: wl.name || member.name || "",
-      relation: wl.relation || member.relation || (member._id ? "בן משפחה" : "עצמי"),
+      parentKey,
+      familyMemberKey: memberKey,
+      name: wl.name || memberObj.name || "",
+      relation:
+        wl.relation ||
+        memberObj.relation ||
+        (memberKey ? "בן משפחה" : "עצמי"),
     };
   });
 
   const familyKeysForUser = familyRegistrations
-    .filter((fr) => fr.parentKey && normalizedWorkshop?.__ownerKey === fr.parentKey)
+    .filter((fr) => fr.parentKey && ownerKey && ownerKey === fr.parentKey)
     .map((fr) => fr.familyMemberKey)
     .filter(Boolean);
 
   const isUserRegistered =
-    participants.some((pk) => pk === normalizedWorkshop?.__ownerKey) ||
+    participants.some((pk) => pk === ownerKey) ||
     familyKeysForUser.length > 0;
 
   const isUserInWaitlist = waitingList.some(
-    (wl) => wl.parentKey && wl.parentKey === normalizedWorkshop?.__ownerKey && !wl.familyMemberKey
+    (wl) => wl.parentKey && ownerKey && wl.parentKey === ownerKey && !wl.familyMemberKey
   );
   const familyMembersInWaitlist = waitingList
-    .filter((wl) => wl.parentKey && wl.parentKey === normalizedWorkshop?.__ownerKey && wl.familyMemberKey)
+    .filter((wl) => wl.parentKey && ownerKey && wl.parentKey === ownerKey && wl.familyMemberKey)
     .map((wl) => wl.familyMemberKey);
 
   return {
@@ -198,6 +204,7 @@ function buildRegistrationEntry({ parentUser, memberDoc = null }) {
   const parent = hydrateParentFields(parentUser);
   const base = {
     parentUser: parentUser._id,
+    parentKey: parent.entityKey || String(parentUser._id || ""),
     name: pickValue(parent.name, parentUser.name || ""),
     relation: "self",
     idNumber: pickValue(parent.idNumber),
@@ -213,6 +220,8 @@ function buildRegistrationEntry({ parentUser, memberDoc = null }) {
   return {
     parentUser: parentUser._id,
     familyMemberId: memberDoc._id,
+    parentKey: parent.entityKey || String(parentUser._id || ""),
+    familyMemberKey: hydrated.entityKey || String(memberDoc._id || ""),
     name: pickValue(hydrated.name, pickValue(memberDoc.name, base.name)),
     relation: pickValue(hydrated.relation, pickValue(memberDoc.relation, "")),
     idNumber: pickValue(
@@ -244,6 +253,8 @@ async function autoPromoteFromWaitlist(workshop) {
         workshop.familyRegistrations.push({
           parentUser: entry.parentUser,
           familyMemberId: entry.familyMemberId,
+          parentKey: entry.parentKey || "",
+          familyMemberKey: entry.familyMemberKey || "",
           name: entry.name,
           relation: entry.relation,
           idNumber: entry.idNumber,
@@ -298,6 +309,7 @@ const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
   try {
+    await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
 
     const workshops = await Workshop.find({})
@@ -372,6 +384,7 @@ exports.getRegisteredWorkshops = async (req, res) => {
  */
 exports.getWorkshopById = async (req, res) => {
   try {
+    await attachUserIfPresent(req);
     const { id } = req.params;
     const resolvedId = resolveWorkshopObjectId(id);
     if (!id || !resolvedId) {
@@ -392,7 +405,10 @@ exports.getWorkshopById = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    const hashedWorkshop = ensureHashedWorkshop(workshop);
+    const hashedWorkshop = ensureHashedWorkshop({
+      ...workshop,
+      __ownerKey: req.user?.entityKey || null,
+    });
 
     // 🧩 Normalize optional fields to prevent UI crashes
     const normalized = {
@@ -844,7 +860,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await findWorkshopByKey(workshopKey);
+    const workshop = await loadWorkshopByIdentifier(workshopKey);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
     const resolved = await resolveEntityByKey(targetEntityKey);
@@ -917,6 +933,8 @@ exports.registerEntityToWorkshop = async (req, res) => {
       workshop.familyRegistrations.push({
         parentUser: actingParentId,
         familyMemberId: member._id,
+        parentKey: parentUser.entityKey || String(parentUser._id || ""),
+        familyMemberKey: member.entityKey || String(member._id || ""),
         name: member.name,
         relation: member.relation,
         idNumber: member.idNumber,
@@ -1079,7 +1097,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await findWorkshopByKey(id);
+    const workshop = await loadWorkshopByIdentifier(id);
     if (!workshop)
       return res.status(404).json({ success: false, message: "Workshop not found" });
 
@@ -1155,7 +1173,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await findWorkshopByKey(id);
+    const workshop = await loadWorkshopByIdentifier(id);
     if (!workshop)
       return res
         .status(404)

@@ -55,6 +55,8 @@ const WorkshopSchema = new mongoose.Schema(
       {
         parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
         familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        parentKey: { type: String, default: "" },
+        familyMemberKey: { type: String, default: "" },
         name: { type: String, required: true },
         relation: { type: String, default: "" },
         idNumber: { type: String, default: "" },
@@ -68,6 +70,8 @@ const WorkshopSchema = new mongoose.Schema(
       {
         parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
         familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+        parentKey: { type: String, default: "" },
+        familyMemberKey: { type: String, default: "" },
         name: { type: String, required: true },
         relation: { type: String, default: "" },
         idNumber: { type: String, default: "" },

@@ -43,7 +43,14 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-export default function WorkshopCard({ _id, searchQuery = "" }) {
+export default function WorkshopCard({
+  _id,
+  searchQuery = "",
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+  isAdmin: isAdminProp,
+}) {
   /* ---------------- Context ---------------- */
   const { user, isLoggedIn, isAdmin } = useAuth();
   const {
@@ -64,6 +71,8 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     () => (Array.isArray(workshops) ? workshops.find((w) => str(w._id) === wid) || {} : {}),
     [workshops, wid]
   );
+
+  const adminEnabled = typeof isAdminProp === "boolean" ? isAdminProp : isAdmin;
 
   /* ---------------- Local UI state ---------------- */
   const [showFamilyModal, setShowFamilyModal] = useState(false);
@@ -338,12 +347,15 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
               {highlight(title, searchQuery)}
             </h3>
 
-            {isAdmin && (
+            {adminEnabled && (
               <AdminMenu
                 adminMenuRef={adminMenuRef}
                 adminOpen={adminOpen}
                 setAdminOpen={setAdminOpen}
                 workshopId={wid}
+                onManageParticipants={onManageParticipants}
+                onEditWorkshop={onEditWorkshop}
+                onDeleteWorkshop={onDeleteWorkshop}
               />
             )}
           </div>
@@ -622,25 +634,35 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
 }
 
 /* ---------- Admin menu extracted for clarity ---------- */
-function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
-  // נשים את ה־callbacks בדפים שמרנדרים את WorkshopCard (כמו קודם)
-  // דרך onManageParticipants / onEditWorkshop / onDeleteWorkshop שעוברים ב־props
-  // כאן פשוט נשתמש ב-CustomEvent כדי לא לשבור API:
-  const handleEmit = (type) => {
+function AdminMenu({
+  adminMenuRef,
+  adminOpen,
+  setAdminOpen,
+  workshopId,
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+}) {
+  const handlers = {
+    edit: onEditWorkshop,
+    manage: onManageParticipants,
+    delete: onDeleteWorkshop,
+  };
+
+  const handleAction = (type) => {
+    setAdminOpen(false);
+    const fn = handlers[type];
+    if (typeof fn === "function") {
+      fn(workshopId);
+      return;
+    }
+
     window.dispatchEvent(
       new CustomEvent("workshop-admin-action", {
         detail: { type, workshopId },
       })
     );
   };
-
-  useEffect(() => {
-    const handler = (e) => {
-      // no-op placeholder; הדפים themselves מאזינים לאיבנט אם צריכים
-    };
-    window.addEventListener("workshop-admin-action", handler);
-    return () => window.removeEventListener("workshop-admin-action", handler);
-  }, []);
 
   return (
     <div className="relative" ref={adminMenuRef}>
@@ -655,28 +677,19 @@ function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
       {adminOpen && (
         <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("edit");
-            }}
+            onClick={() => handleAction("edit")}
             className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
           >
             ✏️ ערוך
           </button>
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("manage");
-            }}
+            onClick={() => handleAction("manage")}
             className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
           >
             👥 משתתפים
           </button>
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("delete");
-            }}
+            onClick={() => handleAction("delete")}
             className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
           >
             🗑️ מחק

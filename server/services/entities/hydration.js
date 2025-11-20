@@ -5,9 +5,10 @@ const hasValue = (value) => !(value === undefined || value === null || value ===
 
 const hydrateParentFields = (parentDoc = {}) => {
   const parent = toPlain(parentDoc);
+  const entityKey = parent.entityKey || (parent._id ? String(parent._id) : null);
   return {
     _id: parent._id || null,
-    entityKey: parent.entityKey || null,
+    entityKey,
     name: parent.name ?? "",
     email: parent.email ?? "",
     phone: parent.phone ?? "",
@@ -35,7 +36,7 @@ const hydrateFamilyMember = (memberDoc = {}, parentDoc = {}) => {
     merged[field] = hasValue(member[field]) ? member[field] : parent[field];
   }
 
-  merged.entityKey = member.entityKey || null;
+  merged.entityKey = member.entityKey || (member._id ? String(member._id) : null);
   merged.parentKey = parent.entityKey || null;
   merged.parentName = parent.name;
   merged.parentEmail = parent.email;
