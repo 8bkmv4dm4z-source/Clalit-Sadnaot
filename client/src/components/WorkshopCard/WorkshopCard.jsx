@@ -43,13 +43,7 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-export default function WorkshopCard({
-  _id,
-  searchQuery = "",
-  onManageParticipants,
-  onEditWorkshop,
-  onDeleteWorkshop,
-}) {
+export default function WorkshopCard({ _id, searchQuery = "" }) {
   /* ---------------- Context ---------------- */
   const { user, isLoggedIn, isAdmin } = useAuth();
   const {
@@ -142,12 +136,13 @@ export default function WorkshopCard({
       ? inactiveDates.map((d) => new Date(d).toLocaleDateString("he-IL")).join(", ")
       : null;
 
-  // סט רשומים (self) מהנתונים של המופע עצמו רק כ-fallback
-  const participantIdSet = useMemo(() => {
+      /* ---------------- Derived data: registrations / waitlist ---------------- */
+
+      const participantIdSet = useMemo(() => {
     return new Set(participantsArr.map((p) => str(p)).filter(Boolean));
   }, [participantsArr]);
 
-  // טורי רשימת המתנה: מחלץ parentKey + entityKey מכל אובייקט ברשימה
+
   const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
     return list.map((w) => {
@@ -162,7 +157,7 @@ export default function WorkshopCard({
     });
   }, [waitingList]);
 
-  // אני עצמי ברשימת המתנה (רק parent, בלי בן משפחה)
+/* ---------------- Self on waitlist ---------------- */
   const selfOnWaitlist = useMemo(
     () => waitRows.some((e) => e.parentKey === userKey && !e.entityKey),
     [waitRows, userKey]
@@ -178,7 +173,6 @@ export default function WorkshopCard({
   const isSelfRegistered = useMemo(() => {
     if (!userKey || !wid) return false;
 
-    // 1) ids שנשלפים מהשרת לפי הרשמה
     if (Array.isArray(registeredWorkshopIds) && registeredWorkshopIds.includes(wid)) {
       return true;
     }
@@ -350,9 +344,6 @@ export default function WorkshopCard({
                 adminOpen={adminOpen}
                 setAdminOpen={setAdminOpen}
                 workshopId={wid}
-                onManageParticipants={onManageParticipants}
-                onEditWorkshop={onEditWorkshop}
-                onDeleteWorkshop={onDeleteWorkshop}
               />
             )}
           </div>
@@ -631,36 +622,25 @@ export default function WorkshopCard({
 }
 
 /* ---------- Admin menu extracted for clarity ---------- */
-function AdminMenu({
-  adminMenuRef,
-  adminOpen,
-  setAdminOpen,
-  workshopId,
-  onManageParticipants,
-  onEditWorkshop,
-  onDeleteWorkshop,
-}) {
+function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
+  // נשים את ה־callbacks בדפים שמרנדרים את WorkshopCard (כמו קודם)
+  // דרך onManageParticipants / onEditWorkshop / onDeleteWorkshop שעוברים ב־props
+  // כאן פשוט נשתמש ב-CustomEvent כדי לא לשבור API:
   const handleEmit = (type) => {
-    const fallback = () =>
-      window.dispatchEvent(
-        new CustomEvent("workshop-admin-action", {
-          detail: { type, workshopId },
-        })
-      );
-
-    const map = {
-      manage: onManageParticipants,
-      edit: onEditWorkshop,
-      delete: onDeleteWorkshop,
-    };
-
-    const fn = map[type];
-    if (typeof fn === "function") {
-      fn();
-    } else {
-      fallback();
-    }
+    window.dispatchEvent(
+      new CustomEvent("workshop-admin-action", {
+        detail: { type, workshopId },
+      })
+    );
   };
+
+  useEffect(() => {
+    const handler = (e) => {
+      // no-op placeholder; הדפים themselves מאזינים לאיבנט אם צריכים
+    };
+    window.addEventListener("workshop-admin-action", handler);
+    return () => window.removeEventListener("workshop-admin-action", handler);
+  }, []);
 
   return (
     <div className="relative" ref={adminMenuRef}>
