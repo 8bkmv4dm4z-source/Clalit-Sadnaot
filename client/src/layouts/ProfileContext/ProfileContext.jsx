@@ -156,9 +156,11 @@ export function ProfileProvider({ children }) {
     [rows]
   );
 
-  const getUserWorkshops = async ({ userId, familyId }) => {
-    const base = `/api/users/${encodeURIComponent(userId)}/workshops`;
-    const url = familyId ? `${base}?familyId=${encodeURIComponent(familyId)}` : base;
+  const getUserWorkshops = async ({ entityKey, familyEntityKey }) => {
+    const base = `/api/users/${encodeURIComponent(entityKey)}/workshops`;
+    const url = familyEntityKey
+      ? `${base}?familyEntityKey=${encodeURIComponent(familyEntityKey)}`
+      : base;
     const res = await apiFetch(url);
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || "Failed to fetch workshops");
@@ -185,17 +187,12 @@ export function ProfileProvider({ children }) {
   };
 
   const deleteEntity = useCallback(
-    async ({ entityId, entityType, parentId } = {}) => {
-      if (!entityId) return { success: false, message: "Missing entity ID" };
+    async ({ entityKey } = {}) => {
+      if (!entityKey) return { success: false, message: "Missing entity key" };
       try {
-        const params = new URLSearchParams();
-        if (entityType) params.set("entityType", entityType);
-        if (parentId) params.set("parentId", parentId);
-        const query = params.toString();
-        const res = await apiFetch(
-          `/api/users/${encodeURIComponent(entityId)}${query ? `?${query}` : ""}`,
-          { method: "DELETE" }
-        );
+        const res = await apiFetch(`/api/users/${encodeURIComponent(entityKey)}`, {
+          method: "DELETE",
+        });
         const data = await res.json();
         if (!res.ok || data?.success === false) {
           throw new Error(data?.message || "Delete failed");
@@ -211,24 +208,21 @@ export function ProfileProvider({ children }) {
     [fetchProfiles]
   );
 
-  const getEntityDetails = useCallback(
-    async (rowOrId) => {
-      const entityId =
-        typeof rowOrId === "string"
-          ? rowOrId
-          : rowOrId && rowOrId._id
-          ? String(rowOrId._id)
-          : null;
+  const getEntityDetails = useCallback(async (rowOrId) => {
+    const entityKey =
+      typeof rowOrId === "string"
+        ? rowOrId
+        : rowOrId && (rowOrId.entityKey || rowOrId._id)
+        ? String(rowOrId.entityKey || rowOrId._id)
+        : null;
 
-      if (!entityId) throw new Error("Missing entity ID");
+    if (!entityKey) throw new Error("Missing entity key");
 
-      const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityId)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || "Failed to load entity");
-      return data;
-    },
-    []
-  );
+    const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityKey)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || "Failed to load entity");
+    return data;
+  }, []);
 
   const value = {
     profiles: rows,

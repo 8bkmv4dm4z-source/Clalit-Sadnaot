@@ -19,6 +19,123 @@ const {
   hydrateFamilyMember,
   hydrateParentFields,
 } = require("../services/entities/hydration");
+const { resolveEntityByKey } = require("../services/entities/resolveEntity");
+
+const FORBIDDEN_IDENTITY_FIELDS = [
+  "entityType",
+  "parentId",
+  "userId",
+  "familyId",
+  "_id",
+  "parentUserId",
+  "workshopId",
+];
+
+const rejectForbiddenFields = (payload = {}) => {
+  const sent = Object.keys(payload || {});
+  const forbidden = sent.filter((f) => FORBIDDEN_IDENTITY_FIELDS.includes(f));
+  if (forbidden.length) {
+    const error = new Error("Invalid or forbidden field");
+    error.statusCode = 400;
+    error.fields = forbidden;
+    throw error;
+  }
+};
+
+const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
+  const isAdmin = requester?.role === "admin";
+  const isOwner = ownerId && requester?._id && String(ownerId) === String(requester._id);
+  if (!isOwner && !isAdmin) {
+    const error = new Error("Unauthorized");
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
+const findWorkshopByKey = async (workshopKey) => {
+  if (!workshopKey) return null;
+  const byKey = await Workshop.findOne({ workshopKey });
+  if (byKey) return byKey;
+  if (mongoose.isValidObjectId(workshopKey)) {
+    return Workshop.findById(workshopKey);
+  }
+  return null;
+};
+
+const formatRegistration = ({
+  workshop,
+}) => {
+  const participants = (workshop.participants || []).map((p) =>
+    p?.entityKey || (p?._id ? String(p._id) : null)
+  ).filter(Boolean);
+
+  const familyRegistrations = (workshop.familyRegistrations || []).map((fr) => {
+    const parent = fr.parentUser || {};
+    const member = fr.familyMemberId || {};
+    return {
+      parentKey: parent.entityKey || null,
+      familyMemberKey: member.entityKey || null,
+      name: fr.name || member.name || "",
+      relation: fr.relation || member.relation || "",
+    };
+  });
+
+  const waitingList = (workshop.waitingList || []).map((wl) => {
+    const parent = wl.parentUser || {};
+    const member = wl.familyMemberId || {};
+    return {
+      parentKey: parent.entityKey || null,
+      familyMemberKey: member.entityKey || null,
+      name: wl.name || member.name || "",
+      relation: wl.relation || member.relation || (member._id ? "בן משפחה" : "עצמי"),
+    };
+  });
+
+  const familyKeysForUser = familyRegistrations
+    .filter((fr) => fr.parentKey && workshop?.__ownerKey === fr.parentKey)
+    .map((fr) => fr.familyMemberKey)
+    .filter(Boolean);
+
+  const isUserRegistered = participants.some((pk) => pk === workshop.__ownerKey) ||
+    familyKeysForUser.length > 0;
+
+  const isUserInWaitlist = waitingList.some(
+    (wl) => wl.parentKey && wl.parentKey === workshop.__ownerKey && !wl.familyMemberKey
+  );
+  const familyMembersInWaitlist = waitingList
+    .filter((wl) => wl.parentKey && wl.parentKey === workshop.__ownerKey && wl.familyMemberKey)
+    .map((wl) => wl.familyMemberKey);
+
+  return {
+    workshopKey: workshop.workshopKey,
+    title: workshop.title,
+    type: workshop.type,
+    description: workshop.description,
+    ageGroup: workshop.ageGroup,
+    coach: workshop.coach,
+    city: workshop.city,
+    address: workshop.address,
+    studio: workshop.studio,
+    days: workshop.days,
+    hour: workshop.hour,
+    price: workshop.price,
+    image: workshop.image,
+    available: workshop.available,
+    maxParticipants: workshop.maxParticipants,
+    sessionsCount: workshop.sessionsCount,
+    participantsCount:
+      typeof workshop.participantsCount === "number"
+        ? workshop.participantsCount
+        : (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0),
+    participants,
+    familyRegistrations,
+    userFamilyRegistrations: familyKeysForUser,
+    waitingList,
+    isUserRegistered,
+    isUserInWaitlist,
+    familyMembersInWaitlist,
+  };
+};
 
 /* ============================================================
    🔍 Workshop Search Helpers
@@ -142,113 +259,19 @@ const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
   try {
-    const userId = req.user ? req.user._id.toString() : null;
+    const ownerKey = req.user?.entityKey || null;
 
-    // Fetch all workshops
     const workshops = await Workshop.find({})
-      .populate("participants", "_id fullName name")
-      .populate("familyRegistrations.familyMemberId", "_id name relation")
-      .populate("familyRegistrations.parentUser", "_id")
-      .populate("waitingList.parentUser", "_id")
-      .populate("waitingList.familyMemberId", "_id name relation");
+      .populate("participants", "entityKey name email phone city")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name email phone")
+      .populate("waitingList.parentUser", "entityKey name email phone")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
 
     const result = workshops.map((w) => {
-      const workshopId = w._id.toString();
-
-      /* ---------------------------------------------------------
-         1️⃣ Participants / Direct registration
-      --------------------------------------------------------- */
-      const participantIds = (w.participants || []).map((p) =>
-        p?._id?.toString()
-      );
-
-      const isDirectRegistered = userId
-        ? participantIds.includes(userId)
-        : false;
-
-      /* ---------------------------------------------------------
-         2️⃣ Family Registrations (from DB)
-      --------------------------------------------------------- */
-      const familyRegs = Array.isArray(w.familyRegistrations)
-        ? w.familyRegistrations
-        : [];
-
-      const userFamilyRegistrations = familyRegs
-        .filter((fr) => fr.parentUser?._id?.toString() === userId)
-        .map((fr) => fr.familyMemberId?._id?.toString());
-
-      const viaFamily = userFamilyRegistrations.length > 0;
-
-      /* ---------------------------------------------------------
-         3️⃣ NEW — Waitlist logic
-      --------------------------------------------------------- */
-      const waitingList = Array.isArray(w.waitingList) ? w.waitingList : [];
-
-      // SELF on waitlist
-      const isUserInWaitlist = waitingList.some(
-        (wl) =>
-          wl.parentUser?._id?.toString() === userId &&
-          !wl.familyMemberId // user himself
-      );
-
-      // FAMILY on waitlist
-      const familyMembersInWaitlist = waitingList
-        .filter((wl) => {
-          return (
-            wl.parentUser?._id?.toString() === userId &&
-            wl.familyMemberId?._id
-          );
-        })
-        .map((wl) => wl.familyMemberId._id.toString());
-
-      /* ---------------------------------------------------------
-         Final Flags
-      --------------------------------------------------------- */
-      const isUserRegistered = Boolean(isDirectRegistered || viaFamily);
-
-      /* ---------------------------------------------------------
-         NORMALIZED WORKSHOP
-      --------------------------------------------------------- */
-      return {
-        _id: workshopId,
-        title: w.title,
-        type: w.type,
-        description: w.description,
-        ageGroup: w.ageGroup,
-        coach: w.coach,
-        city: w.city,
-        address: w.address,
-        studio: w.studio,
-        days: w.days,
-        hour: w.hour,
-        price: w.price,
-        image: w.image,
-        available: w.available,
-
-        maxParticipants: w.maxParticipants,
-        sessionsCount: w.sessionsCount,
-        participantsCount: participantIds.length + familyRegs.length,
-
-        participants: participantIds,
-        familyRegistrations: familyRegs.map((fr) => ({
-          parentUser: fr.parentUser?._id?.toString(),
-          familyMemberId: fr.familyMemberId?._id?.toString(),
-        })),
-
-        userFamilyRegistrations,
-        isUserRegistered,
-
-        /* -------------------------------------------------------
-           NEW WAITLIST FIELDS
-        ------------------------------------------------------- */
-        waitingList: waitingList.map((wl) => ({
-          parentUser: wl.parentUser?._id?.toString(),
-          familyMemberId: wl.familyMemberId?._id?.toString() || null,
-        })),
-
-        isUserInWaitlist,
-        familyMembersInWaitlist,
-      };
+      const decorated = w.toObject();
+      decorated.__ownerKey = ownerKey;
+      return formatRegistration({ workshop: decorated });
     });
 
     return res.status(200).json({ data: result });
@@ -757,105 +780,99 @@ exports.getWorkshopParticipants = async (req, res) => {
  */
 exports.registerEntityToWorkshop = async (req, res) => {
   try {
-    const { familyId } = req.body;
-    let workshop = await Workshop.findById(req.params.id);
-    if (!workshop)
-      return res.status(404).json({ message: "Workshop not found" });
+    rejectForbiddenFields(req.body);
 
-    const isFamily = Boolean(familyId);
-    const parentUser = await User.findById(req.user._id);
-    if (!parentUser)
-      return res.status(404).json({ message: "User not found" });
+    const workshopKey = req.params.id;
+    const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    let member = null;
-    if (isFamily) {
-      member = parentUser.familyMembers.id(familyId);
-      if (!member) {
-        console.warn("⚠️ Family member not found:", familyId);
-        return res.status(404).json({ message: "Family member not found" });
+    const workshop = await findWorkshopByKey(workshopKey);
+    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
+
+    const resolved = await resolveEntityByKey(targetEntityKey);
+    if (!resolved) {
+      return res.status(404).json({ success: false, message: "Entity not found" });
+    }
+
+    const parentUser = resolved.userDoc;
+    const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
+
+    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+
+    const actingParentId = parentUser._id;
+    const actingMemberId = member?._id || null;
+
+    const alreadyRegistered = member
+      ? workshop.familyRegistrations.some(
+          (r) =>
+            String(r.familyMemberId) === String(actingMemberId) &&
+            String(r.parentUser) === String(actingParentId)
+        )
+      : workshop.participants.some((p) => String(p) === String(actingParentId));
+
+    const alreadyQueued = (workshop.waitingList || []).some((w) => {
+      const sameParent = String(w.parentUser) === String(actingParentId);
+      if (member) {
+        return sameParent && String(w.familyMemberId) === String(actingMemberId);
       }
-    }
+      return sameParent && !w.familyMemberId;
+    });
 
-    /* ============================================================
-       🚫 Prevent duplicates
-       ============================================================ */
-    if (isFamily) {
-      const alreadyRegistered = workshop.familyRegistrations.some(
-        (r) =>
-          String(r.familyMemberId) === String(familyId) &&
-          String(r.parentUser) === String(req.user._id)
-      );
-      const alreadyQueued = (workshop.waitingList || []).some(
-        (w) =>
-          w.familyMemberId &&
-          String(w.familyMemberId) === String(familyId) &&
-          String(w.parentUser) === String(req.user._id)
-      );
-      if (alreadyRegistered)
-        return res.status(400).json({ success: false, message: "Family member already registered" });
-      if (alreadyQueued)
-        return res.status(400).json({ success: false, message: "Family member already in waiting list" });
-    } else {
-      const alreadyUser = workshop.participants.some(
-        (p) => String(p) === String(req.user._id)
-      );
-      const alreadyQueued = (workshop.waitingList || []).some(
-        (w) =>
-          !w.familyMemberId &&
-          String(w.parentUser) === String(req.user._id)
-      );
-      if (alreadyUser)
-        return res.status(400).json({ success: false, message: "User already registered" });
-      if (alreadyQueued)
-        return res.status(400).json({ success: false, message: "User already in waiting list" });
-    }
+    if (alreadyRegistered)
+      return res.status(400).json({ success: false, message: "Entity already registered" });
+    if (alreadyQueued)
+      return res
+        .status(400)
+        .json({ success: false, message: "Entity already in waiting list" });
 
-    /* ============================================================
-       📋 Capacity + waiting list
-       ============================================================ */
     const hasSpace = workshop.canAddParticipant();
     if (!hasSpace) {
-      if (
-        workshop.waitingListMax > 0 &&
-        workshop.waitingList.length >= workshop.waitingListMax
-      ) {
+      if (workshop.waitingListMax > 0 && workshop.waitingList.length >= workshop.waitingListMax) {
         return res.status(400).json({
           success: false,
           message: "Workshop is full and waiting list is full",
         });
       }
 
-      const entry = buildRegistrationEntry({
-        parentUser,
-        memberDoc: isFamily ? member : null,
-      });
+      const entry = buildRegistrationEntry({ parentUser, memberDoc: member });
       workshop.waitingList.push(entry);
       await workshop.save();
 
+      const populatedWaitlist = await Workshop.findById(workshop._id)
+        .populate("participants", "entityKey name")
+        .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+        .populate("familyRegistrations.parentUser", "entityKey name")
+        .populate("waitingList.parentUser", "entityKey name")
+        .populate("waitingList.familyMemberId", "entityKey name relation");
+
+      const decorated = populatedWaitlist.toObject();
+      decorated.__ownerKey = req.user?.entityKey || null;
       return res.json({
         success: true,
         message: "Added to waiting list",
-        position: workshop.waitingList.length,
+        waitlist: true,
+        workshop: formatRegistration({ workshop: decorated }),
       });
     }
 
-    /* ============================================================
-       ✅ Normal registration
-       ============================================================ */
-    if (isFamily) {
-      const familyEntry = buildRegistrationEntry({
-        parentUser,
-        memberDoc: member,
+    if (member) {
+      workshop.familyRegistrations.push({
+        parentUser: actingParentId,
+        familyMemberId: member._id,
+        name: member.name,
+        relation: member.relation,
+        idNumber: member.idNumber,
+        phone: member.phone || parentUser.phone,
+        birthDate: member.birthDate,
+        city: member.city,
       });
-      workshop.familyRegistrations.push(familyEntry);
 
-      // update familyWorkshopMap
-      const existing = parentUser.familyWorkshopMap.find(f =>
+      const existing = parentUser.familyWorkshopMap.find((f) =>
         String(f.familyMemberId) === String(member._id)
       );
       if (existing) {
-        if (!existing.workshops.some(wid => String(wid) === String(workshop._id)))
+        if (!existing.workshops.some((wid) => String(wid) === String(workshop._id))) {
           existing.workshops.push(workshop._id);
+        }
       } else {
         parentUser.familyWorkshopMap.push({
           familyMemberId: member._id,
@@ -863,24 +880,26 @@ exports.registerEntityToWorkshop = async (req, res) => {
         });
       }
     } else {
-      workshop.participants.push(req.user._id);
-      if (!parentUser.userWorkshopMap.includes(workshop._id))
+      workshop.participants.push(actingParentId);
+      if (!parentUser.userWorkshopMap.includes(workshop._id)) {
         parentUser.userWorkshopMap.push(workshop._id);
+      }
     }
 
     await workshop.save();
     await parentUser.save();
 
-    /* ============================================================
-       🎯 Return populated
-       ============================================================ */
     const populated = await Workshop.findById(workshop._id)
-      .populate("participants", "name email idNumber")
-      .populate("familyRegistrations.parentUser", "name email idNumber")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
-      .populate("waitingList.parentUser", "name email");
+      .populate("participants", "entityKey name")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name")
+      .populate("waitingList.parentUser", "entityKey name")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
 
-    res.json({ success: true, workshop: populated });
+    const decorated = populated.toObject();
+    decorated.__ownerKey = req.user?.entityKey || null;
+
+    res.json({ success: true, workshop: formatRegistration({ workshop: decorated }) });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
     // SECURITY FIX: avoid leaking raw error messages to clients
@@ -901,41 +920,52 @@ exports.registerEntityToWorkshop = async (req, res) => {
  */
 exports.unregisterEntityFromWorkshop = async (req, res) => {
   try {
-    const { id } = req.params; // workshopId
-    const { familyId, userId: overrideUserId, parentUserId } = req.body;
-    const isAdmin = req.user?.role === "admin";
+    rejectForbiddenFields(req.body);
 
-    const actingUserId  = isAdmin && overrideUserId ? overrideUserId : req.user._id;
-    const actingParentId = isAdmin && parentUserId ? parentUserId : req.user._id;
+    const workshopKey = req.params.id;
+    const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const parentUser = await User.findById(actingParentId);
-    if (!parentUser) return res.status(404).json({ message: "User not found" });
-
-    const workshop = await Workshop.findById(id);
+    const workshop = await findWorkshopByKey(workshopKey);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
+    const resolved = await resolveEntityByKey(targetEntityKey);
+    if (!resolved) return res.status(404).json({ message: "Entity not found" });
+
+    const parentUser = resolved.userDoc;
+    const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
+
+    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+
     let changed = false;
-    if (familyId) {
+    if (member) {
       const before = workshop.familyRegistrations.length;
-      workshop.familyRegistrations = workshop.familyRegistrations.filter(f =>
-        !(String(f.familyMemberId) === String(familyId) && String(f.parentUser) === String(actingParentId))
+      workshop.familyRegistrations = workshop.familyRegistrations.filter(
+        (f) =>
+          !(
+            String(f.familyMemberId) === String(member._id) &&
+            String(f.parentUser) === String(parentUser._id)
+          )
       );
       changed = before !== workshop.familyRegistrations.length;
 
-      // sync familyWorkshopMap
-      const mapEntry = parentUser.familyWorkshopMap.find(f =>
-        String(f.familyMemberId) === String(familyId)
+      const mapEntry = parentUser.familyWorkshopMap.find(
+        (f) => String(f.familyMemberId) === String(member._id)
       );
       if (mapEntry) {
-        mapEntry.workshops = mapEntry.workshops.filter(wid => String(wid) !== String(id));
+        mapEntry.workshops = mapEntry.workshops.filter(
+          (wid) => String(wid) !== String(workshop._id)
+        );
       }
     } else {
       const before = workshop.participants.length;
-      workshop.participants = workshop.participants.filter(u => String(u) !== String(actingUserId));
+      workshop.participants = workshop.participants.filter(
+        (u) => String(u) !== String(parentUser._id)
+      );
       changed = before !== workshop.participants.length;
 
-      // sync userWorkshopMap
-      parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(wid => String(wid) !== String(id));
+      parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(
+        (wid) => String(wid) !== String(workshop._id)
+      );
     }
 
     if (changed) {
@@ -945,7 +975,22 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
       await parentUser.save();
     }
 
-    return res.json({ success: true, changed, message: "Entity unregistered successfully" });
+    const populated = await Workshop.findById(workshop._id)
+      .populate("participants", "entityKey name")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name")
+      .populate("waitingList.parentUser", "entityKey name")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
+
+    const decorated = populated.toObject();
+    decorated.__ownerKey = req.user?.entityKey || null;
+
+    return res.json({
+      success: true,
+      changed,
+      message: "Entity unregistered successfully",
+      workshop: formatRegistration({ workshop: decorated }),
+    });
   } catch (err) {
     console.error("❌ unregisterEntityFromWorkshop error:", err);
     res.status(500).json({ success: false, message: "Server error during unregistration" });
@@ -970,55 +1015,66 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
  */
 exports.addEntityToWaitlist = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { familyId } = req.body;
-    const user = req.user;
+    rejectForbiddenFields(req.body);
 
-    const workshop = await Workshop.findById(id);
+    const { id } = req.params;
+    const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
+
+    const workshop = await findWorkshopByKey(id);
     if (!workshop)
       return res.status(404).json({ success: false, message: "Workshop not found" });
 
-    // ✅ בדיקה אם כבר ברשימת ההמתנה
-    const already = (workshop.waitingList || []).some(
-      (e) =>
-        e.parentUser.toString() === user._id.toString() &&
-        (familyId
-          ? e.familyMemberId?.toString() === familyId.toString()
-          : !e.familyMemberId)
-    );
+    const resolved = await resolveEntityByKey(targetEntityKey);
+    if (!resolved)
+      return res.status(404).json({ success: false, message: "Entity not found" });
+
+    const parentUser = resolved.userDoc;
+    const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
+
+    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+
+    const already = (workshop.waitingList || []).some((e) => {
+      const sameParent = String(e.parentUser) === String(parentUser._id);
+      if (member) {
+        return sameParent && String(e.familyMemberId) === String(member._id);
+      }
+      return sameParent && !e.familyMemberId;
+    });
     if (already)
       return res
         .status(400)
         .json({ success: false, message: "Already in waiting list" });
 
-    // ✅ בדיקה אם יש מקום ברשימת ההמתנה
-    if (
-      workshop.waitingListMax > 0 &&
-      workshop.waitingList.length >= workshop.waitingListMax
-    ) {
+    if (workshop.waitingListMax > 0 && workshop.waitingList.length >= workshop.waitingListMax) {
       return res.status(400).json({
         success: false,
         message: "Waiting list is full",
       });
     }
 
-    // ✅ בניית הרשומה החדשה
-    const member = familyId
-      ? user.familyMembers?.id(familyId)
-      : null;
-
     const entry = buildRegistrationEntry({
-      parentUser: user,
+      parentUser,
       memberDoc: member,
     });
 
     workshop.waitingList.push(entry);
     await workshop.save();
 
+    const populated = await Workshop.findById(workshop._id)
+      .populate("participants", "entityKey name")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name")
+      .populate("waitingList.parentUser", "entityKey name")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
+
+    const decorated = populated.toObject();
+    decorated.__ownerKey = req.user?.entityKey || null;
+
     res.json({
       success: true,
       message: "Added to waiting list successfully",
       position: workshop.waitingList.length,
+      workshop: formatRegistration({ workshop: decorated }),
     });
   } catch (err) {
     console.error("🔥 addEntityToWaitlist error:", err);
@@ -1035,21 +1091,33 @@ exports.addEntityToWaitlist = async (req, res) => {
  */
 exports.removeEntityFromWaitlist = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { familyId } = req.body;
-    const user = req.user;
+    rejectForbiddenFields(req.body);
 
-    const workshop = await Workshop.findById(id);
+    const { id } = req.params;
+    const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
+
+    const workshop = await findWorkshopByKey(id);
     if (!workshop)
       return res
         .status(404)
         .json({ success: false, message: "Workshop not found" });
 
+    const resolved = await resolveEntityByKey(targetEntityKey);
+    if (!resolved)
+      return res
+        .status(404)
+        .json({ success: false, message: "Entity not found in waiting list" });
+
+    const parentUser = resolved.userDoc;
+    const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
+
+    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+
     const before = workshop.waitingList.length;
     workshop.waitingList = (workshop.waitingList || []).filter((e) => {
-      const isParent = e.parentUser.toString() === user._id.toString();
-      const isFamilyMatch = familyId
-        ? e.familyMemberId?.toString() === familyId.toString()
+      const isParent = String(e.parentUser) === String(parentUser._id);
+      const isFamilyMatch = member
+        ? String(e.familyMemberId) === String(member._id)
         : !e.familyMemberId;
       return !(isParent && isFamilyMatch);
     });
@@ -1062,9 +1130,21 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     }
 
     await workshop.save();
+
+    const populated = await Workshop.findById(workshop._id)
+      .populate("participants", "entityKey name")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name")
+      .populate("waitingList.parentUser", "entityKey name")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
+
+    const decorated = populated.toObject();
+    decorated.__ownerKey = req.user?.entityKey || null;
+
     res.json({
       success: true,
       message: "Removed from waiting list successfully",
+      workshop: formatRegistration({ workshop: decorated }),
     });
   } catch (err) {
     console.error("🔥 removeEntityFromWaitlist error:", err);

@@ -1,10 +1,17 @@
 const mongoose = require("mongoose");
+const nodeCrypto = require("node:crypto");
 
 /* ============================================================
    🧱 Workshop Schema — Optimized for High-Performance Search
    ============================================================ */
 const WorkshopSchema = new mongoose.Schema(
   {
+    workshopKey: {
+      type: String,
+      default: () => nodeCrypto.randomUUID(),
+      index: true,
+      unique: true,
+    },
     title: { type: String, required: true, trim: true },
     type: { type: String, default: "", trim: true },
     ageGroup: { type: String, default: "", trim: true },
@@ -71,6 +78,13 @@ const WorkshopSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+WorkshopSchema.pre("validate", function (next) {
+  if (!this.workshopKey) {
+    this.workshopKey = nodeCrypto.randomUUID();
+  }
+  next();
+});
 
 /* ============================================================
    🧮 Middleware — Auto calculate endDate (with inactiveDates)

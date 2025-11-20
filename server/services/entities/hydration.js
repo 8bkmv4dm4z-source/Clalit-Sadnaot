@@ -6,13 +6,11 @@ const hasValue = (value) => !(value === undefined || value === null || value ===
 const hydrateParentFields = (parentDoc = {}) => {
   const parent = toPlain(parentDoc);
   return {
-    _id: parent._id || null,
+    entityKey: parent.entityKey || null,
     name: parent.name ?? "",
     email: parent.email ?? "",
     phone: parent.phone ?? "",
     city: parent.city ?? "",
-    idNumber: parent.idNumber ?? "",
-    birthDate: parent.birthDate ?? "",
     canCharge: typeof parent.canCharge === "boolean" ? parent.canCharge : false,
   };
 };
@@ -27,18 +25,17 @@ const hydrateFamilyMember = (memberDoc = {}, parentDoc = {}) => {
   const parent = hydrateParentFields(parentDoc);
   const merged = { ...member };
 
-  const inheritableFields = ["email", "phone", "city", "idNumber", "birthDate"];
+  const inheritableFields = ["email", "phone", "city"];
   for (const field of inheritableFields) {
     merged[field] = hasValue(member[field]) ? member[field] : parent[field];
   }
 
-  merged.parentId = parent._id || null;
+  merged.entityKey = member.entityKey || null;
+  merged.parentKey = parent.entityKey || null;
   merged.parentName = parent.name;
   merged.parentEmail = parent.email;
   merged.parentPhone = parent.phone;
   merged.parentCity = parent.city;
-  merged.parentIdNumber = parent.idNumber;
-  merged.parentBirthDate = parent.birthDate;
   merged.parentCanCharge = parent.canCharge;
   merged.canCharge = hasValue(member.canCharge)
     ? Boolean(member.canCharge)

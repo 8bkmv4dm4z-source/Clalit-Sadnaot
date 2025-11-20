@@ -3,14 +3,18 @@ const Workshop = require("../models/Workshop");
 // Return participants with clean separation of user participants vs family registrations
 exports.getParticipants = async (req, res) => {
   try {
-    const w = await Workshop.findById(req.params.id)
-      .populate("participants", "name email phone city birthDate canCharge")
+    const id = req.params.id;
+    const workshop = await Workshop.findOne({ workshopKey: id })
+      .populate("participants", "entityKey name email phone city birthDate canCharge")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation phone birthDate")
+      .populate("familyRegistrations.parentUser", "entityKey")
       .lean();
-    if (!w) return res.status(404).json({ message: "Workshop not found" });
+
+    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
     return res.json({
-      participants: (w.participants || []).map((p) => ({
-        _id: String(p._id),
+      participants: (workshop.participants || []).map((p) => ({
+        entityKey: p.entityKey || null,
         name: p.name,
         email: p.email,
         phone: p.phone,
@@ -18,9 +22,9 @@ exports.getParticipants = async (req, res) => {
         birthDate: p.birthDate,
         canCharge: !!p.canCharge,
       })),
-      familyRegistrations: (w.familyRegistrations || []).map((fr) => ({
-        familyMemberId: String(fr.familyMemberId),
-        parentUser: String(fr.parentUser),
+      familyRegistrations: (workshop.familyRegistrations || []).map((fr) => ({
+        familyMemberKey: fr.familyMemberId?.entityKey || null,
+        parentKey: fr.parentUser?.entityKey || null,
         name: fr.name,
         relation: fr.relation,
         phone: fr.phone,

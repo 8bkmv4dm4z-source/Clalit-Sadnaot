@@ -31,14 +31,11 @@ const normalizeEmail = (value) => {
 };
 
 const normalizeBaseEntity = (entity = {}) => ({
-  _id: entity._id ? String(entity._id) : "",
+  entityKey: entity.entityKey ? String(entity.entityKey) : "",
   name: normalizeString(entity.name),
   email: normalizeEmail(entity.email),
   phone: sanitizePhone(entity.phone),
   city: normalizeNullableString(entity.city),
-  idNumber: normalizeNullableString(entity.idNumber),
-  birthDate: normalizeDateValue(entity.birthDate),
-  canCharge: Boolean(entity.canCharge),
 });
 
 const normalizeUser = (entity = {}) => {
@@ -69,15 +66,10 @@ const normalizeFamilyMember = (entity = {}) => {
     isFamily: true,
   };
 
-  assignParentField(normalized, "parentId", entity.parentId, { allowEmpty: false });
+  assignParentField(normalized, "parentKey", entity.parentKey, { allowEmpty: false });
   assignParentField(normalized, "parentName", entity.parentName);
   assignParentField(normalized, "parentEmail", entity.parentEmail);
   assignParentField(normalized, "parentPhone", entity.parentPhone, { asPhone: true, allowEmpty: true });
-  assignParentField(normalized, "parentCity", entity.parentCity);
-  assignParentField(normalized, "parentIdNumber", entity.parentIdNumber);
-  assignParentField(normalized, "parentBirthDate", entity.parentBirthDate, { asDate: true, allowEmpty: true });
-  if (entity.parentCanCharge !== undefined)
-    normalized.parentCanCharge = Boolean(entity.parentCanCharge);
   if (entity.relation !== undefined)
     normalized.relation = normalizeNullableString(entity.relation);
 
