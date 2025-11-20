@@ -212,8 +212,9 @@ const selfOnWaitlist = useMemo(
 
     const memberRegistered = familyId ? familyRegisteredIdSet.has(familyId) : false;
     const memberOnWaitlist = familyId
-      ? waitRows.some((e) => e.parentUserId === userId && e.familyMemberId === familyId)
-      : false;
+  ? waitRows.some((e) => e.userId === userId && e.familyId === familyId)
+  : false;
+
 
     const registered = isSelf ? isSelfRegistered : memberRegistered;
     const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
