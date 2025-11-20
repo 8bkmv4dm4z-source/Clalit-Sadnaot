@@ -155,7 +155,7 @@ export const WorkshopProvider = ({ children }) => {
 
       // Normalize ONLY. Do not build maps here (maps are derived below).
       const list = workshopsArray.map((w, idx) => {
-        const wid = String(w?.workshopKey || w?.id || "");
+        const wid = String(w?.workshopKey || w?._id || w?.id || "");
         const participantKeys = (w.participants || []).map((p) => sid(p));
         const familyRegs = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
         const familyRegKeys = familyRegs.map((f) => sid(f.familyMemberKey || f.familyMemberId));
@@ -384,8 +384,18 @@ export const WorkshopProvider = ({ children }) => {
 
       if (Array.isArray(w?.familyRegistrations)) {
         for (const fr of w.familyRegistrations) {
-          const parent = fr?.parentUser != null ? sid(fr.parentUser) : null;
-          const memberId = fr?.familyMemberId != null ? sid(fr.familyMemberId) : null;
+          const parent =
+            fr?.parentUser != null
+              ? sid(fr.parentUser)
+              : fr?.parentKey != null
+              ? sid(fr.parentKey)
+              : null;
+          const memberId =
+            fr?.familyMemberId != null
+              ? sid(fr.familyMemberId)
+              : fr?.familyMemberKey != null
+              ? sid(fr.familyMemberKey)
+              : null;
           if (parent && memberId && parent === currentUserId) {
             famSet.add(memberId);
           }

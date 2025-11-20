@@ -107,6 +107,7 @@ const formatRegistration = ({
     .map((wl) => wl.familyMemberKey);
 
   return {
+    _id: String(workshop._id || ""),
     workshopKey: workshop.workshopKey,
     title: workshop.title,
     type: workshop.type,
