@@ -139,129 +139,122 @@ async function attachUserIfPresent(req) {
 // controllers/workshopController.js
 const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
   try {
-    // If this route can be called without auth, but you still want per-user flags:
-    // await attachUserIfPresent(req); // uncomment if not already attached by middleware
+    const userId = req.user ? req.user._id.toString() : null;
 
-    // --- pagination ---
-    const page  = Math.max(1, parseInt(req.query.page  || "1", 10));
-    const limit = Math.max(1, Math.min(parseInt(req.query.limit || "60", 10), 200));
-    const skip  = (page - 1) * limit;
+    // Fetch all workshops
+    const workshops = await Workshop.find({})
+      .populate("participants", "_id fullName name")
+      .populate("familyRegistrations.familyMemberId", "_id name relation")
+      .populate("familyRegistrations.parentUser", "_id")
+      .populate("waitingList.parentUser", "_id")
+      .populate("waitingList.familyMemberId", "_id name relation");
 
-    const amount       = parseInt(req.query.amount || "0", 10);
-    const previewLimit = amount > 0 ? Math.min(amount, 12) : null;
-    const limitToUse   = previewLimit || limit;
-    const skipToUse    = previewLimit ? 0 : skip;
+    const result = workshops.map((w) => {
+      const workshopId = w._id.toString();
 
-    // --- filters (USE THIS ONE VARIABLE EVERYWHERE) ---
-    const filters = {};
-    if (req.query.city)     filters.city     = { $regex: new RegExp(escapeRegex(req.query.city), "i") };
-    if (req.query.type)     filters.type     = req.query.type;
-    if (req.query.coach)    filters.coach    = { $regex: new RegExp(escapeRegex(req.query.coach), "i") };
-    if (req.query.ageGroup) filters.ageGroup = req.query.ageGroup;
-    if (req.query.day)      filters.days     = req.query.day;
-    if (req.query.available !== undefined) {
-      const v = String(req.query.available).toLowerCase();
-      if (v === "true" || v === "false") filters.available = (v === "true");
-    }
+      /* ---------------------------------------------------------
+         1️⃣ Participants / Direct registration
+      --------------------------------------------------------- */
+      const participantIds = (w.participants || []).map((p) =>
+        p?._id?.toString()
+      );
 
-    // --- projection: include everything WorkshopCard / page needs ---
-    const projection = {
-      title: 1,
-      type: 1,
-      ageGroup: 1,
-      city: 1,
-      address: 1,
-      studio: 1,
-      coach: 1,
-      days: 1,
-      hour: 1,
-      sessionsCount: 1,
-      startDate: 1,
-      endDate: 1,
-      inactiveDates: 1,
-      available: 1,
-      description: 1,
-      price: 1,
-      image: 1,
-      participants: 1,
-      familyRegistrations: 1,
-      waitingList: 1,
-      waitingListMax: 1,
-      participantsCount: 1,
-      maxParticipants: 1,
-    };
+      const isDirectRegistered = userId
+        ? participantIds.includes(userId)
+        : false;
 
-    const [docs, totalCount] = await Promise.all([
-      Workshop.find(filters)
-        .select(projection)
-        .sort({ startDate: 1 })
-        .skip(skipToUse)
-        .limit(limitToUse)
-        .lean(),
-      Workshop.countDocuments(filters),
-    ]);
+      /* ---------------------------------------------------------
+         2️⃣ Family Registrations (from DB)
+      --------------------------------------------------------- */
+      const familyRegs = Array.isArray(w.familyRegistrations)
+        ? w.familyRegistrations
+        : [];
 
-    // --- enrich with per-user flags if authenticated ---
-    const userId = req.user?._id?.toString?.();
-    const enriched = userId
-      ? docs.map((w) => {
-          const participants = Array.isArray(w.participants) ? w.participants : [];
-          const familyRegs   = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
+      const userFamilyRegistrations = familyRegs
+        .filter((fr) => fr.parentUser?._id?.toString() === userId)
+        .map((fr) => fr.familyMemberId?._id?.toString());
 
-          const direct    = participants.some((p) => p?.toString?.() === userId);
-          const viaFamily = familyRegs.some((fr) => fr?.parentUser?.toString?.() === userId);
+      const viaFamily = userFamilyRegistrations.length > 0;
 
-          const userFamilyRegistrations = familyRegs
-            .filter((fr) => fr?.parentUser?.toString?.() === userId)
-            .map((fr) => fr?.familyMemberId?.toString?.())
-            .filter(Boolean);
+      /* ---------------------------------------------------------
+         3️⃣ NEW — Waitlist logic
+      --------------------------------------------------------- */
+      const waitingList = Array.isArray(w.waitingList) ? w.waitingList : [];
 
-          const participantsCount =
-            typeof w.participantsCount === "number"
-              ? w.participantsCount
-              : (participants.length + familyRegs.length);
+      // SELF on waitlist
+      const isUserInWaitlist = waitingList.some(
+        (wl) =>
+          wl.parentUser?._id?.toString() === userId &&
+          !wl.familyMemberId // user himself
+      );
 
-          return {
-            ...w,
-            // safe defaults
-            address: w.address || "",
-            city: w.city || "",
-            studio: w.studio || "",
-            coach: w.coach || "",
-            waitingList: Array.isArray(w.waitingList) ? w.waitingList : [],
-            maxParticipants: Number(w.maxParticipants ?? 0),
-            waitingListMax: Number(w.waitingListMax ?? 0),
-            participantsCount,
-            isUserRegistered: Boolean(direct || viaFamily),
-            userFamilyRegistrations,
-          };
+      // FAMILY on waitlist
+      const familyMembersInWaitlist = waitingList
+        .filter((wl) => {
+          return (
+            wl.parentUser?._id?.toString() === userId &&
+            wl.familyMemberId?._id
+          );
         })
-      : docs;
+        .map((wl) => wl.familyMemberId._id.toString());
 
-    // --- meta ---
-    const totalPages = Math.ceil(totalCount / limit);
-    const baseUrl =
-      process.env.FRONTEND_BASE_URL ||
-      `${req.protocol}://${req.get("host")}${req.baseUrl || "/api/workshops"}`;
+      /* ---------------------------------------------------------
+         Final Flags
+      --------------------------------------------------------- */
+      const isUserRegistered = Boolean(isDirectRegistered || viaFamily);
 
-    return res.json({
-      meta: {
-        totalCount,
-        totalPages,
-        currentPage: page,
-        limit,
-        returned: enriched.length,
-        preview: Boolean(previewLimit),
-        nextPage: page < totalPages ? `${baseUrl}?page=${page + 1}&limit=${limit}` : null,
-        prevPage: page > 1 ? `${baseUrl}?page=${page - 1}&limit=${limit}` : null,
-      },
-      data: enriched,
+      /* ---------------------------------------------------------
+         NORMALIZED WORKSHOP
+      --------------------------------------------------------- */
+      return {
+        _id: workshopId,
+        title: w.title,
+        type: w.type,
+        description: w.description,
+        ageGroup: w.ageGroup,
+        coach: w.coach,
+        city: w.city,
+        address: w.address,
+        studio: w.studio,
+        days: w.days,
+        hour: w.hour,
+        price: w.price,
+        image: w.image,
+        available: w.available,
+
+        maxParticipants: w.maxParticipants,
+        sessionsCount: w.sessionsCount,
+        participantsCount: participantIds.length + familyRegs.length,
+
+        participants: participantIds,
+        familyRegistrations: familyRegs.map((fr) => ({
+          parentUser: fr.parentUser?._id?.toString(),
+          familyMemberId: fr.familyMemberId?._id?.toString(),
+        })),
+
+        userFamilyRegistrations,
+        isUserRegistered,
+
+        /* -------------------------------------------------------
+           NEW WAITLIST FIELDS
+        ------------------------------------------------------- */
+        waitingList: waitingList.map((wl) => ({
+          parentUser: wl.parentUser?._id?.toString(),
+          familyMemberId: wl.familyMemberId?._id?.toString() || null,
+        })),
+
+        isUserInWaitlist,
+        familyMembersInWaitlist,
+      };
     });
+
+    return res.status(200).json({ data: result });
   } catch (err) {
-    console.error("❌ [getAllWorkshops] Error:", err);
-    res.status(500).json({ message: "Server error fetching workshops", error: err.message });
+    console.error("❌ getAllWorkshops error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
