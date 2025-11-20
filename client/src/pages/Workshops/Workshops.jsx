@@ -1,10 +1,9 @@
 /**
  * Workshops.jsx — Smart Search Edition (Context-Only API Calls)
  * -----------------------------------------------------------------------
- * ✅ חיפוש חכם בעברית: "יום ה" / "ימים א,ד"
- * ✅ כל הקריאות עוברות דרך ה־Context בלבד (בלי apiFetch ישיר)
- * ✅ הרשמה, ביטול, מחיקה, רשימת המתנה — כולם עובדים דרך הפונקציות ב־WorkshopContext
- * ✅ עיצוב קומפקטי ונקי (Tailwind)
+ * This component renders the Workshops page with advanced search capabilities.
+ * It leverages the WorkshopContext for all data fetching and state management,
+ * ensuring a clean separation of concerns and maintainable code.
  */
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -18,17 +17,16 @@ export default function Workshops() {
   const navigate = useNavigate();
   const { isLoggedIn, isAdmin, user } = useAuth();
 
-  // 🔹 State
+  // 🔹 Local state
   const [searchBy, setSearchBy] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
 
-  // 🔹 Context
+  // 🔹 Context state
   const {
     displayedWorkshops,
-    
     setRegisteredWorkshopIds,
     fetchWorkshops,
     fetchRegisteredWorkshops,
@@ -36,10 +34,6 @@ export default function Workshops() {
     loading,
     error,
     viewMode,
-    registerEntityToWorkshop,
-    unregisterEntityFromWorkshop,
-    registerToWaitlist,
-    unregisterFromWaitlist,
     fetchAvailableCities,
   } = useWorkshops();
 
@@ -54,8 +48,6 @@ export default function Workshops() {
     loadCities();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -76,7 +68,7 @@ export default function Workshops() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return list;
 
-    // 🧠 Handle Hebrew day mapping (e.g. יום ה / ימים ב,ד)
+    // 🧠 Handle Hebrew day mapping (e.g. "יום ה" / "ימים ב,ד")
     if (searchBy === "days" && q) {
       const normalized = q
         .replace(/[ ,]+/g, ",")
@@ -124,34 +116,42 @@ export default function Workshops() {
   }, [displayedWorkshops, searchBy, searchQuery]);
 
   /* ============================================================
-     👨‍👩 Group by user/family
+     👨‍👩 Group by user/family for "mine" view
   ============================================================ */
   const workshopsByEntity = useMemo(() => {
     if (!user) return {};
+
     const related = filteredWorkshops.filter(
       (w) =>
         w.isUserRegistered ||
         (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
     );
+
     const map = {};
+
+    // Self
     map[user._id] = {
       name: user.fullName || user.name || "אני",
       relation: "",
       workshops: related.filter((w) => w.isUserRegistered),
     };
+
+    // Family members
     (user.familyMembers || []).forEach((member) => {
       const memberWorkshops = related.filter((w) =>
         (w.userFamilyRegistrations || []).some(
           (r) => String(r) === String(member._id)
         )
       );
-      if (memberWorkshops.length)
+      if (memberWorkshops.length) {
         map[member._id] = {
           name: member.name,
           relation: member.relation || "",
           workshops: memberWorkshops,
         };
+      }
     });
+
     return map;
   }, [user, filteredWorkshops]);
 
@@ -159,18 +159,6 @@ export default function Workshops() {
      ⚙️ Handlers
   ============================================================ */
   const handleSearch = (e) => setSearchQuery(e.target.value);
-
-  const handleRegister = async (id, familyId = null) => {
-    const result = await registerEntityToWorkshop(id, familyId);
-    setFeedback(result.success ? "✅ נרשמת בהצלחה לסדנה!" : "❌ שגיאה בהרשמה לסדנה");
-    setTimeout(() => setFeedback(null), 2500);
-  };
-
-  const handleUnregister = async (id, familyId = null) => {
-    const result = await unregisterEntityFromWorkshop(id, familyId);
-    setFeedback(result.success ? "✅ ההרשמה בוטלה בהצלחה" : "❌ שגיאה בביטול ההרשמה");
-    setTimeout(() => setFeedback(null), 2500);
-  };
 
   const handleDeleteWorkshop = async (id) => {
     if (!window.confirm("למחוק את הסדנה לצמיתות?")) return;
@@ -291,22 +279,18 @@ export default function Workshops() {
               <h3 className="text-2xl font-bold text-indigo-800 text-center mb-4 border-b border-indigo-100 pb-1">
                 {info.name} {info.relation ? `(${info.relation})` : ""}
               </h3>
+
               <div className="grid gap-6 sm:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 max-w-6xl mx-auto">
                 {info.workshops.map((w) => (
                   <WorkshopCard
                     key={w._id}
-                    {...w}
+                    _id={w._id}
                     isLoggedIn={isLoggedIn}
                     isAdmin={isAdmin}
-                    isRegistered={w.isUserRegistered}
-                    userFamilyRegistrations={w.userFamilyRegistrations || []}
-                    onRegister={(fid) => handleRegister(w._id, fid)}
-                    onUnregister={(fid) => handleUnregister(w._id, fid)}
+                    searchQuery={searchQuery}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
                     onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-                    searchQuery={searchQuery}
-                    refreshWorkshops={fetchWorkshops}
                   />
                 ))}
               </div>
@@ -322,20 +306,13 @@ export default function Workshops() {
           {filteredWorkshops.map((w) => (
             <WorkshopCard
               key={w._id}
-              {...w}
+              _id={w._id}
               isLoggedIn={isLoggedIn}
               isAdmin={isAdmin}
-              isRegistered={w.isUserRegistered}
-              userFamilyRegistrations={w.userFamilyRegistrations || []}
-              onRegister={(fid) => handleRegister(w._id, fid)}
-              onUnregister={(fid) => handleUnregister(w._id, fid)}
-              onRegisterWaitlist={(fid) => registerToWaitlist(w._id, fid)}
-              onUnregisterWaitlist={(fid) => unregisterFromWaitlist(w._id, fid)}
+              searchQuery={searchQuery}
               onManageParticipants={() => handleManageParticipants(w._id)}
               onEditWorkshop={() => handleEditWorkshop(w._id)}
               onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-              searchQuery={searchQuery}
-              refreshWorkshops={fetchWorkshops}
             />
           ))}
         </div>

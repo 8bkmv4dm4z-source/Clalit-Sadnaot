@@ -1,14 +1,12 @@
 /**
- * WorkshopCard.jsx — Robust Self/Family Registration Resolution
+ * WorkshopCard.jsx — Context-Only Data Source
  * --------------------------------------------------------------------
- * Priority for SELF registered state:
- *   1) registeredWorkshopIds.includes(_id)         ← Context strong signal
- *   2) userWorkshopMap[_id] === true               ← Map from Context fetch
- *   3) isRegistered (prop from page)               ← Optional server flag
- *   4) participants includes userId                ← Fallback from payload
+ * כל הנתונים על הסדנה (משתתפים, רשימת המתנה, הרשמות, משפחה וכו')
+ * מגיעים רק מה-WorkshopContext (workshops, userWorkshopMap, familyWorkshopMap...).
  *
- * Family registered state:
- *   - familyWorkshopMap[_id] or userFamilyRegistrations (prop)
+ * הפרופס היחידים שמשפיעים על לוגיקה:
+ *   - _id          ← מזהה הסדנה
+ *   - searchQuery  ← לטובת highlight בחיפוש (לא דאטה לוגי)
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
@@ -33,23 +31,8 @@ import {
 } from "lucide-react";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
-const extractId = (obj) => {
-  if (typeof obj === "string" || typeof obj === "number") return String(obj);
-  const direct =
-    obj?._id ||
-    obj?.id ||
-    obj?.userId ||
-    obj?.user_id ||
-    obj?.familyMemberId ||
-    obj?.memberId ||
-    obj?.family_id ||
-    obj?.entityId ||
-    obj?.entity_id;
-  if (direct) return String(direct);
-  if (obj && typeof obj.toString === "function") return String(obj.toString());
-  return "";
-};
 
+// -------- UI days mapping --------
 const hebDaysLetters = {
   Sunday: "א",
   Monday: "ב",
@@ -60,64 +43,29 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-export default function WorkshopCard({
-  // core props
-  _id,
-  title,
-  type,
-  description,
-  ageGroup,
-  coach,
-  city,
-  address,
-  studio,
-  days = [],
-  hour,
-  price,
-  image,
-  available,
-  participants = [],
-  waitingList = [],
-  waitingListMax = 0,
-  participantsCount = 0,
-  maxParticipants = 0,
-  startDate,
-  endDate,
-  sessionsCount,
-  inactiveDates = [],
-
-  // flags
-  isLoggedIn,
-  isAdmin,
-
-  // actions
-  onDeleteWorkshop,
-  onManageParticipants,
-  onEditWorkshop,
-
-  // user-specific from page/server (optional)
-  userFamilyRegistrations = [],
-  isRegistered, // optional server flag
-
-  // optional precomputed object
-  userFamilyWorkshopMap,
-
-  // search UX
-  searchQuery = "",
-}) {
-  const { user } = useAuth();
+export default function WorkshopCard({ _id, searchQuery = "" }) {
+  /* ---------------- Context ---------------- */
+  const { user, isLoggedIn, isAdmin } = useAuth();
   const {
-    fetchWorkshops,
+    workshops,
+    registeredWorkshopIds,
+    userWorkshopMap,
+    familyWorkshopMap,
     registerEntityToWorkshop,
     unregisterEntityFromWorkshop,
     registerToWaitlist,
     unregisterFromWaitlist,
-    registeredWorkshopIds,
-    userWorkshopMap,
-    familyWorkshopMap,
   } = useWorkshops();
 
-  /* ---------------- Local state ---------------- */
+  const wid = str(_id);
+
+  // לוקחים את הסדנה העדכנית מתוך ה-Context
+  const workshop = useMemo(
+    () => (Array.isArray(workshops) ? workshops.find((w) => str(w._id) === wid) || {} : {}),
+    [workshops, wid]
+  );
+
+  /* ---------------- Local UI state ---------------- */
   const [showFamilyModal, setShowFamilyModal] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -136,37 +84,42 @@ export default function WorkshopCard({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  /* ---------------- Derived data ---------------- */
+  /* ---------------- Derived data from workshop (context) ---------------- */
   const userId = str(user?._id);
 
-  const participantIdSet = useMemo(() => {
-    const arr = Array.isArray(participants) ? participants : [];
-    return new Set(arr.map(extractId).filter(Boolean));
-  }, [participants]);
+  const {
+    title = "",
+    type,
+    description,
+    ageGroup,
+    coach,
+    city,
+    address,
+    studio,
+    days = [],
+    hour,
+    price,
+    image,
+    available = true,
+    participants = [],
+    waitingList = [],
+    waitingListMax = 0,
+    participantsCount: participantsCountRaw,
+    maxParticipants: maxParticipantsRaw = 0,
+    startDate,
+    endDate,
+    sessionsCount,
+    inactiveDates = [],
+    userFamilyRegistrations = [],
+  } = workshop;
 
-  const waitRows = useMemo(() => {
-  const list = Array.isArray(waitingList) ? waitingList : [];
-  return list.map((w) => {
-    const ids = getEntityIdentifiers(w);
-    return {
-      userId: str(ids.userId),
-      familyId: str(ids.familyId),
-    };
-  });
-}, [waitingList]);
+  const participantsArr = Array.isArray(participants) ? participants : [];
+  const participantsCount =
+    typeof participantsCountRaw === "number"
+      ? participantsCountRaw
+      : participantsArr.length;
 
-const selfOnWaitlist = useMemo(
-  () => waitRows.some((e) => e.userId === userId && !e.familyId),
-  [waitRows, userId]
-);
-
-
-  const isWorkshopFull =
-    Number(maxParticipants) > 0 &&
-    Number(participantsCount || participants?.length || 0) >= Number(maxParticipants);
-
-  const isWaitlistFull =
-    Number(waitingListMax) > 0 && waitRows.length >= Number(waitingListMax);
+  const maxParticipants = Number(maxParticipantsRaw) || 0;
 
   const daysStr =
     (Array.isArray(days) && days.length
@@ -180,41 +133,84 @@ const selfOnWaitlist = useMemo(
       ? inactiveDates.map((d) => new Date(d).toLocaleDateString("he-IL")).join(", ")
       : null;
 
-  // -------------- SELF registered resolution (priority chain) --------------
-  const isSelfRegistered = useMemo(() => {
-    if (Array.isArray(registeredWorkshopIds) && _id) {
-      if (registeredWorkshopIds.includes(_id)) {
-        return true;
-      }
-    }
-    const mapVal = userWorkshopMap ? userWorkshopMap[_id] : undefined;
-    if (typeof mapVal === "boolean") return mapVal;
-    if (typeof isRegistered === "boolean") return isRegistered;
-    if (userId) return participantIdSet.has(userId);
-    return false;
-  }, [registeredWorkshopIds, userWorkshopMap, _id, isRegistered, participantIdSet, userId]);
+  // סט רשומים (self) מהנתונים של המופע עצמו רק כ-fallback
+  const participantIdSet = useMemo(() => {
+    return new Set(participantsArr.map((p) => str(p)).filter(Boolean));
+  }, [participantsArr]);
 
-  // -------------- FAMILY registered --------------
+  // טורי רשימת המתנה: מחלץ userId + familyId מכל אובייקט ברשימה
+  const waitRows = useMemo(() => {
+    const list = Array.isArray(waitingList) ? waitingList : [];
+    return list.map((w) => {
+      const ids = getEntityIdentifiers({
+        ...w,
+        parentUserId: w?.parentUser?._id ?? w?.parentUser,
+        familyMemberId:
+          w?.familyMemberId?._id ??
+          w?.familyMemberId ??
+          w?.familyMember?._id ??
+          w?.familyMember,
+      });
+      return {
+        userId: str(ids.userId),
+        familyId: str(ids.familyId),
+      };
+    });
+  }, [waitingList]);
+
+  // אני עצמי ברשימת המתנה (רק parent, בלי בן משפחה)
+  const selfOnWaitlist = useMemo(
+    () => waitRows.some((e) => e.userId === userId && !e.familyId),
+    [waitRows, userId]
+  );
+
+  const isWorkshopFull =
+    maxParticipants > 0 && Number(participantsCount || 0) >= maxParticipants;
+
+  const isWaitlistFull =
+    Number(waitingListMax) > 0 && waitRows.length >= Number(waitingListMax);
+
+  /* ---------------- Registered state (SELF) ---------------- */
+  const isSelfRegistered = useMemo(() => {
+    if (!userId || !wid) return false;
+
+    // 1) ids שנשלפים מהשרת לפי הרשמה
+    if (Array.isArray(registeredWorkshopIds) && registeredWorkshopIds.includes(wid)) {
+      return true;
+    }
+
+    // 2) מפה שנגזרת מה-Context (מחושבת על workshops)
+    const mapVal = userWorkshopMap ? userWorkshopMap[wid] : undefined;
+    if (typeof mapVal === "boolean") return mapVal;
+
+    // 3) fallback: אם מישהו שם isUserRegistered ב-workshop עצמו
+    if (workshop?.isUserRegistered) return true;
+
+    // 4) fallback אחרון: מופיע ב-participants
+    return participantIdSet.has(userId);
+  }, [registeredWorkshopIds, userWorkshopMap, wid, workshop, participantIdSet, userId]);
+
+  /* ---------------- Registered state (FAMILY) ---------------- */
   const familyRegisteredIdSet = useMemo(() => {
     const fromMap =
-      familyWorkshopMap && Array.isArray(familyWorkshopMap[_id])
-        ? familyWorkshopMap[_id]
+      familyWorkshopMap && Array.isArray(familyWorkshopMap[wid])
+        ? familyWorkshopMap[wid]
         : undefined;
     const src = fromMap ?? userFamilyRegistrations ?? [];
     const normalizeId = (entry) => getEntityIdentifiers(entry).familyId || str(entry);
     return new Set((src || []).map(normalizeId).filter(Boolean));
-  }, [familyWorkshopMap, userFamilyRegistrations, _id]);
+  }, [familyWorkshopMap, wid, userFamilyRegistrations]);
 
-  // ---------------- Button factory ----------------
+  /* ---------------- Button factory (self / family) ---------------- */
   const getEntityButton = (entity) => {
+    // אם זה בן משפחה, יש לו _id; אם זה "אני" → אין familyId
     const familyId = typeof entity === "object" ? str(entity?._id) : "";
     const isSelf = !familyId;
 
     const memberRegistered = familyId ? familyRegisteredIdSet.has(familyId) : false;
     const memberOnWaitlist = familyId
-  ? waitRows.some((e) => e.userId === userId && e.familyId === familyId)
-  : false;
-
+      ? waitRows.some((e) => e.userId === userId && e.familyId === familyId)
+      : false;
 
     const registered = isSelf ? isSelfRegistered : memberRegistered;
     const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
@@ -231,7 +227,7 @@ const selfOnWaitlist = useMemo(
       return {
         label: "בטל הרשמה",
         color: "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: async () => unregisterEntityFromWorkshop(_id, familyId || undefined),
+        action: async () => unregisterEntityFromWorkshop(wid, familyId || undefined),
       };
     }
 
@@ -239,7 +235,7 @@ const selfOnWaitlist = useMemo(
       return {
         label: "בטל רשימת המתנה",
         color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => unregisterFromWaitlist(_id, familyId || undefined),
+        action: async () => unregisterFromWaitlist(wid, familyId || undefined),
       };
     }
 
@@ -254,14 +250,14 @@ const selfOnWaitlist = useMemo(
       return {
         label: "הצטרף לרשימת המתנה",
         color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => registerToWaitlist(_id, familyId || undefined),
+        action: async () => registerToWaitlist(wid, familyId || undefined),
       };
     }
 
     return {
       label: "הירשם",
       color: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: async () => registerEntityToWorkshop(_id, familyId || undefined),
+      action: async () => registerEntityToWorkshop(wid, familyId || undefined),
     };
   };
 
@@ -281,6 +277,19 @@ const selfOnWaitlist = useMemo(
   };
 
   /* ---------------- UI ---------------- */
+
+  // אם עדיין אין סדנה (לפני fetch) – אפשר להחזיר skeleton קטן
+  if (!workshop || !wid) {
+    return (
+      <div className="relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white p-4 animate-pulse">
+        <div className="h-44 w-full bg-gray-100 mb-3" />
+        <div className="h-4 bg-gray-200 rounded w-2/3 mb-2" />
+        <div className="h-3 bg-gray-200 rounded w-1/2 mb-1" />
+        <div className="h-3 bg-gray-200 rounded w-1/3" />
+      </div>
+    );
+  }
+
   return (
     <>
       <div
@@ -330,48 +339,12 @@ const selfOnWaitlist = useMemo(
             </h3>
 
             {isAdmin && (
-              <div className="relative" ref={adminMenuRef}>
-                <button
-                  onClick={() => setAdminOpen((s) => !s)}
-                  className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
-                  title="אפשרויות ניהול"
-                >
-                  <MoreVertical size={18} className="text-indigo-700" />
-                </button>
-
-                {adminOpen && (
-                  <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
-                    <button
-                      onClick={() => {
-                        setAdminOpen(false);
-                        onEditWorkshop?.(_id);
-                      }}
-                      className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
-                    >
-                      ✏️ ערוך
-                    </button>
-                    <button
-                      onClick={() => {
-                        setAdminOpen(false);
-                        // FIXED: keep WorkshopParticipantsModal as the single source for waitlist management
-                        onManageParticipants?.(_id);
-                      }}
-                      className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
-                    >
-                      👥 משתתפים
-                    </button>
-                    <button
-                      onClick={() => {
-                        setAdminOpen(false);
-                        onDeleteWorkshop?.(_id);
-                      }}
-                      className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      🗑️ מחק
-                    </button>
-                  </div>
-                )}
-              </div>
+              <AdminMenu
+                adminMenuRef={adminMenuRef}
+                adminOpen={adminOpen}
+                setAdminOpen={setAdminOpen}
+                workshopId={wid}
+              />
             )}
           </div>
 
@@ -471,9 +444,7 @@ const selfOnWaitlist = useMemo(
                 ) : (
                   <>
                     <Users size={16} className="text-indigo-700" />
-                    {`${Number(
-                      participantsCount || participants?.length || 0
-                    )}/${maxParticipants || "∞"}`}
+                    {`${Number(participantsCount || 0)}/${maxParticipants || "∞"}`}
                     {showWaitlist ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </>
                 )}
@@ -541,7 +512,7 @@ const selfOnWaitlist = useMemo(
                 const familyId = key;
                 const isRegisteredFamily = familyRegisteredIdSet.has(familyId);
                 const isWL = waitRows.some(
-                  (e) => e.parentUserId === userId && e.familyMemberId === familyId
+                  (e) => e.userId === userId && e.familyId === familyId
                 );
                 const btn = getEntityButton(member);
                 const isActionable = !!btn?.action;
@@ -647,6 +618,72 @@ const selfOnWaitlist = useMemo(
         </div>
       )}
     </>
+  );
+}
+
+/* ---------- Admin menu extracted for clarity ---------- */
+function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
+  // נשים את ה־callbacks בדפים שמרנדרים את WorkshopCard (כמו קודם)
+  // דרך onManageParticipants / onEditWorkshop / onDeleteWorkshop שעוברים ב־props
+  // כאן פשוט נשתמש ב-CustomEvent כדי לא לשבור API:
+  const handleEmit = (type) => {
+    window.dispatchEvent(
+      new CustomEvent("workshop-admin-action", {
+        detail: { type, workshopId },
+      })
+    );
+  };
+
+  useEffect(() => {
+    const handler = (e) => {
+      // no-op placeholder; הדפים themselves מאזינים לאיבנט אם צריכים
+    };
+    window.addEventListener("workshop-admin-action", handler);
+    return () => window.removeEventListener("workshop-admin-action", handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={adminMenuRef}>
+      <button
+        onClick={() => setAdminOpen((s) => !s)}
+        className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
+        title="אפשרויות ניהול"
+      >
+        <MoreVertical size={18} className="text-indigo-700" />
+      </button>
+
+      {adminOpen && (
+        <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
+          <button
+            onClick={() => {
+              setAdminOpen(false);
+              handleEmit("edit");
+            }}
+            className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
+          >
+            ✏️ ערוך
+          </button>
+          <button
+            onClick={() => {
+              setAdminOpen(false);
+              handleEmit("manage");
+            }}
+            className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
+          >
+            👥 משתתפים
+          </button>
+          <button
+            onClick={() => {
+              setAdminOpen(false);
+              handleEmit("delete");
+            }}
+            className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+          >
+            🗑️ מחק
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
