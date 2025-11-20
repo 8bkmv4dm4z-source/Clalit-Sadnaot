@@ -123,6 +123,8 @@ const ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
 // This ensures production still works if env var is missing
 const DEFAULT_ALLOWED = [
   "https://sandaot.onrender.com",
+  // Static client deployed separately on Render (needs explicit CORS allow)
+  "https://sandaot-client.onrender.com",
   "http://localhost:5173"
 ];
 
