@@ -135,6 +135,20 @@ export function ProfileProvider({ children }) {
         return searchCache.current.get(normalized);
       }
 
+      try {
+        const params = new URLSearchParams();
+        params.set("q", rawQuery);
+        params.set("limit", "200");
+        const res = await apiFetch(`/api/users/search?${params.toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.message || "Failed to search users");
+        const list = Array.isArray(data) ? data : [];
+        searchCache.current.set(normalized, list);
+        return list;
+      } catch (err) {
+        console.warn("[profiles] remote search failed, falling back to local cache", err);
+      }
+
       const filtered = rows.filter((row) => rowMatchesQuery(row, normalized));
       searchCache.current.set(normalized, filtered);
       return filtered;
