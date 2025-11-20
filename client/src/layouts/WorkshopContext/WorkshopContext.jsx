@@ -498,48 +498,60 @@ export const WorkshopProvider = ({ children }) => {
   };
 
   const registerToWaitlist = async (workshopId, familyId) => {
-  dbgCtx("waitlistRegister:start", { workshopId, familyId });
+    dbgCtx("waitlistRegister:start", { workshopId, familyId });
+    const body = familyId ? { familyId } : {};
 
-  const body = familyId ? { familyId } : {};
+    try {
+      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
 
-  try {
-    const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+      const data = await res.json();
+      dbgCtx("waitlistRegister:raw-response", { ok: res.ok, message: data?.message });
 
-    const data = await res.json();
-    dbgCtx("waitlistRegister:done", data);
+      if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
 
-await fetchAllWorkshops(true);
-await fetchRegisteredWorkshops();
-await fetchProfiles();  } catch (e) {
-    dbgCtx("waitlistRegister:error", e);
-    throw e;
-  }
-};
-
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+      dbgCtx("waitlistRegister:success", { workshopId, familyId });
+      return { success: true, data };
+    } catch (e) {
+      dbgCtx("waitlistRegister:error", e);
+      return { success: false, message: e?.message || "Waitlist registration failed" };
+    }
+  };
 
   const unregisterFromWaitlist = async (workshopId, familyId) => {
-  const body = familyId ? { familyId } : {};
+    dbgCtx("waitlistUnregister:start", { workshopId, familyId });
+    const body = familyId ? { familyId } : {};
 
-  try {
-    const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-    await res.json();
-await fetchAllWorkshops(true);
-await fetchRegisteredWorkshops();
-await fetchProfiles();  } catch (e) {
-    throw e;
-  }
-};
+      const data = await res.json();
+      dbgCtx("waitlistUnregister:raw-response", { ok: res.ok, message: data?.message });
+
+      if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
+
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+      dbgCtx("waitlistUnregister:success", { workshopId, familyId });
+      return { success: true, data };
+    } catch (e) {
+      dbgCtx("waitlistUnregister:error", e);
+      return { success: false, message: e?.message || "Waitlist removal failed" };
+    }
+  };
 
   /* ============================================================
    🛠️ Admin: Create & Update Workshops

@@ -113,7 +113,10 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     userFamilyRegistrations = [],
   } = workshop;
 
-  const participantsArr = Array.isArray(participants) ? participants : [];
+  const participantsArr = useMemo(
+    () => (Array.isArray(participants) ? participants : []),
+    [participants]
+  );
   const participantsCount =
     typeof participantsCountRaw === "number"
       ? participantsCountRaw
@@ -266,7 +269,10 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     if (loading || !btn?.action) return;
     setLoading(true);
     try {
-      await btn.action();
+      const result = await btn.action();
+      if (result?.success === false) {
+        throw new Error(result?.message || "הפעולה נכשלה");
+      }
       setFeedback(`✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`);
     } catch (e) {
       setFeedback(`❌ ${e?.message || "שגיאה בביצוע פעולה"}`);

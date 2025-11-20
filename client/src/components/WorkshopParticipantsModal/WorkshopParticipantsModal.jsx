@@ -177,6 +177,8 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     unregisterEntityFromWorkshop,
     unregisterFromWaitlist,
     workshops,
+    selectedWorkshop: selectedWorkshopFromContext,
+    setSelectedWorkshop,
   } = useWorkshops();
   const { refreshMe } = useAuth();
 
@@ -204,7 +206,15 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 }, []);
 
 
-  const workshopId = useMemo(() => String(workshop?._id ?? ""), [workshop?._id]);
+  const resolvedWorkshop = useMemo(
+    () => workshop || selectedWorkshopFromContext || {},
+    [workshop, selectedWorkshopFromContext]
+  );
+
+  const workshopId = useMemo(
+    () => String(resolvedWorkshop?._id ?? ""),
+    [resolvedWorkshop?._id]
+  );
 
   // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
   const contextWorkshop = useMemo(() => {
@@ -212,10 +222,10 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     return (workshops || []).find((w) => String(w?._id) === workshopId) || null;
   }, [workshops, workshopId]);
 
-  const activeWorkshop = useMemo(() => contextWorkshop || workshop || {}, [
-    contextWorkshop,
-    workshop,
-  ]);
+  const activeWorkshop = useMemo(
+    () => contextWorkshop || resolvedWorkshop || {},
+    [contextWorkshop, resolvedWorkshop]
+  );
 
   const activeWorkshopId = useMemo(
     () => activeWorkshop?._id || workshopId,
@@ -460,7 +470,10 @@ const city = wl.city || wl.parentCity || "-";
 
   const handleClose = async () => {
     await fetchWorkshops();
-    onClose();
+    if (typeof setSelectedWorkshop === "function") {
+      setSelectedWorkshop(null);
+    }
+    onClose?.();
   };
 
   return (

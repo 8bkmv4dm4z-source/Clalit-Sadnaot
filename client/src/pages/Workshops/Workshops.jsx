@@ -20,7 +20,6 @@ export default function Workshops() {
   // 🔹 Local state
   const [searchBy, setSearchBy] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
 
@@ -35,6 +34,8 @@ export default function Workshops() {
     error,
     viewMode,
     fetchAvailableCities,
+    selectedWorkshop,
+    setSelectedWorkshop,
   } = useWorkshops();
 
   /* ============================================================
