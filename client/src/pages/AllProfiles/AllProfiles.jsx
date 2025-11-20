@@ -7,7 +7,6 @@
  * ✅ Search: context.searchProfiles() only (debounced 350ms)
  * ✅ 3-dot dropdown fixed (no auto-close on open)
  * ✅ Optimistic inline edit -> soft revalidate via context
- * ✅ New: 🗑 מחק מכל הסדנאות (via WorkshopContext.unregisterEntityFromWorkshop)
  */
 import { createPortal } from "react-dom";
 
