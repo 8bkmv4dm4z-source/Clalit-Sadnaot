@@ -62,6 +62,21 @@ npm install
 npm --prefix server install
 ```
 
+### Reversible hashed identifiers
+
+The backend now uses reversible, salted identifiers to avoid exposing raw
+MongoDB `_id` values. Configure the encoder via environment variables in
+`server/.env` (or your deployment environment):
+
+```
+HASHID_SALT=<strong-secret-salt>
+HASHID_MIN_LENGTH=10
+```
+
+`HASHID_SALT` must be a non-empty string and is required to decode hashed
+identifiers back to their original ObjectIds. `HASHID_MIN_LENGTH` controls the
+minimum length of the encoded string and defaults to `10`.
+
 ### Run the web client
 
 ```bash

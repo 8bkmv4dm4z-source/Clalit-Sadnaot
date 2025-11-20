@@ -155,7 +155,8 @@ export const WorkshopProvider = ({ children }) => {
 
       // Normalize ONLY. Do not build maps here (maps are derived below).
       const list = workshopsArray.map((w, idx) => {
-        const wid = String(w?.workshopKey || w?._id || w?.id || "");
+        const hashedId = String(w?.hashedId || w?._id || w?.id || "");
+        const mongoId = w?.mongoId || (w?._id && w?.hashedId ? String(w?._id) : "");
         const participantKeys = (w.participants || []).map((p) => sid(p));
         const familyRegs = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
         const familyRegKeys = familyRegs.map((f) => sid(f.familyMemberKey || f.familyMemberId));
@@ -163,8 +164,10 @@ export const WorkshopProvider = ({ children }) => {
 
         const normalized = {
           ...w,
-          workshopKey: wid,
-          _id: wid,
+          hashedId,
+          workshopKey: hashedId,
+          _id: hashedId,
+          mongoId,
           address: w.address || "",
           city: w.city || "",
           studio: w.studio || "",
