@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const nodeCrypto = require("node:crypto");
+const { encodeId } = require("../utils/hashId"); // adjust path if needed
 
 /**
  * FamilyMemberSchema
@@ -11,10 +12,16 @@ const nodeCrypto = require("node:crypto");
 const FamilyMemberSchema = new mongoose.Schema(
   {
     entityKey: {
-      type: String,
-      default: () => nodeCrypto.randomUUID(),
-      index: true,
-    },
+  type: String,
+  default: function () {
+    // Must hash the underlying ObjectId of this subdocument
+    if (this._id) {
+      return encodeId(this._id.toString());
+    }
+    return nodeCrypto.randomUUID(); // fallback (should not happen)
+  },
+  index: true,
+},
     name: { type: String, required: true },
     relation: { type: String, default: "" },
     idNumber: { type: String, default: "" },
