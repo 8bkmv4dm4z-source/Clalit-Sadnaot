@@ -114,45 +114,10 @@ api.use(sanitizeBody);
 api.use(mongoSanitize());
 api.use(compression());
 
-// CORS (API only)
-
-// --- CORS Setup (with dynamic origin list) ---
-const ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
-
-// ✅ Add fallback in case ALLOWED_ORIGINS is empty
-// This ensures production still works if env var is missing
-const DEFAULT_ALLOWED = [
-  "https://sandaot.onrender.com",
-  "http://localhost:5173"
-];
-
-api.use(
-  cors({
-    origin(origin, cb) {
-      // Allow requests without Origin (like server-to-server or curl)
-      if (!origin) return cb(null, true);
-
-      // Merge environment and default lists
-      const allAllowed = [...new Set([...ALLOWED_ORIGINS, ...DEFAULT_ALLOWED])];
-
-      if (allAllowed.includes(origin)) {
-        return cb(null, true);
-      }
-
-      console.warn(`❌ CORS blocked request from: ${origin}`);
-      return cb(new Error("CORS: Origin not allowed"), false);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "Accept"
-    ],
-    exposedHeaders: ["Content-Disposition"],
-  })
-);
+// NOTE: Unified CORS configuration — applied globally below before mounting routes.
+// We intentionally don't mount separate CORS middleware on the `api` router to
+// avoid duplicated/contradicting lists. The configuration below reads
+// ALLOWED_ORIGINS from env and falls back to a safe developer-friendly default.
 
 
 // Rate limits (API only)
@@ -240,6 +205,39 @@ api.use((err, req, res, _next) => {
 });
 
 // Mount the API once
+
+// ----------------------------
+// Unified CORS configuration (global)
+// - Reads allowed origins from process.env.ALLOWED_ORIGINS (comma-separated)
+// - Falls back to a small developer whitelist (localhost ports)
+// - In non-production, we allow all origins to simplify local development
+// ----------------------------
+const ENV_ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
+const DEV_DEFAULTS = ["http://localhost:5173", "http://localhost:3000"];
+const ALL_ALLOWED_ORIGINS = [...new Set([...(ENV_ALLOWED_ORIGINS || []), ...DEV_DEFAULTS])];
+
+const corsOptions = {
+  origin(origin, cb) {
+    // allow non-browser requests (curl, server-to-server) which don't set Origin
+    if (!origin) return cb(null, true);
+
+    // during development allow all origins for convenience
+    if (process.env.NODE_ENV !== "production") return cb(null, true);
+
+    if (ALL_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+
+    console.warn(`❌ CORS blocked request from: ${origin}`);
+    return cb(new Error("CORS: Origin not allowed"), false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Content-Disposition"],
+};
+
+app.use(cors(corsOptions));
+
+// Then mount `/api`
 app.use("/api", api);
 
 /* ------------------------------------------------

@@ -5,8 +5,9 @@
  * מגיעים רק מה-WorkshopContext (workshops, userWorkshopMap, familyWorkshopMap...).
  *
  * הפרופס היחידים שמשפיעים על לוגיקה:
- *   - _id          ← מזהה הסדנה
+ *   - _id          ← מזהה הסדנה (hashedId מהקונטקסט)
  *   - searchQuery  ← לטובת highlight בחיפוש (לא דאטה לוגי)
+ *   - onManageParticipants / onEditWorkshop / onDeleteWorkshop / isAdmin
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
@@ -43,7 +44,14 @@ const hebDaysLetters = {
   Saturday: "ש",
 };
 
-export default function WorkshopCard({ _id, searchQuery = "" }) {
+export default function WorkshopCard({
+  _id,
+  searchQuery = "",
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+  isAdmin: isAdminProp,
+}) {
   /* ---------------- Context ---------------- */
   const { user, isLoggedIn, isAdmin } = useAuth();
   const {
@@ -59,11 +67,16 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
 
   const wid = str(_id);
 
-  // לוקחים את הסדנה העדכנית מתוך ה-Context
+  // לוקחים את הסדנה העדכנית מתוך ה-Context (משתמשים ב-hashedId כ-_id)
   const workshop = useMemo(
-    () => (Array.isArray(workshops) ? workshops.find((w) => str(w._id) === wid) || {} : {}),
+    () =>
+      Array.isArray(workshops)
+        ? workshops.find((w) => str(w._id) === wid) || {}
+        : {},
     [workshops, wid]
   );
+
+  const adminEnabled = typeof isAdminProp === "boolean" ? isAdminProp : isAdmin;
 
   /* ---------------- Local UI state ---------------- */
   const [showFamilyModal, setShowFamilyModal] = useState(false);
@@ -117,6 +130,7 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     () => (Array.isArray(participants) ? participants : []),
     [participants]
   );
+
   const participantsCount =
     typeof participantsCountRaw === "number"
       ? participantsCountRaw
@@ -136,12 +150,11 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
       ? inactiveDates.map((d) => new Date(d).toLocaleDateString("he-IL")).join(", ")
       : null;
 
-      /* ---------------- Derived data: registrations / waitlist ---------------- */
+  /* ---------------- Derived data: registrations / waitlist ---------------- */
 
-      const participantIdSet = useMemo(() => {
+  const participantIdSet = useMemo(() => {
     return new Set(participantsArr.map((p) => str(p)).filter(Boolean));
   }, [participantsArr]);
-
 
   const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
@@ -157,7 +170,7 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     });
   }, [waitingList]);
 
-/* ---------------- Self on waitlist ---------------- */
+  /* ---------------- Self on waitlist ---------------- */
   const selfOnWaitlist = useMemo(
     () => waitRows.some((e) => e.parentKey === userKey && !e.entityKey),
     [waitRows, userKey]
@@ -173,20 +186,30 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
   const isSelfRegistered = useMemo(() => {
     if (!userKey || !wid) return false;
 
-    if (Array.isArray(registeredWorkshopIds) && registeredWorkshopIds.includes(wid)) {
+    if (
+      Array.isArray(registeredWorkshopIds) &&
+      registeredWorkshopIds.includes(wid)
+    ) {
       return true;
     }
 
-    // 2) מפה שנגזרת מה-Context (מחושבת על workshops)
+    // מפה שנגזרת מה-Context (מחושבת על workshops)
     const mapVal = userWorkshopMap ? userWorkshopMap[wid] : undefined;
     if (typeof mapVal === "boolean") return mapVal;
 
-    // 3) fallback: אם מישהו שם isUserRegistered ב-workshop עצמו
+    // fallback: אם מישהו שם isUserRegistered ב-workshop עצמו
     if (workshop?.isUserRegistered) return true;
 
-    // 4) fallback אחרון: מופיע ב-participants
+    // fallback אחרון: מופיע ב-participants
     return participantIdSet.has(userKey);
-  }, [registeredWorkshopIds, userWorkshopMap, wid, workshop, participantIdSet, userKey]);
+  }, [
+    registeredWorkshopIds,
+    userWorkshopMap,
+    wid,
+    workshop,
+    participantIdSet,
+    userKey,
+  ]);
 
   /* ---------------- Registered state (FAMILY) ---------------- */
   const familyRegisteredIdSet = useMemo(() => {
@@ -195,18 +218,24 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
         ? familyWorkshopMap[wid]
         : undefined;
     const src = fromMap ?? userFamilyRegistrations ?? [];
-    const normalizeId = (entry) => getEntityIdentifiers(entry).entityKey || str(entry);
+    const normalizeId = (entry) =>
+      getEntityIdentifiers(entry).entityKey || str(entry);
     return new Set((src || []).map(normalizeId).filter(Boolean));
   }, [familyWorkshopMap, wid, userFamilyRegistrations]);
 
   /* ---------------- Button factory (self / family) ---------------- */
   const getEntityButton = (entity) => {
-    const entityKey = typeof entity === "object" ? str(entity?.entityKey) : "";
+    const entityKey =
+      typeof entity === "object" ? str(entity?.entityKey) : "";
     const isSelf = !entityKey;
 
-    const memberRegistered = entityKey ? familyRegisteredIdSet.has(entityKey) : false;
+    const memberRegistered = entityKey
+      ? familyRegisteredIdSet.has(entityKey)
+      : false;
     const memberOnWaitlist = entityKey
-      ? waitRows.some((e) => e.parentKey === userKey && e.entityKey === entityKey)
+      ? waitRows.some(
+          (e) => e.parentKey === userKey && e.entityKey === entityKey
+        )
       : false;
 
     const registered = isSelf ? isSelfRegistered : memberRegistered;
@@ -215,7 +244,8 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     if (!available) {
       return {
         label: "לא ניתן להירשם",
-        color: "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
+        color:
+          "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
         action: null,
       };
     }
@@ -223,16 +253,20 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
     if (registered) {
       return {
         label: "בטל הרשמה",
-        color: "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: async () => unregisterEntityFromWorkshop(wid, entityKey || undefined),
+        color:
+          "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
+        action: async () =>
+          unregisterEntityFromWorkshop(wid, entityKey || undefined),
       };
     }
 
     if (onWaitlist) {
       return {
         label: "בטל רשימת המתנה",
-        color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => unregisterFromWaitlist(wid, entityKey || undefined),
+        color:
+          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
+        action: async () =>
+          unregisterFromWaitlist(wid, entityKey || undefined),
       };
     }
 
@@ -240,21 +274,26 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
       if (isWaitlistFull) {
         return {
           label: "לא ניתן להירשם",
-          color: "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
+          color:
+            "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
           action: null,
         };
       }
       return {
         label: "הצטרף לרשימת המתנה",
-        color: "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () => registerToWaitlist(wid, entityKey || undefined),
+        color:
+          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
+        action: async () =>
+          registerToWaitlist(wid, entityKey || undefined),
       };
     }
 
     return {
       label: "הירשם",
-      color: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: async () => registerEntityToWorkshop(wid, entityKey || undefined),
+      color:
+        "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
+      action: async () =>
+        registerEntityToWorkshop(wid, entityKey || undefined),
     };
   };
 
@@ -267,7 +306,9 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
       if (result?.success === false) {
         throw new Error(result?.message || "הפעולה נכשלה");
       }
-      setFeedback(`✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`);
+      setFeedback(
+        `✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`
+      );
     } catch (e) {
       setFeedback(`❌ ${e?.message || "שגיאה בביצוע פעולה"}`);
     } finally {
@@ -338,12 +379,15 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
               {highlight(title, searchQuery)}
             </h3>
 
-            {isAdmin && (
+            {adminEnabled && (
               <AdminMenu
                 adminMenuRef={adminMenuRef}
                 adminOpen={adminOpen}
                 setAdminOpen={setAdminOpen}
                 workshopId={wid}
+                onManageParticipants={onManageParticipants}
+                onEditWorkshop={onEditWorkshop}
+                onDeleteWorkshop={onDeleteWorkshop}
               />
             )}
           </div>
@@ -365,7 +409,9 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
 
               <span className="flex items-center gap-2 text-gray-800 truncate max-w-[65%] text-right">
                 {highlight(
-                  city && address ? `${city}, ${address}` : city || address || "—",
+                  city && address
+                    ? `${city}, ${address}`
+                    : city || address || "—",
                   searchQuery
                 )}
 
@@ -439,13 +485,21 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
                   <>
                     <Hourglass size={16} className="text-amber-600" />
                     {`${waitRows.length}/${waitingListMax || "∞"}`}
-                    {showWaitlist ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    {showWaitlist ? (
+                      <ChevronUp size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
                   </>
                 ) : (
                   <>
                     <Users size={16} className="text-indigo-700" />
                     {`${Number(participantsCount || 0)}/${maxParticipants || "∞"}`}
-                    {showWaitlist ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    {showWaitlist ? (
+                      <ChevronUp size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
                   </>
                 )}
               </span>
@@ -489,7 +543,9 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
           {feedback && (
             <p
               className={`text-sm mt-2 text-center font-medium ${
-                feedback.startsWith("✅") ? "text-green-600" : "text-red-600"
+                feedback.startsWith("✅")
+                  ? "text-green-600"
+                  : "text-red-600"
               }`}
             >
               {feedback}
@@ -532,7 +588,9 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
                         </div>
                         <div className="flex items-center gap-2 text-[11px] text-gray-600">
                           {member.relation && (
-                            <span className="truncate">{member.relation}</span>
+                            <span className="truncate">
+                              {member.relation}
+                            </span>
                           )}
                           {isRegisteredFamily && (
                             <span className="inline-flex items-center gap-1 text-green-700">
@@ -621,12 +679,31 @@ export default function WorkshopCard({ _id, searchQuery = "" }) {
   );
 }
 
-/* ---------- Admin menu extracted for clarity ---------- */
-function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
-  // נשים את ה־callbacks בדפים שמרנדרים את WorkshopCard (כמו קודם)
-  // דרך onManageParticipants / onEditWorkshop / onDeleteWorkshop שעוברים ב־props
-  // כאן פשוט נשתמש ב-CustomEvent כדי לא לשבור API:
-  const handleEmit = (type) => {
+/* ---------- Admin menu ---------- */
+function AdminMenu({
+  adminMenuRef,
+  adminOpen,
+  setAdminOpen,
+  workshopId,
+  onManageParticipants,
+  onEditWorkshop,
+  onDeleteWorkshop,
+}) {
+  const handlers = {
+    edit: onEditWorkshop,
+    manage: onManageParticipants,
+    delete: onDeleteWorkshop,
+  };
+
+  const handleAction = (type) => {
+    setAdminOpen(false);
+    const fn = handlers[type];
+    if (typeof fn === "function") {
+      fn(workshopId);
+      return;
+    }
+
+    // fallback – משדרים event גלובלי למי שמאזין
     window.dispatchEvent(
       new CustomEvent("workshop-admin-action", {
         detail: { type, workshopId },
@@ -635,8 +712,8 @@ function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
   };
 
   useEffect(() => {
-    const handler = (e) => {
-      // no-op placeholder; הדפים themselves מאזינים לאיבנט אם צריכים
+    const handler = () => {
+      // no-op placeholder; הדפים עצמם יכולים להאזין אם צריך
     };
     window.addEventListener("workshop-admin-action", handler);
     return () => window.removeEventListener("workshop-admin-action", handler);
@@ -655,28 +732,19 @@ function AdminMenu({ adminMenuRef, adminOpen, setAdminOpen, workshopId }) {
       {adminOpen && (
         <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("edit");
-            }}
+            onClick={() => handleAction("edit")}
             className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
           >
             ✏️ ערוך
           </button>
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("manage");
-            }}
+            onClick={() => handleAction("manage")}
             className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
           >
             👥 משתתפים
           </button>
           <button
-            onClick={() => {
-              setAdminOpen(false);
-              handleEmit("delete");
-            }}
+            onClick={() => handleAction("delete")}
             className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
           >
             🗑️ מחק

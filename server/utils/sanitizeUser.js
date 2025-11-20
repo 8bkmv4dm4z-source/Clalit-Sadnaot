@@ -17,7 +17,6 @@ function toPlain(doc) {
 function stripSensitiveFields(user) {
   const clean = toPlain(user) || {};
   const redactions = [
-    "_id",
     "passwordHash",
     "otpCode",
     "otpAttempts",
@@ -36,8 +35,9 @@ function stripSensitiveFields(user) {
   return clean;
 }
 
-const ALLOWED_USER_FIELDS = ["entityKey", "name", "email", "phone", "city"];
+const ALLOWED_USER_FIELDS = ["_id", "entityKey", "name", "email", "phone", "city"];
 const ALLOWED_FAMILY_FIELDS = [
+  "_id",
   "entityKey",
   "name",
   "relation",
@@ -48,6 +48,9 @@ const ALLOWED_FAMILY_FIELDS = [
   "parentName",
   "parentEmail",
   "parentPhone",
+  "birthDate",
+  "idNumber",
+  "canCharge",
 ];
 
 const pickAllowed = (source = {}, allowed = []) => {
@@ -66,10 +69,36 @@ const pickAllowed = (source = {}, allowed = []) => {
  *   leaking the underlying role string.
  * - Removes all sensitive fields (passwords, OTP, integrity hashes, tokens).
  */
-function sanitizeUserForResponse(user, requester) {
+function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) {
   if (!user) return null;
   const clean = stripSensitiveFields(user);
 
+  const requesterIsAdmin = requester?.role === "admin";
+  const isAdminRole = clean.role === "admin";
+
+  // 📦 Full profile payload (for /me and admin views)
+  if (includeFull) {
+    const base = {
+      ...clean,
+      isAdmin: isAdminRole,
+      roleFingerprint: User.computeRoleHash(clean.entityKey, clean.role),
+    };
+
+    base.familyMembers = Array.isArray(clean.familyMembers)
+      ? clean.familyMembers.map((member) => ({
+          parentKey: clean.entityKey,
+          parentName: clean.name,
+          parentEmail: clean.email,
+          parentPhone: clean.phone,
+          parentCity: clean.city,
+          ...member,
+        }))
+      : [];
+
+    return base;
+  }
+
+  // 🔒 Minimal payload (legacy clients)
   const safeUser = pickAllowed(clean, ALLOWED_USER_FIELDS);
   const safeFamilyMembers = Array.isArray(clean.familyMembers)
     ? clean.familyMembers.map((member) =>
@@ -87,8 +116,6 @@ function sanitizeUserForResponse(user, requester) {
     : [];
 
   const roleFingerprint = User.computeRoleHash(safeUser.entityKey, clean.role);
-  const isAdminRole = clean.role === "admin";
-  const requesterIsAdmin = requester?.role === "admin";
 
   safeUser.isAdmin = isAdminRole;
   safeUser.roleFingerprint = roleFingerprint;
