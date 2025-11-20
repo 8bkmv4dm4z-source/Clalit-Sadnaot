@@ -14,6 +14,7 @@ const { Resend } = require("resend");
 const fs = require("fs");
 const path = require("path");
 const { safeFetch } = require("../utils/safeFetch");
+const { encodeId, decodeId } = require("../utils/hashId");
 const fallbackCities = require("../config/fallbackCities.json");
 const {
   hydrateFamilyMember,
@@ -52,12 +53,44 @@ const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
   }
 };
 
+const resolveWorkshopObjectId = (id) => {
+  if (!id) return null;
+  if (mongoose.isValidObjectId(id)) return id;
+  const decoded = decodeId(id);
+  if (decoded && mongoose.isValidObjectId(decoded)) return decoded;
+  return null;
+};
+
+const ensureHashedWorkshop = (workshop) => {
+  if (!workshop) return null;
+  const obj = workshop.toObject ? workshop.toObject() : { ...workshop };
+  const hashedId = obj.hashedId || (obj._id ? encodeId(obj._id) : null);
+  if (hashedId) {
+    obj.hashedId = hashedId;
+    obj.workshopKey = obj.workshopKey || hashedId;
+    obj.mongoId = obj._id ? obj._id.toString() : undefined;
+    obj._id = hashedId;
+  }
+  return obj;
+};
+
+const loadWorkshopByIdentifier = (id) => {
+  const resolvedId = resolveWorkshopObjectId(id);
+  const query = resolvedId
+    ? { $or: [{ _id: resolvedId }, { hashedId: id }] }
+    : { hashedId: id };
+  return Workshop.findOne(query);
+};
+
 const findWorkshopByKey = async (workshopKey) => {
   if (!workshopKey) return null;
+  const byHash = await Workshop.findOne({ hashedId: workshopKey });
+  if (byHash) return byHash;
   const byKey = await Workshop.findOne({ workshopKey });
   if (byKey) return byKey;
-  if (mongoose.isValidObjectId(workshopKey)) {
-    return Workshop.findById(workshopKey);
+  const resolvedId = resolveWorkshopObjectId(workshopKey);
+  if (resolvedId) {
+    return Workshop.findById(resolvedId);
   }
   return null;
 };
@@ -65,11 +98,13 @@ const findWorkshopByKey = async (workshopKey) => {
 const formatRegistration = ({
   workshop,
 }) => {
-  const participants = (workshop.participants || []).map((p) =>
-    p?.entityKey || (p?._id ? String(p._id) : null)
-  ).filter(Boolean);
+  const normalizedWorkshop = ensureHashedWorkshop(workshop);
+  const hashedId = normalizedWorkshop?.hashedId || "";
+  const participants = (normalizedWorkshop?.participants || [])
+    .map((p) => p?.entityKey || (p?._id ? String(p._id) : null))
+    .filter(Boolean);
 
-  const familyRegistrations = (workshop.familyRegistrations || []).map((fr) => {
+  const familyRegistrations = (normalizedWorkshop?.familyRegistrations || []).map((fr) => {
     const parent = fr.parentUser || {};
     const member = fr.familyMemberId || {};
     return {
@@ -80,7 +115,7 @@ const formatRegistration = ({
     };
   });
 
-  const waitingList = (workshop.waitingList || []).map((wl) => {
+  const waitingList = (normalizedWorkshop?.waitingList || []).map((wl) => {
     const parent = wl.parentUser || {};
     const member = wl.familyMemberId || {};
     return {
@@ -92,42 +127,45 @@ const formatRegistration = ({
   });
 
   const familyKeysForUser = familyRegistrations
-    .filter((fr) => fr.parentKey && workshop?.__ownerKey === fr.parentKey)
+    .filter((fr) => fr.parentKey && normalizedWorkshop?.__ownerKey === fr.parentKey)
     .map((fr) => fr.familyMemberKey)
     .filter(Boolean);
 
-  const isUserRegistered = participants.some((pk) => pk === workshop.__ownerKey) ||
+  const isUserRegistered =
+    participants.some((pk) => pk === normalizedWorkshop?.__ownerKey) ||
     familyKeysForUser.length > 0;
 
   const isUserInWaitlist = waitingList.some(
-    (wl) => wl.parentKey && wl.parentKey === workshop.__ownerKey && !wl.familyMemberKey
+    (wl) => wl.parentKey && wl.parentKey === normalizedWorkshop?.__ownerKey && !wl.familyMemberKey
   );
   const familyMembersInWaitlist = waitingList
-    .filter((wl) => wl.parentKey && wl.parentKey === workshop.__ownerKey && wl.familyMemberKey)
+    .filter((wl) => wl.parentKey && wl.parentKey === normalizedWorkshop?.__ownerKey && wl.familyMemberKey)
     .map((wl) => wl.familyMemberKey);
 
   return {
-    _id: String(workshop._id || ""),
-    workshopKey: workshop.workshopKey,
-    title: workshop.title,
-    type: workshop.type,
-    description: workshop.description,
-    ageGroup: workshop.ageGroup,
-    coach: workshop.coach,
-    city: workshop.city,
-    address: workshop.address,
-    studio: workshop.studio,
-    days: workshop.days,
-    hour: workshop.hour,
-    price: workshop.price,
-    image: workshop.image,
-    available: workshop.available,
-    maxParticipants: workshop.maxParticipants,
-    sessionsCount: workshop.sessionsCount,
+    _id: hashedId || String(workshop?._id || ""),
+    hashedId,
+    mongoId: normalizedWorkshop?.mongoId,
+    workshopKey: normalizedWorkshop?.workshopKey,
+    title: normalizedWorkshop?.title,
+    type: normalizedWorkshop?.type,
+    description: normalizedWorkshop?.description,
+    ageGroup: normalizedWorkshop?.ageGroup,
+    coach: normalizedWorkshop?.coach,
+    city: normalizedWorkshop?.city,
+    address: normalizedWorkshop?.address,
+    studio: normalizedWorkshop?.studio,
+    days: normalizedWorkshop?.days,
+    hour: normalizedWorkshop?.hour,
+    price: normalizedWorkshop?.price,
+    image: normalizedWorkshop?.image,
+    available: normalizedWorkshop?.available,
+    maxParticipants: normalizedWorkshop?.maxParticipants,
+    sessionsCount: normalizedWorkshop?.sessionsCount,
     participantsCount:
-      typeof workshop.participantsCount === "number"
-        ? workshop.participantsCount
-        : (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0),
+      typeof normalizedWorkshop?.participantsCount === "number"
+        ? normalizedWorkshop.participantsCount
+        : (normalizedWorkshop?.participants?.length || 0) + (normalizedWorkshop?.familyRegistrations?.length || 0),
     participants,
     familyRegistrations,
     userFamilyRegistrations: familyKeysForUser,
@@ -309,9 +347,9 @@ exports.getRegisteredWorkshops = async (req, res) => {
     // member registered.  This prevents the frontend from treating
     // those workshops as if the user themself were registered.
     const list = await Workshop.find({ participants: userId }).select(
-      "_id"
+      "_id hashedId"
     );
-    const ids = list.map((w) => w._id.toString());
+    const ids = list.map((w) => w.hashedId || encodeId(w._id));
     return res.json(ids);
   } catch (err) {
     console.error(
@@ -335,14 +373,18 @@ exports.getRegisteredWorkshops = async (req, res) => {
 exports.getWorkshopById = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id || !mongoose.isValidObjectId(id)) {
+    const resolvedId = resolveWorkshopObjectId(id);
+    if (!id || !resolvedId) {
       return res.status(400).json({ message: "Invalid workshop ID" });
     }
 
-    const workshop = await Workshop.findById(id)
+    const workshop = await loadWorkshopByIdentifier(id)
       .populate("participants", "name email idNumber phone city")
       .populate("familyRegistrations.parentUser", "name email idNumber phone city")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate city")
+      .populate(
+        "familyRegistrations.familyMemberId",
+        "name relation idNumber phone birthDate city"
+      )
       .populate("waitingList.parentUser", "name email")
       .lean();
 
@@ -350,24 +392,26 @@ exports.getWorkshopById = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
+    const hashedWorkshop = ensureHashedWorkshop(workshop);
+
     // 🧩 Normalize optional fields to prevent UI crashes
     const normalized = {
-      ...workshop,
-      address: workshop.address || "",
-      city: workshop.city || "",
-      studio: workshop.studio || "",
-      coach: workshop.coach || "",
+      ...hashedWorkshop,
+      address: hashedWorkshop?.address || "",
+      city: hashedWorkshop?.city || "",
+      studio: hashedWorkshop?.studio || "",
+      coach: hashedWorkshop?.coach || "",
       participantsCount:
-        workshop.participantsCount ??
-        ((workshop.participants?.length || 0) +
-          (workshop.familyRegistrations?.length || 0)),
+        hashedWorkshop?.participantsCount ??
+        ((hashedWorkshop?.participants?.length || 0) +
+          (hashedWorkshop?.familyRegistrations?.length || 0)),
     };
 
     // 🕓 Attach derived meta info
     normalized.meta = {
       totalParticipants: normalized.participantsCount,
-      waitingListCount: workshop.waitingList?.length || 0,
-      isAvailable: !!workshop.available,
+      waitingListCount: hashedWorkshop?.waitingList?.length || 0,
+      isAvailable: !!hashedWorkshop?.available,
     };
 
     // ✅ Return clean normalized payload
@@ -393,15 +437,16 @@ exports.getWorkshopById = async (req, res) => {
  * @desc Update a workshop (with auto endDate + safe address validation)
  * @route PUT /api/workshops/:id
  * @access Admin only
- */
+  */
 exports.updateWorkshop = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.isValidObjectId(id)) {
+    const resolvedId = resolveWorkshopObjectId(id);
+    if (!resolvedId) {
       return res.status(400).json({ message: "Invalid workshop ID" });
     }
 
-    const existing = await Workshop.findById(id);
+    const existing = await loadWorkshopByIdentifier(id);
     if (!existing) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -518,19 +563,20 @@ exports.updateWorkshop = async (req, res) => {
       .populate("waitingList.parentUser", "name email")
       .lean();
 
+    const normalizedSource = ensureHashedWorkshop(ws);
     const normalized = {
-      ...ws,
-      address: ws.address || "",
-      city: ws.city || "",
-      studio: ws.studio || "",
-      coach: ws.coach || "",
+      ...normalizedSource,
+      address: normalizedSource?.address || "",
+      city: normalizedSource?.city || "",
+      studio: normalizedSource?.studio || "",
+      coach: normalizedSource?.coach || "",
     };
 
     const meta = {
       totalParticipants:
-        (ws.participants?.length || 0) + (ws.familyRegistrations?.length || 0),
-      waitingListCount: ws.waitingList?.length || 0,
-      available: !!ws.available,
+        (ws?.participants?.length || 0) + (ws?.familyRegistrations?.length || 0),
+      waitingListCount: ws?.waitingList?.length || 0,
+      available: !!ws?.available,
     };
 
     console.log("✅ Workshop updated:", {
@@ -660,12 +706,13 @@ exports.createWorkshop = async (req, res) => {
     /* ============================================================
        📦 Normalize & respond
        ============================================================ */
+    const normalizedSource = ensureHashedWorkshop(ws);
     const normalized = {
-      ...ws.toObject(),
-      address: ws.address || "",
-      city: ws.city || "",
-      studio: ws.studio || "",
-      coach: ws.coach || "",
+      ...normalizedSource,
+      address: normalizedSource?.address || "",
+      city: normalizedSource?.city || "",
+      studio: normalizedSource?.studio || "",
+      coach: normalizedSource?.coach || "",
     };
 
     const meta = {
@@ -698,7 +745,13 @@ exports.createWorkshop = async (req, res) => {
 ------------------------------------------------------------ */
 exports.deleteWorkshop = async (req, res) => {
   try {
-    const ws = await Workshop.findByIdAndDelete(req.params.id);
+    const resolvedId = resolveWorkshopObjectId(req.params.id);
+    if (!resolvedId) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
+    const ws = await Workshop.findOneAndDelete({
+      $or: [{ _id: resolvedId }, { hashedId: req.params.id }],
+    });
     if (!ws) return res.status(404).json({ message: "Workshop not found" });
     res.json({ message: "Workshop deleted successfully" });
   } catch (err) {
@@ -713,7 +766,12 @@ exports.deleteWorkshop = async (req, res) => {
 // controllers/workshopController.js
 exports.getWorkshopParticipants = async (req, res) => {
   try {
-    const workshop = await Workshop.findById(req.params.id)
+    const resolvedId = resolveWorkshopObjectId(req.params.id);
+    if (!resolvedId) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
+
+    const workshop = await loadWorkshopByIdentifier(req.params.id)
       .populate("participants", "name email phone city birthDate idNumber canCharge")
       .populate("familyRegistrations.parentUser", "name email phone city canCharge _id")
       .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate email city _id")
@@ -1164,6 +1222,10 @@ exports.exportWorkshopExcel = async (req, res) => {
     }
 
     const workshopId = req.params.id;
+    const resolvedId = resolveWorkshopObjectId(workshopId);
+    if (!resolvedId) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
 
     // Helpers
     const pad = (n) => String(n).padStart(2, "0");
@@ -1185,7 +1247,7 @@ exports.exportWorkshopExcel = async (req, res) => {
     };
 
     // Fetch workshop + relations
-    const workshop = await Workshop.findById(workshopId)
+    const workshop = await loadWorkshopByIdentifier(workshopId)
       .populate("participants", "name email phone city birthDate idNumber canCharge")
       .populate("familyRegistrations.parentUser", "name email phone city canCharge")
       .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
@@ -1481,7 +1543,11 @@ exports.addToWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
     const { userId, familyId } = req.body;
-    const workshop = await Workshop.findById(id);
+    const resolvedId = resolveWorkshopObjectId(id);
+    if (!resolvedId) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
+    const workshop = await loadWorkshopByIdentifier(id);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
     // Ensure waiting list has space
     if (workshop.waitingListMax > 0 && workshop.waitingList.length >= workshop.waitingListMax) {
@@ -1524,7 +1590,11 @@ exports.addToWaitlist = async (req, res) => {
 exports.removeFromWaitlist = async (req, res) => {
   try {
     const { id, entryId } = req.params;
-    const workshop = await Workshop.findById(id);
+    const resolvedId = resolveWorkshopObjectId(id);
+    if (!resolvedId) {
+      return res.status(400).json({ message: "Invalid workshop ID" });
+    }
+    const workshop = await loadWorkshopByIdentifier(id);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
     const before = workshop.waitingList.length;
     workshop.waitingList = (workshop.waitingList || []).filter((e) => e._id.toString() !== entryId.toString());
@@ -1543,11 +1613,12 @@ exports.removeFromWaitlist = async (req, res) => {
 exports.getWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.isValidObjectId(id)) {
+    const resolvedId = resolveWorkshopObjectId(id);
+    if (!resolvedId) {
       return res.status(400).json({ message: "Invalid workshop ID" });
     }
 
-    const workshop = await Workshop.findById(id)
+    const workshop = await loadWorkshopByIdentifier(id)
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate")
       .lean();
