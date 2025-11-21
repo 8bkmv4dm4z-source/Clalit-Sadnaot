@@ -516,19 +516,48 @@ export const AuthProvider = ({ children }) => {
      ============================================================ */
   const saveEntity = async (payload, { refreshMeIfCurrent = true } = {}) => {
     log("✏️ saveEntity called:", payload);
+
+    const resolveEntityKey = () => {
+      if (!payload) return null;
+      if (payload.entityKey) return String(payload.entityKey);
+      if (payload.familyEntityKey) return String(payload.familyEntityKey);
+      if (payload.userEntityKey) return String(payload.userEntityKey);
+
+      // Legacy support: map `_id` references to the hashed entityKey
+      if (payload.userId && user && String(payload.userId) === String(user._id)) {
+        return String(user.entityKey || "");
+      }
+
+      if (payload.familyId && Array.isArray(user?.familyMembers)) {
+        const target = user.familyMembers.find(
+          (m) => String(m._id) === String(payload.familyId)
+        );
+        if (target?.entityKey) return String(target.entityKey);
+      }
+
+      return null;
+    };
+
+    const entityKey = resolveEntityKey();
+    const updates = payload?.updates || {};
+
+    if (!entityKey) {
+      log("❌ saveEntity error: missing entityKey for update payload");
+      return { success: false, message: "Missing entity key for update" };
+    }
+
     try {
       const res = await authFetch("/api/users/update-entity", {
         method: "PUT",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ entityKey, updates }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Update failed");
 
-      const isCurrentUserUpdate =
-        payload.userId && user && String(payload.userId) === String(user._id);
-      const isCurrentFamilyUpdate =
-        payload.familyId &&
-        user?.familyMembers?.some((m) => String(m._id) === String(payload.familyId));
+      const isCurrentUserUpdate = user && String(entityKey) === String(user.entityKey);
+      const isCurrentFamilyUpdate = Array.isArray(user?.familyMembers)
+        ? user.familyMembers.some((m) => String(m.entityKey) === String(entityKey))
+        : false;
 
       if (refreshMeIfCurrent && (isCurrentUserUpdate || isCurrentFamilyUpdate)) {
         await refreshMe();
@@ -538,11 +567,8 @@ export const AuthProvider = ({ children }) => {
         new CustomEvent("auth-user-updated", {
           detail: {
             at: Date.now(),
+            entityKey,
             userId: String(user?._id || ""),
-            affected: {
-              userId: payload.userId ? String(payload.userId) : null,
-              familyId: payload.familyId ? String(payload.familyId) : null,
-            },
           },
         })
       );

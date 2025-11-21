@@ -60,7 +60,7 @@ export default function Profile() {
         canCharge: form.canCharge,
       };
 
-      const payload = { userId: user._id, updates };
+      const payload = { entityKey: user.entityKey, updates };
       const result = await updateEntity(payload);
 
       if (!result.success) throw new Error(result.message);
@@ -230,11 +230,9 @@ export default function Profile() {
           <FamilyEditorModal
             user={form}
             onClose={() => setShowFamilyModal(false)}
-            onSave={async (updatedUser) => {
-              await updateEntity({
-                userId: user._id,
-                updates: { familyMembers: updatedUser.familyMembers },
-              });
+            onSave={(updatedUser) => {
+              setForm(updatedUser);
+              setShowFamilyModal(false);
             }}
           />
         )}

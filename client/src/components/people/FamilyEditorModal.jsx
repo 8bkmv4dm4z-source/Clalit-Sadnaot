@@ -3,8 +3,7 @@
  * ------------------------------------------------------------------
  * ✅ Hebrew UI + English dev notes
  * ✅ Add / Edit / Delete family members (all synced via /update-entity)
- * ✅ Auto-unregister deleted members from all workshops
- * ✅ Sends correct userId, parentUserId, and familyId for each operation
+ * ✅ Uses entityKey for every server call (matches hashed IDs)
  * ✅ Refetch-safe and consistent with updateEntity controller
  */
 
@@ -44,12 +43,20 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     ]);
   };
 
+  const resolveMemberKey = (member) => member?.entityKey || member?._id || "";
+
   /* ------------------------------------------------------------
-     ❌ Delete a family member (unregister + backend sync)
+     ❌ Delete a family member (server removes from workshops)
   ------------------------------------------------------------ */
   const deleteMember = async (idx) => {
     const member = list[idx];
     if (!member) return;
+
+    const memberKey = resolveMemberKey(member);
+    if (!memberKey) {
+      alert("❌ חסר מזהה בן משפחה (entityKey)");
+      return;
+    }
 
     const confirmDelete = window.confirm(
       `האם אתה בטוח שברצונך למחוק את ${member.name || "בן המשפחה"}?`
@@ -58,32 +65,12 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
 
     try {
       setSaving(true);
+      await apiFetch(`/api/users/${encodeURIComponent(memberKey)}`, {
+        method: "DELETE",
+      });
 
-      // 1️⃣ Unregister from all workshops (soft fail if not enrolled)
-      await apiFetch("/api/workshops/unregister-entity-from-workshop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entityId: member._id,
-          parentUserId: user._id,
-          type: "family",
-        }),
-      }).catch(() => {});
-
-      // 2️⃣ Remove locally and persist to server
       const updatedList = list.filter((_, i) => i !== idx);
       setList(updatedList);
-
-      const res = await apiFetch("/api/users/update-entity", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user._id,
-          updates: { familyMembers: updatedList },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Update failed");
 
       onSave?.({ ...user, familyMembers: updatedList });
       window.dispatchEvent(new Event("entity-updated"));
@@ -96,7 +83,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
   };
 
   /* ------------------------------------------------------------
-     💾 Save each member (sends proper familyId + parentUserId)
+     💾 Save each member (uses entityKey per member)
   ------------------------------------------------------------ */
   const saveAll = async () => {
     try {
@@ -108,48 +95,31 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
           email: member.email || user.email || "",
         };
 
-        const basePayload = {
-          userId: user._id,
-          parentUserId: user._id,
-          updates: {
-            name: normalized.name,
-            relation: normalized.relation,
-            idNumber: normalized.idNumber,
-            phone: normalized.phone,
-            birthDate: normalized.birthDate,
-            email: normalized.email,
-            city: normalized.city,
-          },
-        };
-
-        // Existing member → update by familyId
-        if (normalized._id) {
-          basePayload.familyId = normalized._id;
-        } else {
-          // New member → replace entire array with new list
-          const fullList = list.map((m) => ({
-            ...m,
-            email: m.email || user.email || "",
-          }));
-          await apiFetch("/api/users/update-entity", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId: user._id,
-              updates: { familyMembers: fullList },
-            }),
-          });
-          continue;
+        const memberKey = resolveMemberKey(normalized);
+        if (!memberKey) {
+          throw new Error("חסר מזהה בן משפחה (entityKey)");
         }
 
         await apiFetch("/api/users/update-entity", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(basePayload),
+          body: JSON.stringify({
+            entityKey: memberKey,
+            updates: {
+              name: normalized.name,
+              relation: normalized.relation,
+              idNumber: normalized.idNumber,
+              phone: normalized.phone,
+              birthDate: normalized.birthDate,
+              email: normalized.email,
+              city: normalized.city,
+            },
+          }),
         });
       }
 
       window.dispatchEvent(new Event("entity-updated"));
+      onSave?.({ ...user, familyMembers: list });
       onClose?.();
       alert("✅ בני המשפחה נשמרו בהצלחה");
     } catch (e) {
@@ -187,7 +157,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
           {list.map((m, idx) => (
             <div
-              key={m._id || idx}
+              key={m.entityKey || m._id || idx}
               className="border border-gray-200 rounded-xl p-4 bg-gray-50"
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

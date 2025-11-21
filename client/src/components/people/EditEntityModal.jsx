@@ -24,15 +24,18 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
     try {
       setSaving(true);
 
-      const updates = { ...form };
-      const url = form.isFamily
-        ? `/api/users/update-family-member/${form.parentId}/${form._id}`
-        : `/api/users/update-entity`;
+      const { entityKey, _id, parentId, isFamily, ...rest } = form;
+      const updates = { ...rest };
+      const targetKey = entityKey || _id;
 
-      const res = await apiFetch(url, {
+      if (!targetKey) {
+        throw new Error("Missing entity key for update");
+      }
+
+      const res = await apiFetch(`/api/users/update-entity`, {
         method: "PUT",
         body: JSON.stringify({
-          userId: form.isFamily ? form.parentId : form._id,
+          entityKey: targetKey,
           updates,
         }),
       });
@@ -40,7 +43,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Update failed");
 
-      onSave?.(data);
+      onSave?.({ entityKey: targetKey, ...updates });
       onClose?.();
     } catch (e) {
       alert("❌ שגיאה בעדכון: " + e.message);
