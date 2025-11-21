@@ -1,4 +1,3 @@
-// server/middleware/validation.js
 /*
  * Celebrate / Joi Validation Middleware — Secure & Logical (2025 Final)
  * --------------------------------------------------------------------
@@ -15,6 +14,10 @@ const { celebrate, Joi, Segments } = require("celebrate");
 const safeText = /^[^<>${}]{1,}$/; // allows normal text, blocks <, >, $, {, }
 const phonePattern = /^[0-9+\-\s]{6,20}$/;
 const idPattern = /^[0-9]{5,10}$/;
+
+// Opaque entityKey (base64url + padding "0", minLength is set in HASHID_MIN_LENGTH)
+const entityKeyPattern = /^[A-Za-z0-9_\-=]{10,200}$/;
+
 const familyMemberSchema = Joi.object({
   name: Joi.string().trim().pattern(safeText).max(80).required(),
   relation: Joi.string().trim().pattern(safeText).max(50).allow("").optional(),
@@ -54,6 +57,7 @@ const validateLogin = celebrate({
     password: Joi.string().min(4).max(64).required(),
   }).unknown(true),
 });
+
 const validateSendOtp = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
@@ -145,13 +149,26 @@ const validateFamilyMember = celebrate({
     birthDate: Joi.date().iso().optional(),
   }).unknown(true),
 });
+
 /* ============================================================
    🏋️ WORKSHOPS VALIDATION (Multi-sessions Support — Final)
    ============================================================ */
 
 const validDays = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
-  "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת" // 🇮🇱 Hebrew support
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "ראשון",
+  "שני",
+  "שלישי",
+  "רביעי",
+  "חמישי",
+  "שישי",
+  "שבת", // 🇮🇱 Hebrew support
 ];
 
 const hourPattern = /^[0-9:\s\-APMapm]+$/;
@@ -255,7 +272,6 @@ exports.validateAddress = async (req, res) => {
   }
 };
 
-
 /* ============================================================
    🟢 CREATE WORKSHOP
    ============================================================ */
@@ -322,7 +338,6 @@ const validateWorkshopCreate = celebrate({
     .unknown(true),
 });
 
-
 /* ============================================================
    🟣 EDIT WORKSHOP
    ============================================================ */
@@ -376,31 +391,46 @@ const validateWorkshopEdit = celebrate({
     .unknown(true),
 });
 
-
 /* ============================================================
    🧍 REGISTER / UNREGISTER
    ============================================================ */
+
+// Legacy/combined: supports classic familyId flow AND new opaque entityKey flow
 const validateWorkshopRegistration = celebrate({
   [Segments.BODY]: Joi.object({
+    // old family-member registration (may be null/"" or omitted for self-registration)
     familyId: Joi.alternatives()
       .try(Joi.string().hex().length(24), Joi.valid(null), Joi.allow(""))
       .optional(),
+
+    // new entity-based API: /register-entity (opaque entityKey)
+    entityKey: Joi.string().trim().pattern(entityKeyPattern).optional(),
   }).unknown(true),
 });
 
 const validateWorkshopUnregister = celebrate({
   [Segments.BODY]: Joi.object({
+    // old unregister by familyId
     familyId: Joi.string().hex().length(24).optional(),
+
+    // new unregister by entityKey (for /unregister-entity)
+    entityKey: Joi.string().trim().pattern(entityKeyPattern).optional(),
   }).unknown(true),
 });
 
 // SECURITY FIX: validate waitlist mutations to prevent unsafe payloads
+// and to support BOTH legacy familyId and new entityKey flows.
 const validateWaitlistEntity = celebrate({
   [Segments.BODY]: Joi.object({
     familyId: Joi.string().hex().length(24).optional(),
-  }).unknown(false),
+    entityKey: Joi.string().trim().pattern(entityKeyPattern).optional(),
+  })
+    .or("familyId", "entityKey")
+    .messages({
+      "object.missing": "Either familyId or entityKey is required.",
+    })
+    .unknown(false),
 });
-
 
 /* ============================================================
    👤 PROFILE VALIDATION
@@ -415,7 +445,6 @@ const validateProfile = celebrate({
     canCharge: Joi.boolean().optional(),
   }).unknown(true),
 });
-
 
 /* ============================================================
    📦 EXPORT MODULES
@@ -436,5 +465,5 @@ module.exports = {
   validateProfile,
   validateSendOtp,
   validatePasswordResetRequest,
-  validateAddressRemote
+  validateAddressRemote,
 };
