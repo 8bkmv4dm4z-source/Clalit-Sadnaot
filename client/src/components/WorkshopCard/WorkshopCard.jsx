@@ -519,7 +519,6 @@ export default function WorkshopCard({
           )}
         </div>
       </div>
-// WorkshopCard.jsx — FINAL FIXED VERSION (Part 3)
 
       {/* Family Modal */}
       {showFamilyModal && (
