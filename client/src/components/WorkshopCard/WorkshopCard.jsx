@@ -255,8 +255,8 @@ export default function WorkshopCard({
         label: "בטל הרשמה",
         color:
           "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: async () =>
-          unregisterEntityFromWorkshop(wid, entityKey || undefined),
+        action: (ek) => unregisterEntityFromWorkshop(wid, ek),
+
       };
     }
 
@@ -265,8 +265,8 @@ export default function WorkshopCard({
         label: "בטל רשימת המתנה",
         color:
           "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () =>
-          unregisterFromWaitlist(wid, entityKey || undefined),
+        action: (ek) => unregisterFromWaitlist(wid, ek),
+
       };
     }
 
@@ -283,8 +283,8 @@ export default function WorkshopCard({
         label: "הצטרף לרשימת המתנה",
         color:
           "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: async () =>
-          registerToWaitlist(wid, entityKey || undefined),
+        action: (ek) => registerToWaitlist(wid, ek),
+
       };
     }
 
@@ -292,30 +292,39 @@ export default function WorkshopCard({
       label: "הירשם",
       color:
         "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: async () =>
-        registerEntityToWorkshop(wid, entityKey || undefined),
+      action: (ek) => registerEntityToWorkshop(wid, ek),
+
     };
   };
 
-  const runEntityAction = async (entity) => {
-    const btn = getEntityButton(entity);
-    if (loading || !btn?.action) return;
-    setLoading(true);
-    try {
-      const result = await btn.action();
-      if (result?.success === false) {
-        throw new Error(result?.message || "הפעולה נכשלה");
+  const runEntityAction = (entity) => {
+  const btn = getEntityButton(entity);
+  if (!btn?.action || loading) return;
+
+  const ek =
+    typeof entity === "object"
+      ? str(entity?.entityKey)
+      : userKey;
+
+  setLoading(true);
+
+  btn.action(ek)
+    .then((res) => {
+      if (!res?.success) {
+        setFeedback(`❌ ${res?.message || "הפעולה נכשלה"}`);
+      } else {
+        setFeedback(`✅ עודכן בהצלחה`);
       }
-      setFeedback(
-        `✅ ${btn.label.includes("בטל") ? "עודכן בהצלחה" : "נרשמת בהצלחה"}`
-      );
-    } catch (e) {
-      setFeedback(`❌ ${e?.message || "שגיאה בביצוע פעולה"}`);
-    } finally {
+    })
+    .catch((err) => {
+      setFeedback(`❌ ${err?.message || "שגיאה בביצוע פעולה"}`);
+    })
+    .finally(() => {
       setLoading(false);
       setTimeout(() => setFeedback(null), 2200);
-    }
-  };
+    });
+};
+
 
   /* ---------------- UI ---------------- */
 
@@ -519,7 +528,7 @@ export default function WorkshopCard({
           {/* Primary action (self) */}
           {isLoggedIn && (
             <button
-              onClick={() => runEntityAction(userKey)}
+onClick={() => runEntityAction(null)}
               disabled={loading || !getEntityButton(userKey)?.action}
               className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
                 getEntityButton(userKey).color

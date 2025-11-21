@@ -205,33 +205,33 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [modalTitle, setModalTitle] = useState("");
   const [userWorkshops, setUserWorkshops] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
+ //Use flat entities from server + proper flags
+// FIX: Use flat entities from server + proper flags
+const allRows = useMemo(
+  () => (contextProfiles || []).map((r) => withEntityFlags(r)),
+  [contextProfiles]
+);
 
-  const allRows = useMemo(() => contextProfiles, [contextProfiles]);
-
-  useEffect(() => {
-    if (!search.trim()) setProfiles(allRows.slice(0, 100));
-  }, [allRows, search]);
-
-  useEffect(() => {
-  const q = search.trim();
-
-  // Default view (no search) MUST use withEntityFlags
-  if (!q) {
-    const defaults = allRows.slice(0, 100).map((row) => withEntityFlags(row));
-    setProfiles(defaults);
-    return;
+// FIX: Default view (no search) → 100 entities flat (users + family)
+useEffect(() => {
+  if (!search.trim()) {
+    setProfiles(allRows.slice(0, 100));
   }
+}, [allRows, search]);
+
+// FIX: Search → runs on entity.name (not parent only)
+useEffect(() => {
+  const q = search.trim();
+  if (!q) return;
 
   setIsFetching(true);
 
   const t = setTimeout(async () => {
     try {
       const result = await searchProfiles(q);
-
       const list = Array.isArray(result)
         ? result.map((r) => withEntityFlags(r))
         : [];
-
       setProfiles(list);
     } catch (e) {
       console.error("searchProfiles error:", e);
@@ -239,10 +239,10 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     } finally {
       setIsFetching(false);
     }
-  }, 350);
+  }, 300);
 
   return () => clearTimeout(t);
-}, [search, searchProfiles, allRows]);
+}, [search, searchProfiles]);
 
 
   const startEdit = async (row) => {

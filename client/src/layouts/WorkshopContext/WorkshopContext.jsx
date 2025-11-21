@@ -465,7 +465,9 @@ export const WorkshopProvider = ({ children }) => {
     try {
       const res = await apiFetch(`/api/workshops/${workshopKey}/register-entity`, {
         method: "POST",
-        body: JSON.stringify(entityKey ? { entityKey } : {}),
+        body: JSON.stringify({ entityKey }),
+
+
       });
       const data = await res.json();
       dbgCtx("registerEntity:raw-response", { ok: res.ok, message: data?.message });
@@ -489,7 +491,7 @@ export const WorkshopProvider = ({ children }) => {
     try {
       const res = await apiFetch(`/api/workshops/${workshopKey}/unregister-entity`, {
         method: "DELETE",
-        body: JSON.stringify(entityKey ? { entityKey } : {}),
+body: JSON.stringify({ entityKey }),
       });
       const data = await res.json();
       dbgCtx("unregisterEntity:raw-response", { ok: res.ok, message: data?.message });
@@ -510,7 +512,7 @@ export const WorkshopProvider = ({ children }) => {
 
   const registerToWaitlist = async (workshopKey, entityKey) => {
     dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
-    const body = entityKey ? { entityKey } : {};
+const body = { entityKey };
 
     try {
       const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
@@ -539,7 +541,7 @@ export const WorkshopProvider = ({ children }) => {
 
   const unregisterFromWaitlist = async (workshopKey, entityKey) => {
     dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
-    const body = entityKey ? { entityKey } : {};
+const body = { entityKey };
 
     try {
       const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
