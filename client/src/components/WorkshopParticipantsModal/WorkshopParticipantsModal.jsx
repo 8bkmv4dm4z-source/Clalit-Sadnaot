@@ -425,12 +425,12 @@ const handlePromote = async (wl) => {
 
   /** Render waitlist item */
   const renderWaitlistItem = (wl) => {
-    const age = calcAge(wl.birthDate);
+  const age = calcAge(wl.birthDate);
 
-   const phone = wl.phone || wl.parentPhone || "-";
-const email = wl.email || wl.parentEmail || "-";
-const city = wl.city || wl.parentCity || "-";
-
+  // Use normalized fields only (like participants card)
+  const phone = wl.phone || "-";
+  const email = wl.email || "-";
+  const city = wl.city || "-";
 
   return (
     <div
@@ -469,6 +469,9 @@ const city = wl.city || wl.parentCity || "-";
         </p>
         <p>ת.ז: {wl.idNumber || "-"}</p>
         {wl.relation && <p>קרבה: {wl.relation}</p>}
+        {wl.isFamily && wl.parentName && (
+          <p>בן/בת משפחה של: {wl.parentName}</p>
+        )}
       </div>
     </div>
   );
