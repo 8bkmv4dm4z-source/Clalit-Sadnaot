@@ -668,7 +668,23 @@ exports.getUserWorkshopsList = async (req, res) => {
       return res.json(summaries);
     }
 
-    const member = memberByKey.get(String(familyEntityKey));
+    let member = null;
+
+    const resolvedMember = await resolveEntityByKey(familyEntityKey);
+    if (
+      resolvedMember?.type === "familyMember" &&
+      String(resolvedMember.userDoc?._id) === String(parentId)
+    ) {
+      member =
+        memberById.get(String(resolvedMember.memberDoc?._id)) ||
+        resolvedMember.memberDoc ||
+        null;
+    }
+
+    if (!member) {
+      member = memberByKey.get(String(familyEntityKey));
+    }
+
     if (!member) {
       return res.status(404).json({ message: "Family member not found" });
     }
