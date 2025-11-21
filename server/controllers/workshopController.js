@@ -453,6 +453,36 @@ exports.getWorkshopById = async (req, res) => {
       ...workshop,
       __ownerKey: req.user?.entityKey || null,
     });
+    // ----------------------- NORMALIZE waitingList -----------------------
+if (Array.isArray(hashed.waitingList)) {
+  hashed.waitingList = hashed.waitingList.map(w => ({
+    parentKey: w.parentUser?._id ? String(w.parentUser._id) : String(w.parentKey || ""),
+    familyMemberKey: w.familyMemberId?._id
+      ? String(w.familyMemberId._id)
+      : (w.familyMemberKey ? String(w.familyMemberKey) : null), 
+    name: w.familyMemberId?.name || w.name || "",
+    relation: w.familyMemberId?.relation || w.relation || ""
+  }));
+}
+
+// -------------------- NORMALIZE familyRegistrations -------------------
+if (Array.isArray(hashed.familyRegistrations)) {
+  hashed.familyRegistrations = hashed.familyRegistrations.map(fr => ({
+    parentKey: fr.parentUser?._id ? String(fr.parentUser._id) : String(fr.parentKey || ""),
+    familyMemberKey: fr.familyMemberId?._id
+      ? String(fr.familyMemberId._id)
+      : (fr.familyMemberKey ? String(fr.familyMemberKey) : null),
+    name: fr.familyMemberId?.name || fr.name || "",
+    relation: fr.familyMemberId?.relation || fr.relation || ""
+  }));
+}
+
+// ----------------------- NORMALIZE participants -----------------------
+if (Array.isArray(hashed.participants)) {
+  hashed.participants = hashed.participants.map(p =>
+    typeof p === "object" && p?._id ? String(p._id) : String(p)
+  );
+}
 
     const normalized = {
       ...hashed,

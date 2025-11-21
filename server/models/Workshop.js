@@ -52,33 +52,33 @@ const WorkshopSchema = new mongoose.Schema(
     /** 👥 Participants */
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     familyRegistrations: [
-      {
-        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
-        parentKey: { type: String, default: "" },
-        familyMemberKey: { type: String, default: "" },
-        name: { type: String, required: true },
-        relation: { type: String, default: "" },
-        idNumber: { type: String, default: "" },
-        phone: { type: String, default: "" },
-        birthDate: { type: String, default: "" },
-      },
-    ],
+  {
+    parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+    parentKey: { type: String, default: "" },
+    familyMemberKey: { type: String, default: "" },
+    name: { type: String, default: "" },
+    relation: { type: String, default: "" },
+    idNumber: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    birthDate: { type: String, default: "" },
+  },
+],
 
-    /** 🕒 Waiting list */
-    waitingList: [
-      {
-        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        familyMemberId: { type: mongoose.Schema.Types.ObjectId },
-        parentKey: { type: String, default: "" },
-        familyMemberKey: { type: String, default: "" },
-        name: { type: String, required: true },
-        relation: { type: String, default: "" },
-        idNumber: { type: String, default: "" },
-        phone: { type: String, default: "" },
-        birthDate: { type: String, default: "" },
-      },
-    ],
+waitingList: [
+  {
+    parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+    parentKey: { type: String, default: "" },
+    familyMemberKey: { type: String, default: "" },
+    name: { type: String, default: "" },
+    relation: { type: String, default: "" },
+    idNumber: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    birthDate: { type: String, default: "" },
+  },
+],
+
     waitingListMax: { type: Number, default: 10, min: 0 },
     autoEnrollOnVacancy: { type: Boolean, default: false },
 
