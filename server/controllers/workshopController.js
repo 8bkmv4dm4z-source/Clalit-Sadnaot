@@ -356,21 +356,25 @@ async function attachUserIfPresent(req) {
 const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // 🚀 NEW getAllWorkshops — full waitlist-aware version
+// 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
   try {
     await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
 
-let workshops = await Workshop.find({});
-  .populate("participants", "entityKey name email phone city")
-  .populate("familyRegistrations.familyMemberId", "entityKey name relation")
-  .populate("familyRegistrations.parentUser", "entityKey name email phone")
-  .populate("waitingList.parentUser", "entityKey name email phone")
-  .populate("waitingList.familyMemberId", "entityKey name relation");
-    //Clean dead users
-for (let ws of workshops) {
-  await removeStaleParticipants(ws);
-}
+    // ✨ FIXED — populate is chained directly to find(), no stray dot
+    let workshops = await Workshop.find({})
+      .populate("participants", "entityKey name email phone city")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+      .populate("familyRegistrations.parentUser", "entityKey name email phone")
+      .populate("waitingList.parentUser", "entityKey name email phone")
+      .populate("waitingList.familyMemberId", "entityKey name relation");
+
+    // 🧹 Clean dead/missing users
+    for (let ws of workshops) {
+      await removeStaleParticipants(ws);
+    }
+
     const result = workshops.map((w) => {
       const decorated = w.toObject();
       decorated.__ownerKey = ownerKey;
