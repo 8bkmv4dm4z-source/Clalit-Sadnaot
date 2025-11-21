@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const User = require("../../models/User");
 const { decodeId } = require("../../utils/hashId");
+const { encodeId } = require("../../utils/hashId");
 
 const resolveOpaqueId = (value) => {
   if (!value) return null;
@@ -35,6 +36,9 @@ async function resolveEntityByKey(entityKey) {
     ],
   });
   if (userDoc) {
+    if (!userDoc.entityKey && userDoc._id) {
+      userDoc.entityKey = encodeId(userDoc._id.toString());
+    }
     return { type: "user", userDoc };
   }
 
@@ -55,6 +59,13 @@ async function resolveEntityByKey(entityKey) {
       (resolvedObjectId && String(m._id) === String(resolvedObjectId))
   );
   if (!memberDoc) return null;
+
+  if (!userDoc.entityKey && userDoc._id) {
+    userDoc.entityKey = encodeId(userDoc._id.toString());
+  }
+  if (!memberDoc.entityKey && memberDoc._id) {
+    memberDoc.entityKey = encodeId(memberDoc._id.toString());
+  }
 
   return { type: "familyMember", userDoc, memberDoc };
 }

@@ -18,7 +18,7 @@ import React, {
 } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
-import { flattenUserEntities } from "../../utils/entityTypes";
+import { flattenUserEntities, withEntityFlags } from "../../utils/entityTypes";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -57,10 +57,13 @@ const rowMatchesQuery = (row, normalizedQuery) => {
 const flattenEntitiesList = (list = []) => {
   const flattened = [];
   for (const item of list) {
-    const { allEntities } = flattenUserEntities(item);
-    if (allEntities.length) {
-      flattened.push(...allEntities);
+    if (item?.entityType && !item?.familyMembers && !item?.entities) {
+      flattened.push(withEntityFlags(item));
+      continue;
     }
+
+    const { allEntities } = flattenUserEntities(item);
+    if (allEntities.length) flattened.push(...allEntities);
   }
   return flattened;
 };

@@ -170,7 +170,7 @@ function normalizeDays(w) {
 
 /* ============================== Mini Card ============================== */
 
-function MiniCard({ title, hour, color, city, address, size, lines }) {
+function MiniCard({ title, hour, color, city, address, size, lines, compact = false, relation = "" }) {
   const href = mapsLink(city, address);
 
   const clampStyle = {
@@ -184,6 +184,40 @@ function MiniCard({ title, hour, color, city, address, size, lines }) {
     textOverflow: "ellipsis",
     textAlign: "right",
   };
+
+  if (compact) {
+    return (
+      <div
+        className="compact-card rounded-xl shadow-sm"
+        style={{
+          width: "48%",
+          background: `linear-gradient(180deg, ${color}1A, ${color}33)`,
+          padding: `${size.cardPad}px`,
+          border: `1px solid ${color}26`,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        dir="rtl"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="shrink-0 inline-block rounded-full"
+            style={{ width: 8, height: 8, backgroundColor: color }}
+            aria-hidden="true"
+          />
+          <span className="font-semibold text-gray-800 text-sm truncate" title={title}>
+            {title}
+          </span>
+          {relation ? (
+            <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full truncate">
+              {relation}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -357,6 +391,7 @@ export default function MyWorkshopsOriginStyle() {
             title: w.title || "סדנה",
             city: w.city || "",
             address: w.address || "",
+            relation: info.relation || "",
             dayIndex,
             hourLabel,
             hourFloat,
@@ -623,16 +658,18 @@ export default function MyWorkshopsOriginStyle() {
                   {DAYS.map((_, dayIndex) => {
                     const key = `${dayIndex}-${hour}`;
                     const items = cellMap.get(key) || [];
+                    const isCompactSlot = items.length > 1;
                     const isBetweenThuFri = dayIndex === 5;
                     const baseBg = dayIndex % 2 === 0 ? "rgba(239,246,255,0.35)" : "rgba(255,255,255,0.5)";
 
                     return (
                       <div
                         key={key}
-                        className="flex flex-col items-stretch justify-start"
+                        className="flex items-stretch justify-start"
                         style={{
                           padding: `${Math.max(size.cardPad - 2, 6)}px`,
                           gap: `${size.gap}px`,
+                          flexWrap: isCompactSlot ? "wrap" : "nowrap",
                           background: baseBg,
                           borderInlineEnd: dayIndex === DAYS.length - 1 ? "2px solid rgba(99,102,241,0.25)" : "1px solid rgba(99,102,241,0.18)",
                           borderLeft: isBetweenThuFri ? "2px solid rgba(99,102,241,0.35)" : undefined,
@@ -648,6 +685,8 @@ export default function MyWorkshopsOriginStyle() {
                             address={ev.address}
                             size={size}
                             lines={titleLines}
+                            compact={isCompactSlot}
+                            relation={ev.relation}
                           />
                         ))}
                       </div>

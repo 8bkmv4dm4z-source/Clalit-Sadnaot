@@ -183,30 +183,38 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [message, setMessage] = useState(null);
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
-const dedupeByEntityKey = (list) => {
-  const map = new Map();
-  for (const item of list) {
-    const key = item.__entityKey || getEntityIdentifiers(item).key;
-    if (!key) continue;
-    if (!map.has(key)) map.set(key, item);
-  }
-  return [...map.values()];
-};
-  const normalizeEntity = useCallback((entity) => {
-  const flagged = withEntityFlags(entity);
-
-
-  return {
-    ...flagged,
-
-    // repaired inherited fields
-    phone: flagged.phone || flagged.parentPhone || "",
-    email: flagged.email || flagged.parentEmail || "",
-    city: flagged.city || flagged.parentCity || "",
-
-    parentName: flagged.parentName || "",
+  const dedupeByEntityKey = (list) => {
+    const map = new Map();
+    for (const item of list) {
+      const key = item.__entityKey || getEntityIdentifiers(item).key;
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, item);
+    }
+    return [...map.values()];
   };
-}, []);
+
+  const normalizeEntity = useCallback((entity) => {
+    const flagged = withEntityFlags(entity);
+    const entityKey =
+      flagged.entityKey ||
+      flagged.familyMemberKey ||
+      flagged.parentKey ||
+      flagged._id ||
+      "";
+
+    return {
+      ...flagged,
+      entityKey,
+      __entityKey: flagged.parentKey ? `${flagged.parentKey}:${entityKey}` : entityKey,
+      phone: flagged.phone || "",
+      email: flagged.email || "",
+      city: flagged.city || "",
+      birthDate: flagged.birthDate || null,
+      name: flagged.name || "",
+      relation: flagged.relation || "",
+      parentName: flagged.parentName || "",
+    };
+  }, []);
 
 
   /* --------------------------------------------------------

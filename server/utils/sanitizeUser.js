@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const { encodeId } = require("./hashId");
 
 /**
  * Normalize a Mongoose document or plain object into a plain object.
@@ -45,6 +46,15 @@ const normalizeEntityShape = (entity = {}) => {
   if (normalized._id !== undefined) normalized._id = toStringOrNull(normalized._id);
   if (normalized.entityKey !== undefined)
     normalized.entityKey = toStringOrNull(normalized.entityKey);
+
+  const hashedKey =
+    normalized.entityKey ||
+    (normalized._id ? encodeId(String(normalized._id)) : null);
+  if (hashedKey) {
+    normalized.entityKey = hashedKey;
+    // Prevent leaking raw ObjectId in client payloads
+    normalized._id = hashedKey;
+  }
   if (normalized.parentKey !== undefined)
     normalized.parentKey = toStringOrNull(normalized.parentKey);
   return normalized;
