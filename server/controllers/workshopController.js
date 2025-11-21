@@ -57,29 +57,27 @@ const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
  * Resolve any workshop identifier (ObjectId / hashed / workshopKey)
  * → Always returns the REAL Mongo ObjectId
  */
-const resolveWorkshopObjectId = async (id) => {
+function resolveWorkshopObjectId(id) {
   if (!id) return null;
+
   const clean = String(id).trim();
 
   // 1️⃣ Direct ObjectId
-  if (mongoose.isValidObjectId(clean)) return clean;
+  if (mongoose.isValidObjectId(clean)) {
+    return clean;
+  }
 
-  // 2️⃣ hashedId (encoded)
+  // 2️⃣ decode hashed → ObjectId
   const decoded = decodeId(clean);
-  if (decoded && mongoose.isValidObjectId(decoded)) return decoded;
+  if (decoded && mongoose.isValidObjectId(decoded)) {
+    return decoded;
+  }
 
-  // 3️⃣ Lookup by workshopKey / hashedId / legacy hashedId
-  const doc = await Workshop.findOne({
-    $or: [
-      { workshopKey: clean },
-      { hashedId: clean },
-      { _id: clean },
-    ],
-  }).select("_id");
+  // 3️⃣ otherwise return raw string
+  return clean;
+}
 
-  return doc ? String(doc._id) : null;
-};
-
+exports.resolveWorkshopObjectId = resolveWorkshopObjectId;
 const ensureHashedWorkshop = (workshop) => {
   if (!workshop) return null;
 
