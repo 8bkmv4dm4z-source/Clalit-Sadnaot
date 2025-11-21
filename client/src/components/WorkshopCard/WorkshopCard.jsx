@@ -278,6 +278,18 @@ const getEntityButton = (entity) => {
     action: async () => registerEntityToWorkshop(wid, entityKey),
   };
 };
+const getMemberButton = (member) =>
+  useMemo(() => getEntityButton(member), [
+    member?.entityKey,
+    isSelfRegistered,
+    selfOnWaitlist,
+    isWorkshopFull,
+    waitingListMax,
+    maxParticipants,
+    familyWorkshopMap,
+    userWorkshopMap,
+  ]);
+
 
 /* ---------------- Self button (stable memo) ---------------- */
 const selfButton = useMemo(() => {
@@ -568,61 +580,62 @@ const selfButton = useMemo(() => {
             </h2>
 
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1.5">
-              {(user?.familyMembers || []).map((member) => {
-                const key = str(member?.entityKey);
-                const familyId = key;
-                const isRegisteredFamily = familyRegisteredIdSet.has(familyId);
-                const isWL = waitRows.some(
-                  (e) => e.parentKey === userKey && e.entityKey === familyId
-                );
-                const btn = getEntityButton(member);
-                const isActionable = !!btn?.action;
+             {(user?.familyMembers || []).map((member) => {
+  const key = str(member?.entityKey);
+  const familyId = key;
+  const isRegisteredFamily = familyRegisteredIdSet.has(familyId);
+  const isWL = waitRows.some(
+    (e) => e.parentKey === userKey && e.entityKey === familyId
+  );
 
-                return (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2"
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-indigo-200/60 flex items-center justify-center text-indigo-800">
-                        <UserIcon size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-semibold text-indigo-900 truncate">
-                          {member.name}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-gray-600">
-                          {member.relation && (
-                            <span className="truncate">
-                              {member.relation}
-                            </span>
-                          )}
-                          {isRegisteredFamily && (
-                            <span className="inline-flex items-center gap-1 text-green-700">
-                              <Check size={12} /> רשום
-                            </span>
-                          )}
-                          {!isRegisteredFamily && isWL && (
-                            <span className="inline-flex items-center gap-1 text-amber-600">
-                              <Hourglass size={12} /> ממתין
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+  const memberButton = getMemberButton(member);
 
-                    {btn?.label && (
-                      <button
-                        onClick={() => runEntityAction(member)}
-                        disabled={loading || !isActionable}
-                        className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${btn.color} disabled:opacity-60`}
-                      >
-                        {loading ? "..." : btn.label}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+  return (
+    <div
+      key={key}
+      className="flex items-center justify-between bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2"
+    >
+      <div className="min-w-0 flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-indigo-200/60 flex items-center justify-center text-indigo-800">
+          <UserIcon size={16} />
+        </div>
+        <div className="min-w-0">
+          <div className="font-semibold text-indigo-900 truncate">
+            {member.name}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-gray-600">
+            {member.relation && (
+              <span className="truncate">{member.relation}</span>
+            )}
+
+            {isRegisteredFamily && (
+              <span className="inline-flex items-center gap-1 text-green-700">
+                <Check size={12} /> רשום
+              </span>
+            )}
+
+            {!isRegisteredFamily && isWL && (
+              <span className="inline-flex items-center gap-1 text-amber-600">
+                <Hourglass size={12} /> ממתין
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {memberButton?.label && (
+        <button
+          onClick={() => runEntityAction(member)}
+          disabled={loading || !memberButton?.action}
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${memberButton.color} disabled:opacity-60`}
+        >
+          {loading ? "..." : memberButton.label}
+        </button>
+      )}
+    </div>
+  );
+})}
+
             </div>
 
             <button
