@@ -63,10 +63,10 @@ export default function EditProfile() {
     try {
       setSaving(true);
 
+      const entityKey = form?.entityKey || form?._id;
       const payload = isFamilyProfile
         ? {
-            // בן משפחה בפני עצמו
-            familyId: form._id,
+            entityKey,
             updates: {
               name: form.name,
               relation: form.relation || "",
@@ -78,8 +78,7 @@ export default function EditProfile() {
             },
           }
         : {
-            // משתמש רגיל
-            userId: form._id,
+            entityKey,
             updates: {
               name: form.name,
               idNumber: form.idNumber || "",
@@ -111,27 +110,22 @@ export default function EditProfile() {
     try {
       setSaving(true);
 
-      const payload = addingFamily
-        ? {
-            userId: form._id,
-            updates: {
-              familyMembers: [
-                ...(form.familyMembers || []),
-                {
-                  ...familyForm,
-                  email: familyForm.email || form.email || "", // ✅ fallback for new member
-                },
-              ],
-            },
-          }
-        : {
-            familyId: editingFamilyId,
-            parentUserId: form._id,
-            updates: {
-              ...familyForm,
-              email: familyForm.email || form.email || "", // ✅ fallback for edit
-            },
-          };
+      if (addingFamily) {
+        throw new Error("הוספת בני משפחה חדשים דורשת יצירת entityKey מהשרת");
+      }
+
+      const familyKey = editingFamilyId || familyForm.entityKey || familyForm._id;
+      if (!familyKey) {
+        throw new Error("חסר entityKey עבור בן המשפחה");
+      }
+
+      const payload = {
+        entityKey: familyKey,
+        updates: {
+          ...familyForm,
+          email: familyForm.email || form.email || "", // ✅ fallback for edit
+        },
+      };
 
       const result = await updateEntity(payload);
       if (!result?.success) throw new Error(result?.message || "Update failed");
@@ -154,7 +148,7 @@ export default function EditProfile() {
   };
 
   const startEditFamily = (f) => {
-    setEditingFamilyId(f._id);
+    setEditingFamilyId(f.entityKey || f._id);
     setFamilyForm({ ...f });
     setAddingFamily(false);
   };
