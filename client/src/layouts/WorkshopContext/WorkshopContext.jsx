@@ -161,11 +161,29 @@ if (!wid || /^[0-9]+$/.test(wid)) {
 }
 
     const participants = Array.isArray(w.participants)
-  ? w.participants.map((p) => sid(p.entityKey || p))
-  : [];
+      ? w.participants.map((p) => sid(p.entityKey || p))
+      : [];
+
+    const normalizeEntity = (item = {}) => {
+      const familyMemberKey = item.familyMemberKey ? sid(item.familyMemberKey) : null;
+      const parentKey = item.parentKey ? sid(item.parentKey) : null;
+      const entityKey = sid(item.entityKey || familyMemberKey || parentKey || item._id);
+
+      return {
+        ...item,
+        entityKey,
+        __entityKey: entityKey || parentKey ? `${parentKey || ""}:${entityKey}` : entityKey,
+        familyMemberKey,
+        parentKey,
+        name: item.name || "",
+        relation: item.relation || "",
+        phone: item.phone || "",
+        birthDate: item.birthDate || null,
+      };
+    };
 
     const waitingList = Array.isArray(w.waitingList)
-      ? w.waitingList
+      ? w.waitingList.map(normalizeEntity)
       : [];
 
     const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
@@ -173,7 +191,7 @@ if (!wid || /^[0-9]+$/.test(wid)) {
       : [];
 
     const familyRegistrations = Array.isArray(w.familyRegistrations)
-      ? w.familyRegistrations
+      ? w.familyRegistrations.map(normalizeEntity)
       : [];
 
     const isUserRegistered =

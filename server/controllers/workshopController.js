@@ -168,6 +168,7 @@ const formatRegistration = ({ workshop }) => {
     const memberKey = normalizeEntityKey(fr.familyMemberId?.entityKey || fr.familyMemberKey);
 
     return {
+      entityKey: memberKey || parentKey || null,
       parentKey,
       familyMemberKey: memberKey,
       name: fr.familyMemberId?.name || fr.name || "",
@@ -176,15 +177,21 @@ const formatRegistration = ({ workshop }) => {
   });
 
   // Waiting list
-  const waitingList = (w.waitingList || []).map(wl => {
-    const parentKey = normalizeEntityKey(wl.parentUser?.entityKey || wl.parentKey);
-    const memberKey = normalizeEntityKey(wl.familyMemberId?.entityKey || wl.familyMemberKey);
+  const waitingList = (w.waitingList || []).map(w => {
+    const parentKey = normalizeEntityKey(w.parentUser?.entityKey || w.parentKey);
+    const memberKey = normalizeEntityKey(w.familyMemberId?.entityKey || w.familyMemberKey);
 
     return {
+      entityKey: memberKey || parentKey || null,
       parentKey,
       familyMemberKey: memberKey,
-      name: wl.familyMemberId?.name || wl.name || "",
-      relation: wl.familyMemberId?.relation || wl.relation || (memberKey ? "בן משפחה" : "עצמי"),
+      name: w.familyMemberId?.name || w.name,
+      relation: w.familyMemberId?.relation || w.relation || "",
+      phone: w.familyMemberId?.phone || w.parentUser?.phone || "",
+      idNumber: w.familyMemberId?.idNumber || w.idNumber || "",
+      birthDate: w.familyMemberId?.birthDate || w.birthDate || null,
+      email: w.familyMemberId?.email || w.parentUser?.email || "",
+      city: w.familyMemberId?.city || w.parentUser?.city || "",
     };
   });
 

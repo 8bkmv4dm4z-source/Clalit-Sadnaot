@@ -573,14 +573,10 @@ useEffect(() => {
                   const busy = busyRowKey === rowKey;
                   const isDeleting = deletingRowId === rowKey;
                   const isFamily = normalizedRow.isFamily;
-                  const displayEmail =
-                    normalizedRow.email || normalizedRow.parentEmail || "-";
-                  const displayPhone =
-                    normalizedRow.phone || normalizedRow.parentPhone || "-";
-                  const displayCity =
-                    normalizedRow.city || normalizedRow.parentCity || "-";
-                  const displayIdNumber =
-                    normalizedRow.idNumber || normalizedRow.parentIdNumber || "-";
+                  const displayEmail = normalizedRow.email || "-";
+                  const displayPhone = normalizedRow.phone || "-";
+                  const displayCity = normalizedRow.city || "-";
+                  const displayIdNumber = normalizedRow.idNumber || "-";
                   const displayAge =
                     typeof normalizedRow.age === "number"
                       ? normalizedRow.age
@@ -794,14 +790,10 @@ useEffect(() => {
               const busy = busyRowKey === rowKey;
               const isDeleting = deletingRowId === rowKey;
               const isFamily = normalizedRow.isFamily;
-              const displayEmail =
-                normalizedRow.email || normalizedRow.parentEmail || "-";
-              const displayPhone =
-                normalizedRow.phone || normalizedRow.parentPhone || "-";
-              const displayCity =
-                normalizedRow.city || normalizedRow.parentCity || "-";
-              const displayIdNumber =
-                normalizedRow.idNumber || normalizedRow.parentIdNumber || "-";
+              const displayEmail = normalizedRow.email || "-";
+              const displayPhone = normalizedRow.phone || "-";
+              const displayCity = normalizedRow.city || "-";
+              const displayIdNumber = normalizedRow.idNumber || "-";
               const displayAge =
                 typeof normalizedRow.age === "number"
                   ? normalizedRow.age
