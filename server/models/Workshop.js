@@ -53,7 +53,6 @@ const WorkshopSchema = new mongoose.Schema(
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     familyRegistrations: [
       {
-        entityKey: { type: String, index: true },
         parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
         familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
         parentKey: { type: String, default: "" },
@@ -69,7 +68,6 @@ const WorkshopSchema = new mongoose.Schema(
     /** 🕒 Waiting list */
     waitingList: [
       {
-        entityKey: { type: String, index: true },
         parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
         familyMemberId: { type: mongoose.Schema.Types.ObjectId },
         parentKey: { type: String, default: "" },

@@ -9,49 +9,36 @@ export const isFamilyEntity = (entity) => {
   return false;
 };
 
-/**
- * getEntityIdentifiers
- *
- * Canonical rules:
- *  - entityKey is always the server-generated key
- *  - parentKey is the parent user entityKey for family members
- *  - key (identity) = entityKey (not parentKey:entityKey)
- */
 export const getEntityIdentifiers = (entity = {}) => {
   const isFamily = isFamilyEntity(entity);
-
-  // Canonical key: only trust entityKey coming from server / hydration
-  const entityKey = entity.entityKey || entity.entity_key || "";
-
-  // For family members we may still want to know the parent key
+  const entityKey = String(
+    entity.entityKey || entity.entity_key || entity.id || entity._id || ""
+  );
   const parentKey = isFamily
-    ? entity.parentKey ||
-      entity.parentEntityKey ||
-      entity.parent?.entityKey ||
-      entity.parentUser?.entityKey ||
-      ""
+    ? String(
+        entity.parentKey ||
+          entity.parentEntityKey ||
+          entity.parent?.entityKey ||
+          entity.parentUser?.entityKey ||
+          entity.parent?.entity_key ||
+          entity.parentUser?.entity_key ||
+          ""
+      )
     : "";
 
-  // Identity key used by WorkshopCard, AllProfiles, waitlist, etc.
-  const key = String(entityKey || "");
+  const key = [parentKey, entityKey].filter(Boolean).join(":");
 
-  return { isFamily, parentKey: parentKey ? String(parentKey) : "", entityKey: String(key), key };
+  return { isFamily, parentKey, entityKey, key };
 };
 
-/**
- * withEntityFlags
- *
- * - Standardizes flags on any backend row
- * - __entityKey is now always the canonical entityKey (for convenience)
- */
 export const withEntityFlags = (entity = {}) => {
   const { isFamily, entityKey, parentKey, key } = getEntityIdentifiers(entity);
   return {
     ...entity,
     entityType: isFamily ? ENTITY_TYPE_FAMILY_MEMBER : ENTITY_TYPE_USER,
     isFamily,
-    parentKey: parentKey || undefined,
-    entityKey: entityKey || undefined,
-    __entityKey: key || undefined,
+    parentKey: entity.parentKey || parentKey || undefined,
+    _id: entityKey || entity._id,
+    __entityKey: key,
   };
 };
