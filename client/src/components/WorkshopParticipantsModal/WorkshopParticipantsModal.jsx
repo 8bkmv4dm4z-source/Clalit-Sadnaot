@@ -240,11 +240,13 @@ const activeWorkshop = useMemo(
 );
 
 /** ALWAYS use hashedId for server routes */
-const activeWorkshopId = useMemo(
-  () => String(activeWorkshop?._id || ""),
-  [activeWorkshop]
-);
-
+const activeWorkshopId = useMemo(() => {
+  return (
+    activeWorkshop?.hashedId ||
+    activeWorkshop?._id || // fallback
+    workshopId || "" 
+  );
+}, [activeWorkshop, workshopId]);
 
 
   const participantsTotal = useMemo(() => {
