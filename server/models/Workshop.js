@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const nodeCrypto = require("node:crypto");
 const { encodeId } = require("../utils/hashId");
-const { resolveOpaqueId } = require("../utils/resolveEntity");
+const { resolveOpaqueId } = require("../services/entities/resolveEntity");
 
 /* ============================================================
    🧱 Workshop Schema — Optimized for High-Performance Search
