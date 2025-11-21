@@ -1703,12 +1703,15 @@ exports.removeFromWaitlist = async (req, res) => {
 exports.getWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
-    const resolvedId = resolveWorkshopObjectId(id);
-    if (!resolvedId) {
-      return res.status(400).json({ message: "Invalid workshop ID" });
+
+    // 1️⃣ Resolve hashed / ObjectId
+    const workshopDoc = await loadWorkshopByIdentifier(id);
+    if (!workshopDoc) {
+      return res.status(404).json({ message: "Workshop not found" });
     }
 
-    const workshop = await loadWorkshopByIdentifier(id)
+    // 2️⃣ Now load the REAL mongoose document so populate works
+    const workshop = await Workshop.findById(workshopDoc._id)
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate")
       .lean();
@@ -1717,34 +1720,33 @@ exports.getWaitlist = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
+    // 3️⃣ Normalize each entry
     const waitingList = (workshop.waitingList || []).map((w) => {
-  const parent = w.parentUser || {};
-  const member = w.familyMemberId || {};
+      const parent = w.parentUser || {};
+      const member = w.familyMemberId || {};
 
-  return {
-    _id: w._id,
+      return {
+        _id: w._id,
 
-    // visible identity
-    name: member.name || w.name || "",
-    relation: member.relation || "",
-    parentName: parent.name || "",
+        // visible
+        name: member.name || w.name || "",
+        relation: member.relation || "",
 
-    // inherited fields
-    phone: member.phone || parent.phone || "",
-    email: member.email || parent.email || "",
-    city: member.city || parent.city || "",
+        parentName: parent.name || "",
 
-    // charging flag
-    canCharge: typeof w.canCharge === "boolean"
-      ? w.canCharge
-      : !!parent.canCharge,
+        // inherited fields
+        phone: member.phone || parent.phone || "",
+        email: member.email || parent.email || "",
+        city: member.city || parent.city || "",
 
-    // identifiers for WorkshopCard
-    parentUserId: parent._id,
-    familyMemberId: member._id || null,
-  };
-});
+        // charge status
+        canCharge:
+          typeof w.canCharge === "boolean" ? w.canCharge : !!parent.canCharge,
 
+        parentUserId: parent._id,
+        familyMemberId: member._id || null,
+      };
+    });
 
     return res.json({
       success: true,
@@ -1753,7 +1755,9 @@ exports.getWaitlist = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ [getWaitlist] error:", err);
-    res.status(500).json({ success: false, message: "Server error fetching waitlist" });
+    res
+      .status(500)
+      .json({ success: false, message: "Server error fetching waitlist" });
   }
 };
 
