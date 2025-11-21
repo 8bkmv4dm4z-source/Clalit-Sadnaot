@@ -513,7 +513,7 @@ export default function WorkshopCard({
           {/* Primary action (self) */}
           {isLoggedIn && (
             <button
-onClick={() => runEntityAction(null)}
+onClick={() => runEntityAction({ entityKey: userKey })}
               disabled={loading || !getEntityButton(userKey)?.action}
               className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
                 getEntityButton(userKey).color
