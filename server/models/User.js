@@ -3,7 +3,10 @@ const bcrypt = require("bcryptjs");
 const nodeCrypto = require("node:crypto");
 
 // ✅ HASHED ID UTILS (WORKSHOPS + USERS + FAMILY SHARE SAME SYSTEM)
-const { encodeId } = require("../utils/hashId");
+const {
+  getUserEntityKey,
+  getFamilyMemberEntityKey,
+} = require("../utils/entityKey");
 
 /**
  * FamilyMemberSchema
@@ -14,13 +17,10 @@ const { encodeId } = require("../utils/hashId");
  */
 const FamilyMemberSchema = new mongoose.Schema(
   {
+    parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     entityKey: {
       type: String,
-      default: function () {
-        // MUST be reversible so resolveEntityByKey() can decode back to _id
-        if (this._id) return encodeId(this._id.toString());
-        return nodeCrypto.randomUUID(); // fallback (rare)
-      },
+      default: null, // will be set by ensureEntityKeys on parent user
       index: true,
     },
     name: { type: String, required: true },
@@ -43,9 +43,6 @@ const UserSchema = new mongoose.Schema(
     // 👤 Main user entityKey (ALSO hashed)
     entityKey: {
       type: String,
-      default: function () {
-        return encodeId(this._id.toString());
-      },
       index: true,
       unique: true,
     },
@@ -136,20 +133,28 @@ const hashValue = (value, salt = ROLE_HASH_SECRET) => {
 };
 
 /**
- * Ensures entityKey exists for both user and family members.
- * For family: entityKey = encodeId(_id)
+ * Ensure canonical entityKey on user + all family members.
+ * This should be called:
+ *  - before save
+ *  - on init (optional, so hydrated docs have keys too)
  */
-const ensureEntityKeys = (userDoc) => {
-  // user entityKey
-  if (!userDoc.entityKey && userDoc._id) {
-    userDoc.entityKey = encodeId(userDoc._id.toString());
+UserSchema.methods.ensureEntityKeys = function ensureEntityKeys() {
+  // user key
+  if (!this.entityKey && this._id) {
+    this.entityKey = getUserEntityKey(this._id);
   }
 
-  // family members
-  if (Array.isArray(userDoc.familyMembers)) {
-    userDoc.familyMembers.forEach((member) => {
+  // family members keys
+  if (Array.isArray(this.familyMembers)) {
+    this.familyMembers.forEach((member) => {
+      if (!member) return;
+
       if (!member.entityKey && member._id) {
-        member.entityKey = encodeId(member._id.toString());
+        member.entityKey = getFamilyMemberEntityKey(this._id, member._id);
+      }
+
+      if (!member.parentUser && this._id) {
+        member.parentUser = this._id;
       }
     });
   }
@@ -170,9 +175,14 @@ UserSchema.methods.refreshIntegrityHashes = function () {
   this.idNumberHash = this.constructor.computeIdNumberHash(this.idNumber);
 };
 
-UserSchema.pre("validate", function (next) {
-  ensureEntityKeys(this);
+UserSchema.pre("save", function (next) {
+  this.ensureEntityKeys?.();
   next();
+});
+
+// optional but nice: when you load a user, make sure entityKey exists
+UserSchema.post("init", function () {
+  this.ensureEntityKeys?.();
 });
 
 UserSchema.methods.isRoleIntegrityValid = function () {
@@ -216,7 +226,6 @@ UserSchema.index({ city: 1 });
 UserSchema.index({ role: 1 });
 
 // Family
-UserSchema.index({ "familyMembers.entityKey": 1 });
 UserSchema.index({ "familyMembers.name": 1 });
 UserSchema.index({ "familyMembers.phone": 1 });
 UserSchema.index({ "familyMembers.email": 1 });

@@ -159,10 +159,7 @@ export default function WorkshopCard({
   const waitRows = useMemo(() => {
     const list = Array.isArray(waitingList) ? waitingList : [];
     return list.map((w) => {
-      const ids = getEntityIdentifiers({
-        entityKey: w?.familyMemberKey || w?.entityKey || w?.familyMemberId,
-        parentKey: w?.parentKey,
-      });
+      const ids = getEntityIdentifiers(w || {});
       return {
         parentKey: str(ids.parentKey),
         entityKey: str(ids.entityKey),

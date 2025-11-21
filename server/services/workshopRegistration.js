@@ -1,5 +1,6 @@
 const Workshop = require("../models/Workshop");
 const User = require("../models/User");
+const { generateEntityKey } = require("../utils/entityKey");
 
 /* ============================================================
    👤 Register User
@@ -36,6 +37,9 @@ exports.registerFamilyToWorkshop = async ({ workshopId, parentUserId, familyMemb
   workshop.familyRegistrations.push({
     parentUser: parentUserId,
     familyMemberId: familyMember._id,
+    entityKey: generateEntityKey({ userId: parentUserId, familyMemberId: familyMember._id }),
+    parentKey: generateEntityKey({ userId: parentUserId }),
+    familyMemberKey: generateEntityKey({ userId: parentUserId, familyMemberId: familyMember._id }),
     name: familyMember.name,
     relation: familyMember.relation,
     idNumber: familyMember.idNumber,
