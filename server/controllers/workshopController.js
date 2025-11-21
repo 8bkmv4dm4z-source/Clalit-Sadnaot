@@ -361,13 +361,16 @@ exports.getAllWorkshops = async (req, res) => {
     await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
 
-    const workshops = await Workshop.find({})
-      .populate("participants", "entityKey name email phone city")
-      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
-      .populate("familyRegistrations.parentUser", "entityKey name email phone")
-      .populate("waitingList.parentUser", "entityKey name email phone")
-      .populate("waitingList.familyMemberId", "entityKey name relation");
-
+let workshops = await Workshop.find({});
+  .populate("participants", "entityKey name email phone city")
+  .populate("familyRegistrations.familyMemberId", "entityKey name relation")
+  .populate("familyRegistrations.parentUser", "entityKey name email phone")
+  .populate("waitingList.parentUser", "entityKey name email phone")
+  .populate("waitingList.familyMemberId", "entityKey name relation");
+    //Clean dead users
+for (let ws of workshops) {
+  await removeStaleParticipants(ws);
+}
     const result = workshops.map((w) => {
       const decorated = w.toObject();
       decorated.__ownerKey = ownerKey;
@@ -438,6 +441,8 @@ exports.getWorkshopById = async (req, res) => {
     const { id } = req.params;
 
     const workshopDoc = await loadWorkshopByIdentifier(id);
+    await removeStaleParticipants(workshopDoc);
+
     if (!workshopDoc)
       return res.status(404).json({ message: "Workshop not found" });
 
@@ -1713,6 +1718,8 @@ exports.getWaitlist = async (req, res) => {
 
     // 1️⃣ Resolve hashed / ObjectId
     const workshopDoc = await loadWorkshopByIdentifier(id);
+    await removeStaleParticipants(workshopDoc);
+
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -2046,4 +2053,28 @@ exports.searchWorkshops = async (req, res) => {
     });
   }
 };
+async function removeStaleParticipants(workshop) {
+  if (!workshop) return workshop;
+
+  const validUserIds = (
+    await User.find(
+      { _id: { $in: workshop.participants } },
+      { _id: 1 }
+    )
+  ).map(u => String(u._id));
+
+  const before = workshop.participants.length;
+
+  workshop.participants = workshop.participants.filter(id =>
+    validUserIds.includes(String(id))
+  );
+
+  if (before !== workshop.participants.length) {
+    workshop.participantsCount =
+      (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0);
+    await workshop.save();
+  }
+
+  return workshop;
+}
 
