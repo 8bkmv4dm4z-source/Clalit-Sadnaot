@@ -55,37 +55,78 @@ const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
 
 const resolveWorkshopObjectId = (id) => {
   if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return id;
-  const decoded = decodeId(id);
+  const clean = String(id).trim();
+
+  // Case 1 — direct ObjectId
+  if (mongoose.isValidObjectId(clean)) return clean;
+
+  // Case 2 — hashed → decode
+  const decoded = decodeId(clean);
   if (decoded && mongoose.isValidObjectId(decoded)) return decoded;
+
   return null;
 };
 
 const ensureHashedWorkshop = (workshop) => {
   if (!workshop) return null;
+
   const obj = workshop.toObject ? workshop.toObject() : { ...workshop };
-  const hashedId = obj.hashedId || (obj._id ? encodeId(obj._id) : null);
-  if (hashedId) {
-    obj.hashedId = hashedId;
-    obj.workshopKey = obj.workshopKey || hashedId;
+
+  const hashed = obj.hashedId || (obj._id ? encodeId(obj._id.toString()) : null);
+  if (hashed) {
+    obj.hashedId = hashed;
+    obj.workshopKey = obj.workshopKey || hashed;
     obj.mongoId = obj._id ? obj._id.toString() : undefined;
-    obj._id = hashedId;
+
+    // 🔥 override external _id to always be hashed for the client
+    obj._id = hashed;
   }
+
   return obj;
 };
 
-const loadWorkshopByIdentifier = (id) => {
-  const resolvedId = resolveWorkshopObjectId(id);
-  const query = resolvedId
-    ? { $or: [{ _id: resolvedId }, { hashedId: id }] }
-    : { hashedId: id };
-  return Workshop.findOne(query);
-};
+async function loadWorkshopByIdentifier(identifier) {
+  if (!identifier) return null;
+  const id = String(identifier).trim();
+
+  // 1️⃣ direct mongo id
+  if (mongoose.isValidObjectId(id)) {
+    const doc = await Workshop.findById(id);
+    if (doc) return doc;
+  }
+
+  // 2️⃣ hashed (encodeId) → decode -> mongo id
+  const decoded = decodeId(id);
+  if (decoded && mongoose.isValidObjectId(decoded)) {
+    const doc = await Workshop.findById(decoded);
+    if (doc) return doc;
+  }
+
+  // 3️⃣ stored workshopKey (string form)
+  const byKey = await Workshop.findOne({ workshopKey: id });
+  if (byKey) return byKey;
+
+  // 4️⃣ legacy hashedId field
+  const byHashedField = await Workshop.findOne({ hashedId: id });
+  if (byHashedField) return byHashedField;
+
+  // 5️⃣ ultimate fallback
+  return await Workshop.findOne({
+    $or: [
+      { _id: id },
+      { workshopKey: id },
+      { hashedId: id }
+    ],
+  });
+}
+
+
 
 const findWorkshopByKey = async (workshopKey) => {
   if (!workshopKey) return null;
   return loadWorkshopByIdentifier(workshopKey);
 };
+
 
 const normalizeEntityKey = (entity) => {
   if (!entity) return null;
@@ -393,52 +434,45 @@ exports.getRegisteredWorkshops = async (req, res) => {
 exports.getWorkshopById = async (req, res) => {
   try {
     await attachUserIfPresent(req);
-    const { id } = req.params;
-    const resolvedId = resolveWorkshopObjectId(id);
-    if (!id || !resolvedId) {
-      return res.status(400).json({ message: "Invalid workshop ID" });
-    }
 
-    const workshop = await loadWorkshopByIdentifier(id)
+    const { id } = req.params;
+
+    const workshopDoc = await loadWorkshopByIdentifier(id);
+    if (!workshopDoc)
+      return res.status(404).json({ message: "Workshop not found" });
+
+    const workshop = await workshopDoc
       .populate("participants", "name email idNumber phone city")
       .populate("familyRegistrations.parentUser", "name email idNumber phone city")
-      .populate(
-        "familyRegistrations.familyMemberId",
-        "name relation idNumber phone birthDate city"
-      )
-      .populate("waitingList.parentUser", "name email")
+      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate city")
+      .populate("waitingList.parentUser", "name email phone")
+      .populate("waitingList.familyMemberId", "name relation")
       .lean();
 
-    if (!workshop) {
-      return res.status(404).json({ message: "Workshop not found" });
-    }
-
-    const hashedWorkshop = ensureHashedWorkshop({
+    const hashed = ensureHashedWorkshop({
       ...workshop,
       __ownerKey: req.user?.entityKey || null,
     });
 
-    // 🧩 Normalize optional fields to prevent UI crashes
     const normalized = {
-      ...hashedWorkshop,
-      address: hashedWorkshop?.address || "",
-      city: hashedWorkshop?.city || "",
-      studio: hashedWorkshop?.studio || "",
-      coach: hashedWorkshop?.coach || "",
+      ...hashed,
+      address: hashed.address || "",
+      city: hashed.city || "",
+      studio: hashed.studio || "",
+      coach: hashed.coach || "",
       participantsCount:
-        hashedWorkshop?.participantsCount ??
-        ((hashedWorkshop?.participants?.length || 0) +
-          (hashedWorkshop?.familyRegistrations?.length || 0)),
+        hashed.participantsCount ??
+        ((hashed.participants?.length || 0) +
+          (hashed.familyRegistrations?.length || 0)),
+      meta: {
+        totalParticipants:
+          (hashed.participants?.length || 0) +
+          (hashed.familyRegistrations?.length || 0),
+        waitingListCount: hashed.waitingList?.length || 0,
+        isAvailable: !!hashed.available,
+      },
     };
 
-    // 🕓 Attach derived meta info
-    normalized.meta = {
-      totalParticipants: normalized.participantsCount,
-      waitingListCount: hashedWorkshop?.waitingList?.length || 0,
-      isAvailable: !!hashedWorkshop?.available,
-    };
-
-    // ✅ Return clean normalized payload
     return res.json({ success: true, data: normalized });
   } catch (err) {
     console.error("❌ [getWorkshopById] Error:", err.message);

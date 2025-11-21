@@ -128,7 +128,14 @@ export const WorkshopProvider = ({ children }) => {
   });
 
   // 🟢 תפיסה נכונה של כל הפורמטים
-  const data = Array.isArray(raw) ? raw : raw?.data || [];
+const data =
+  Array.isArray(raw?.data)
+    ? raw.data
+    : Array.isArray(raw?.workshops)
+    ? raw.workshops
+    : Array.isArray(raw)
+    ? raw
+    : [];
 
   if (!res.ok) {
     throw new Error(raw?.message || "Failed to load workshops");
@@ -139,11 +146,23 @@ export const WorkshopProvider = ({ children }) => {
 
   // Normalize workshops
   const normalizedList = list.map((w, idx) => {
-    const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
+const wid = sid(
+  w.workshopKey ||
+  w._id ||
+  w.hashedId ||
+  w.mongoId ||
+  ""
+);
+
+// Reject accidental numeric fallback
+if (!wid || /^[0-9]+$/.test(wid)) {
+  console.warn("⚠ Invalid workshop identifier received:", w);
+  return null; // skip corrupt items instead of generating wrong IDs
+}
 
     const participants = Array.isArray(w.participants)
-      ? w.participants.map((p) => sid(p))
-      : [];
+  ? w.participants.map((p) => sid(p.entityKey || p))
+  : [];
 
     const waitingList = Array.isArray(w.waitingList)
       ? w.waitingList
