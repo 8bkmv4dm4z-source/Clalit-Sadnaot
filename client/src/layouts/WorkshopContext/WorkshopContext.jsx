@@ -100,31 +100,16 @@ export const WorkshopProvider = ({ children }) => {
 
   // Signatures so that we only recompute maps when relevant identity changes
   const familyMembersSignature = useMemo(
-    () =>
-      JSON.stringify(
-        familyMembersList.map((m) => sid(m.entityKey || m._id || m.id))
-      ),
-    [familyMembersList]
-  );
+  () => familyMembersList.map(m => sid(m.entityKey || m._id || m.id)).join(","), 
+  [familyMembersList]
+);
+
 
   const workshopsSignature = useMemo(
-    () =>
-      JSON.stringify(
-        (workshops || []).map((w) => ({
-          id: sid(w._id ?? w.id ?? w.workshopKey),
-          participantsLen: Array.isArray(w.participants)
-            ? w.participants.length
-            : 0,
-          userFamilyRegsLen: Array.isArray(w.userFamilyRegistrations)
-            ? w.userFamilyRegistrations.length
-            : 0,
-          familyRegsLen: Array.isArray(w.familyRegistrations)
-            ? w.familyRegistrations.length
-            : 0,
-        }))
-      ),
-    [workshops]
-  );
+  () => workshops.map(w => w._id).join(","), 
+  [workshops]
+);
+
 
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
@@ -423,19 +408,20 @@ export const WorkshopProvider = ({ children }) => {
 
   // Filter displayedWorkshops when viewMode === "mine" (only after mapsReady)
   useEffect(() => {
-    if (!mapsReady) return;
-
-    if (viewMode === "mine") {
-      const filtered = (workshops || []).filter(
-        (w) =>
+  if (viewMode === "mine") {
+    setDisplayedWorkshops(
+      (workshops || []).filter(
+        w =>
           userWorkshopMap[w._id] ||
           (familyWorkshopMap[w._id]?.length ?? 0) > 0
-      );
-      setDisplayedWorkshops(filtered);
-    } else {
-      setDisplayedWorkshops(workshops || []);
-    }
-  }, [mapsReady, viewMode, workshops, userWorkshopMap, familyWorkshopMap]);
+      )
+    );
+  } else {
+    setDisplayedWorkshops(workshops || []);
+  }
+}, [viewMode, workshops, userWorkshopMap, familyWorkshopMap]);
+
+
 
   /* ============================================================
      🔧 Mutations (server-source-of-truth + refetch)
