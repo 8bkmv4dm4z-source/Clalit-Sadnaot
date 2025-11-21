@@ -1017,7 +1017,11 @@ exports.registerEntityToWorkshop = async (req, res) => {
       });
     }
 
+    // 👉 כאן אנחנו משתמשים ב-ObjectId האמיתי של ה-workshop למפות
+    const workshopObjectId = workshop._id;
+
     if (member) {
+      // FAMILY REGISTRATION
       workshop.familyRegistrations.push({
         parentUser: actingParentId,
         familyMemberId: member._id,
@@ -1031,29 +1035,31 @@ exports.registerEntityToWorkshop = async (req, res) => {
         city: member.city,
       });
 
-      const hashed = workshop.hashedId || encodeId(workshop._id.toString());
+      const mapEntry = parentUser.familyWorkshopMap.find(
+        (f) => String(f.familyMemberId) === String(member._id)
+      );
 
-const existing = parentUser.familyWorkshopMap.find(
-  (f) => String(f.familyMemberId) === String(member._id)
-);
-
-if (existing) {
-  if (!existing.workshops.includes(hashed)) {
-    existing.workshops.push(hashed);
-  }
-} else {
-  parentUser.familyWorkshopMap.push({
-    familyMemberId: member._id,
-    workshops: [hashed],
-  });
-}
-
+      if (mapEntry) {
+        if (!mapEntry.workshops.some((wid) => String(wid) === String(workshopObjectId))) {
+          mapEntry.workshops.push(workshopObjectId);
+        }
+      } else {
+        parentUser.familyWorkshopMap.push({
+          familyMemberId: member._id,
+          workshops: [workshopObjectId],
+        });
+      }
     } else {
+      // DIRECT USER REGISTRATION
       workshop.participants.push(actingParentId);
 
-      if (!parentUser.userWorkshopMap.includes(hashed)) {
-  parentUser.userWorkshopMap.push(hashed);
-}
+      if (
+        !parentUser.userWorkshopMap.some(
+          (wid) => String(wid) === String(workshopObjectId)
+        )
+      ) {
+        parentUser.userWorkshopMap.push(workshopObjectId);
+      }
     }
 
     await workshop.save();
@@ -1072,7 +1078,6 @@ if (existing) {
     res.json({ success: true, workshop: formatRegistration({ workshop: decorated }) });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
-    // SECURITY FIX: avoid leaking raw error messages to clients
     const payload = { success: false, message: "Server error during registration" };
     if (process.env.NODE_ENV !== "production") {
       payload.detail = err.message;
@@ -1107,6 +1112,8 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
 
     let changed = false;
+    const workshopObjectId = workshop._id;
+
     if (member) {
       const before = workshop.familyRegistrations.length;
       workshop.familyRegistrations = workshop.familyRegistrations.filter(
@@ -1123,7 +1130,7 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
       );
       if (mapEntry) {
         mapEntry.workshops = mapEntry.workshops.filter(
-          (wid) => String(wid) !== String(workshop._id)
+          (wid) => String(wid) !== String(workshopObjectId)
         );
       }
     } else {
@@ -1134,7 +1141,7 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
       changed = before !== workshop.participants.length;
 
       parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(
-        (wid) => String(wid) !== String(workshop._id)
+        (wid) => String(wid) !== String(workshopObjectId)
       );
     }
 
@@ -1166,11 +1173,6 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error during unregistration" });
   }
 };
-
-
-
-
-
 
 
 /**
