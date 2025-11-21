@@ -2066,26 +2066,41 @@ exports.searchWorkshops = async (req, res) => {
 };
 async function removeStaleParticipants(workshop) {
   if (!workshop) return workshop;
+  if (!Array.isArray(workshop.participants)) return workshop;
+
+  // Normalize ALL ids to ObjectId-like strings
+  const normalizedIds = workshop.participants
+    .map(p => (typeof p === "object" && p?._id ? String(p._id) : String(p)))
+    .filter(Boolean);
+
+  // Only keep ObjectId looking strings (24 hex chars)
+  const objectIds = normalizedIds.filter(id =>
+    /^[0-9a-fA-F]{24}$/.test(id)
+  );
+
+  // If nothing looks like real ObjectId → DON'T DELETE ANYTHING
+  if (objectIds.length === 0) {
+    console.warn("⚠️ removeStaleParticipants skipped — no valid ObjectIds found");
+    return workshop;
+  }
 
   const validUserIds = (
-    await User.find(
-      { _id: { $in: workshop.participants } },
-      { _id: 1 }
-    )
+    await User.find({ _id: { $in: objectIds } }, { _id: 1 })
   ).map(u => String(u._id));
 
   const before = workshop.participants.length;
 
-  workshop.participants = workshop.participants.filter(id =>
-    validUserIds.includes(String(id))
-  );
+  workshop.participants = workshop.participants.filter(id => {
+    const norm = typeof id === "object" && id?._id ? String(id._id) : String(id);
+    return validUserIds.includes(norm);
+  });
 
   if (before !== workshop.participants.length) {
     workshop.participantsCount =
-      (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0);
+      (workshop.participants?.length || 0) +
+      (workshop.familyRegistrations?.length || 0);
     await workshop.save();
   }
 
   return workshop;
 }
-
