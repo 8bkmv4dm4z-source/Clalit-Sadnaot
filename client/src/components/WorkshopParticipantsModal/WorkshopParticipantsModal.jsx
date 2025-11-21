@@ -183,9 +183,6 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [message, setMessage] = useState(null);
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
-
-  const normalizeEntity = useCallback((entity) => {
-  const flagged = withEntityFlags(entity);
 const dedupeByEntityKey = (list) => {
   const map = new Map();
   for (const item of list) {
@@ -195,6 +192,9 @@ const dedupeByEntityKey = (list) => {
   }
   return [...map.values()];
 };
+  const normalizeEntity = useCallback((entity) => {
+  const flagged = withEntityFlags(entity);
+
 
   return {
     ...flagged,
@@ -221,18 +221,19 @@ const dedupeByEntityKey = (list) => {
   // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
   const contextWorkshop = useMemo(() => {
     if (!workshopId) return null;
-    return (workshops || []).find((w) => String(w?._id) === workshopId) || null;
+return (workshops || []).find((w) => String(w.workshopKey) === workshopId) || null;
   }, [workshops, workshopId]);
 
   const activeWorkshop = useMemo(
-    () => contextWorkshop || resolvedWorkshop || {},
-    [contextWorkshop, resolvedWorkshop]
-  );
+  () => contextWorkshop || resolvedWorkshop || {},
+  [contextWorkshop, resolvedWorkshop]
+);
 
-  const activeWorkshopId = useMemo(
-    () => activeWorkshop?._id || workshopId,
-    [activeWorkshop, workshopId]
-  );
+const activeWorkshopId = useMemo(
+  () => String(activeWorkshop?.workshopKey || workshopId || ""),
+  [activeWorkshop, workshopId]
+);
+
 
   const participantsTotal = useMemo(() => {
     if (participants.length > 0) return participants.length;
