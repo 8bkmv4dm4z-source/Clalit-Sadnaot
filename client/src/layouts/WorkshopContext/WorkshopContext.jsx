@@ -130,91 +130,78 @@ export const WorkshopProvider = ({ children }) => {
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
   async function fetchAllWorkshops(force = false) {
-    log(`📡 Fetching all workshops (force=${force})`);
-    dbgCtx("fetchAllWorkshops:start", { force });
-    setLoading(true);
-    setError(null);
+  log(`📡 Fetching all workshops (force=${force})`);
+  dbgCtx("fetchAllWorkshops:start", { force });
+  setLoading(true);
+  setError(null);
 
-    try {
-      const res = await apiFetch("/api/workshops");
-      const data = await res.json();
+  try {
+    const res = await apiFetch("/api/workshops");
+    const data = await res.json();
 
-      dbgCtx("fetchAllWorkshops:raw-response", {
-        ok: res.ok,
-        type: Array.isArray(data) ? "array" : typeof data,
-      });
+    dbgCtx("fetchAllWorkshops:raw-response", {
+      ok: res.ok,
+      type: Array.isArray(data) ? "array" : typeof data,
+    });
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to load workshops");
-      }
-
-      const list = Array.isArray(data) ? data : [];
-
-      const normalizedList = list.map((w, idx) => {
-        const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
-
-        const participants = Array.isArray(w.participants)
-          ? w.participants.map((p) => sid(p))
-          : [];
-
-        const waitingList = Array.isArray(w.waitingList)
-          ? w.waitingList
-          : [];
-
-        const userFamilyRegistrations = Array.isArray(
-          w.userFamilyRegistrations
-        )
-          ? w.userFamilyRegistrations.map((id) => sid(id))
-          : [];
-
-        const familyRegistrations = Array.isArray(w.familyRegistrations)
-          ? w.familyRegistrations
-          : [];
-
-        const isUserRegistered =
-          !!w.isUserRegistered ||
-          (userKey && participants.some((p) => sid(p) === userKey));
-
-        const normalized = {
-          ...w,
-          _id: wid,
-          workshopKey: wid,
-          participants,
-          waitingList,
-          userFamilyRegistrations,
-          familyRegistrations,
-          isUserRegistered,
-        };
-
-        // 🔍 Compact per-workshop log
-        dbgCtx("normalize", {
-          i: idx,
-          wid,
-          title: normalized.title,
-          isUserRegistered: normalized.isUserRegistered,
-          participantsLen: participants.length,
-          userFamilyRegsLen: normalized.userFamilyRegistrations.length,
-          waitingListLen: normalized.waitingList.length,
-        });
-
-        return normalized;
-      });
-
-      log(`✅ Workshops loaded (${normalizedList.length})`);
-      dbgCtx("setState:workshops", { listLen: normalizedList.length });
-
-      setWorkshops(normalizedList);
-      return normalizedList;
-    } catch (err) {
-      console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
-      setError(err.message);
-      dbgCtx("fetchAllWorkshops:error", { message: err.message });
-      return [];
-    } finally {
-      setLoading(false);
-      dbgCtx("fetchAllWorkshops:done");
+    if (!res.ok) {
+      throw new Error(data?.message || "Failed to load workshops");
     }
+
+    const list = Array.isArray(data) ? data : [];
+
+    const normalizedList = list.map((w, idx) => {
+      const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
+
+      const participants = Array.isArray(w.participants)
+        ? w.participants.map((p) => sid(p))
+        : [];
+
+      const waitingList = Array.isArray(w.waitingList)
+        ? w.waitingList
+        : [];
+
+      const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+        ? w.userFamilyRegistrations.map((id) => sid(id))
+        : [];
+
+      const familyRegistrations = Array.isArray(w.familyRegistrations)
+        ? w.familyRegistrations
+        : [];
+
+      const isUserRegistered =
+        !!w.isUserRegistered ||
+        (userKey && participants.some((p) => sid(p) === userKey));
+
+      return {
+        ...w,
+        _id: wid,
+        workshopKey: wid,
+        participants,
+        waitingList,
+        userFamilyRegistrations,
+        familyRegistrations,
+        isUserRegistered,
+      };
+    });
+
+    log(`✅ Workshops loaded (${normalizedList.length})`);
+
+    setWorkshops(normalizedList);
+
+    // 🔥 THIS LINE WAS MISSING — FIXES THE UI!
+    setDisplayedWorkshops(normalizedList);
+
+    return normalizedList;
+  } catch (err) {
+    console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
+    setError(err.message);
+    return [];
+  } finally {
+    setLoading(false);
   }
+}
+
 
   /* ============================================================
      📡 Fetch registered workshops (IDs only)
