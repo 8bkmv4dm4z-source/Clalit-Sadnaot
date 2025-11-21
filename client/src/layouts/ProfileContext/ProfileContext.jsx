@@ -18,6 +18,7 @@ import React, {
 } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
+import { flattenUserEntities } from "../../utils/entityTypes";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -53,6 +54,17 @@ const rowMatchesQuery = (row, normalizedQuery) => {
   });
 };
 
+const flattenEntitiesList = (list = []) => {
+  const flattened = [];
+  for (const item of list) {
+    const { allEntities } = flattenUserEntities(item);
+    if (allEntities.length) {
+      flattened.push(...allEntities);
+    }
+  }
+  return flattened;
+};
+
 export function ProfileProvider({ children }) {
   const { isLoggedIn, isAdmin, loading: authLoading } = useAuth();
   const [rows, setRows] = useState([]);
@@ -73,7 +85,8 @@ export function ProfileProvider({ children }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Failed to load users");
       const list = Array.isArray(data) ? data : [];
-      setRows(list);
+      const flattened = flattenEntitiesList(list);
+      setRows(flattened);
     } catch (e) {
       console.error("❌ [profiles] fetchProfiles", e);
       setRows([]);
@@ -143,8 +156,9 @@ export function ProfileProvider({ children }) {
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || "Failed to search users");
         const list = Array.isArray(data) ? data : [];
-        searchCache.current.set(normalized, list);
-        return list;
+        const flattened = flattenEntitiesList(list);
+        searchCache.current.set(normalized, flattened);
+        return flattened;
       } catch (err) {
         console.warn("[profiles] remote search failed, falling back to local cache", err);
       }

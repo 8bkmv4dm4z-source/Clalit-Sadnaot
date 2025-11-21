@@ -96,10 +96,11 @@ const normalizeEntityKey = (entity) => {
 };
 
 const formatRegistration = ({ workshop }) => {
-  const w = workshop || {};
+  // Always ensure the workshop carries a stable hashed id + workshopKey
+  const w = ensureHashedWorkshop(workshop) || {};
 
-  // hashed ID
-  const hashedId = w.hashedId || w._id?.toString() || "";
+  // hashed ID (hashedId is guaranteed by ensureHashedWorkshop)
+  const hashedId = w.hashedId || "";
 
   // owner key
   const ownerKey = normalizeEntityKey(w.__ownerKey);
@@ -155,7 +156,7 @@ const formatRegistration = ({ workshop }) => {
   return {
     _id: hashedId,
     hashedId,
-    workshopKey: w.workshopKey,
+    workshopKey: w.workshopKey || hashedId,
     mongoId: w.mongoId,
 
     title: w.title,

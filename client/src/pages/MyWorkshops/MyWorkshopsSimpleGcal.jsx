@@ -35,6 +35,7 @@ import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import CalendarGStyle from "../../components/calendar/CalendarGStyle";
 import MobileiOSCalendar from "../../components/calendar/MobileiOSCalendar";
+import { flattenUserEntities } from "../../utils/entityTypes";
 
 const sid = (x) => String(x ?? "");
 
@@ -175,6 +176,11 @@ function MyWorkshopsScreen() {
     familyWorkshopMap, // { [workshopId]: [familyMemberId, ...] }
   } = useWorkshops();
 
+  const { userEntity, familyMembers, allEntities } = useMemo(
+    () => flattenUserEntities(user || {}),
+    [user]
+  );
+
   // View & anchor (passed to both calendars)
   const [view, setView] = useState("week"); // desktop: "week" | "month"
   const [anchorDate, setAnchorDate] = useState(() => startOfWeekSunday(new Date()));
@@ -207,24 +213,23 @@ function MyWorkshopsScreen() {
 
   /* ---------------- workshopsByEntity (user + family) ---------------- */
   const workshopsByEntity = useMemo(() => {
-    if (!user) return {};
+    if (!userEntity?.entityKey && !userEntity?._id) return {};
     const list = Array.isArray(displayedWorkshops) ? displayedWorkshops : [];
     const map = Object.create(null);
 
-    // Current user bucket — only workshops where user is registered
-    const uid = sid(user?.entityKey || user?._id);
+    const uid = sid(userEntity.entityKey || userEntity._id || user?._id);
     map[uid] = {
-      name: user.fullName || user.name || "Me",
+      name: userEntity.fullName || userEntity.name || "Me",
       relation: "",
       workshops: list.filter((w) => Boolean(userWorkshopMap?.[sid(w._id)])),
     };
 
-    // Family buckets — ensure we don't accidentally include the user as a family member
-    (user.familyMembers || []).forEach((m) => {
+    const members = familyMembers.length ? familyMembers : allEntities.filter((e) => e.isFamily);
+    members.forEach((m) => {
       const mid = sid(m.entityKey || m._id);
       const ws = list.filter((w) => {
         const arr = (familyWorkshopMap?.[sid(w._id)] || []).map(sid);
-        if (arr.includes(uid)) return false; // guard: never attribute via family channel to the user
+        if (arr.includes(uid)) return false;
         return arr.includes(mid);
       });
       if (ws.length) {
@@ -233,7 +238,15 @@ function MyWorkshopsScreen() {
     });
 
     return map;
-  }, [user, displayedWorkshops, userWorkshopMap, familyWorkshopMap]);
+  }, [
+    user,
+    userEntity,
+    familyMembers,
+    allEntities,
+    displayedWorkshops,
+    userWorkshopMap,
+    familyWorkshopMap,
+  ]);
 
   /* ---------------- entity color legend ---------------- */
   const PALETTE = ["#4f46e5", "#059669", "#dc2626", "#0ea5e9", "#d97706", "#9333ea", "#16a34a", "#ea580c"];
