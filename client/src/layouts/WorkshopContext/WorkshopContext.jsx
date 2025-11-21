@@ -148,8 +148,10 @@ export const WorkshopProvider = ({ children }) => {
       throw new Error(data?.message || "Failed to load workshops");
     }
 
+    // Always ensure list is an array
     const list = Array.isArray(data) ? data : [];
 
+    // Normalize workshops
     const normalizedList = list.map((w, idx) => {
       const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
 
@@ -173,7 +175,7 @@ export const WorkshopProvider = ({ children }) => {
         !!w.isUserRegistered ||
         (userKey && participants.some((p) => sid(p) === userKey));
 
-      return {
+      const normalized = {
         ...w,
         _id: wid,
         workshopKey: wid,
@@ -183,22 +185,33 @@ export const WorkshopProvider = ({ children }) => {
         familyRegistrations,
         isUserRegistered,
       };
+
+      dbgCtx("normalize", {
+        i: idx,
+        wid,
+        title: normalized.title,
+        isUserRegistered: normalized.isUserRegistered,
+        participantsLen: participants.length,
+        userFamilyRegsLen: normalized.userFamilyRegistrations.length,
+        waitingListLen: normalized.waitingList.length,
+      });
+
+      return normalized;
     });
 
     log(`✅ Workshops loaded (${normalizedList.length})`);
+    dbgCtx("setState:workshops", { listLen: normalizedList.length });
 
     setWorkshops(normalizedList);
-
-    // 🔥 THIS LINE WAS MISSING — FIXES THE UI!
-    setDisplayedWorkshops(normalizedList);
-
     return normalizedList;
   } catch (err) {
     console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
     setError(err.message);
+    dbgCtx("fetchAllWorkshops:error", { message: err.message });
     return [];
   } finally {
     setLoading(false);
+    dbgCtx("fetchAllWorkshops:done");
   }
 }
 
