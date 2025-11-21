@@ -371,9 +371,17 @@ exports.getAllWorkshops = async (req, res) => {
       .populate("waitingList.familyMemberId", "entityKey name relation");
 
     // 🧹 Clean dead/missing users
-    for (let ws of workshops) {
-      await removeStaleParticipants(ws);
-    }
+    for (let i = 0; i < workshops.length; i++) {
+  const cleaned = await removeStaleParticipants(workshops[i]);
+  
+  // אם לא קיבלנו דוקומנט, נטען מחדש
+  if (!cleaned.populate) {
+    workshops[i] = await Workshop.findById(cleaned._id);
+  } else {
+    workshops[i] = cleaned;
+  }
+}
+
 
     const result = workshops.map((w) => {
       const decorated = w.toObject();
@@ -444,12 +452,24 @@ exports.getWorkshopById = async (req, res) => {
 
     const { id } = req.params;
 
-    const workshopDoc = await loadWorkshopByIdentifier(id);
-    await removeStaleParticipants(workshopDoc);
-
-    if (!workshopDoc)
+    // Load workshop (hashed / ObjectId / key)
+    let workshopDoc = await loadWorkshopByIdentifier(id);
+    if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
+    }
 
+    // 🔧 Clean stale participants
+    workshopDoc = await removeStaleParticipants(workshopDoc);
+
+    // ❗ FIX: removeStaleParticipants may return plain object (no .populate)
+    if (!workshopDoc || typeof workshopDoc.populate !== "function") {
+      workshopDoc = await Workshop.findById(workshopDoc._id);
+      if (!workshopDoc) {
+        return res.status(404).json({ message: "Workshop not found" });
+      }
+    }
+
+    // Now safe to populate
     const workshop = await workshopDoc
       .populate("participants", "name email idNumber phone city")
       .populate("familyRegistrations.parentUser", "name email idNumber phone city")
@@ -458,41 +478,52 @@ exports.getWorkshopById = async (req, res) => {
       .populate("waitingList.familyMemberId", "name relation")
       .lean();
 
+    // Add hashedId / workshopKey
     const hashed = ensureHashedWorkshop({
       ...workshop,
       __ownerKey: req.user?.entityKey || null,
     });
-    // ----------------------- NORMALIZE waitingList -----------------------
-if (Array.isArray(hashed.waitingList)) {
-  hashed.waitingList = hashed.waitingList.map(w => ({
-    parentKey: w.parentUser?._id ? String(w.parentUser._id) : String(w.parentKey || ""),
-    familyMemberKey: w.familyMemberId?._id
-      ? String(w.familyMemberId._id)
-      : (w.familyMemberKey ? String(w.familyMemberKey) : null), 
-    name: w.familyMemberId?.name || w.name || "",
-    relation: w.familyMemberId?.relation || w.relation || ""
-  }));
-}
 
-// -------------------- NORMALIZE familyRegistrations -------------------
-if (Array.isArray(hashed.familyRegistrations)) {
-  hashed.familyRegistrations = hashed.familyRegistrations.map(fr => ({
-    parentKey: fr.parentUser?._id ? String(fr.parentUser._id) : String(fr.parentKey || ""),
-    familyMemberKey: fr.familyMemberId?._id
-      ? String(fr.familyMemberId._id)
-      : (fr.familyMemberKey ? String(fr.familyMemberKey) : null),
-    name: fr.familyMemberId?.name || fr.name || "",
-    relation: fr.familyMemberId?.relation || fr.relation || ""
-  }));
-}
+    /* -------------------------------------------------
+       NORMALIZATION: waitingList
+       ------------------------------------------------- */
+    if (Array.isArray(hashed.waitingList)) {
+      hashed.waitingList = hashed.waitingList.map(w => ({
+        parentKey: w.parentUser?._id ? String(w.parentUser._id) : String(w.parentKey || ""),
+        familyMemberKey: w.familyMemberId?._id
+          ? String(w.familyMemberId._id)
+          : (w.familyMemberKey ? String(w.familyMemberKey) : null),
+        name: w.familyMemberId?.name || w.name || "",
+        relation: w.familyMemberId?.relation || w.relation || ""
+      }));
+    }
 
-// ----------------------- NORMALIZE participants -----------------------
-if (Array.isArray(hashed.participants)) {
-  hashed.participants = hashed.participants.map(p =>
-    typeof p === "object" && p?._id ? String(p._id) : String(p)
-  );
-}
+    /* -------------------------------------------------
+       NORMALIZATION: familyRegistrations
+       ------------------------------------------------- */
+    if (Array.isArray(hashed.familyRegistrations)) {
+      hashed.familyRegistrations = hashed.familyRegistrations.map(fr => ({
+        parentKey: fr.parentUser?._id ? String(fr.parentUser._id) : String(fr.parentKey || ""),
+        familyMemberKey: fr.familyMemberId?._id
+          ? String(fr.familyMemberId._id)
+          : (fr.familyMemberKey ? String(fr.familyMemberKey) : null),
+        name: fr.familyMemberId?.name || fr.name || "",
+        relation: fr.familyMemberId?.relation || fr.relation || ""
+      }));
+    }
 
+    /* -------------------------------------------------
+       NORMALIZATION: participants
+       ------------------------------------------------- */
+    if (Array.isArray(hashed.participants)) {
+      hashed.participants = hashed.participants.map(p =>
+        typeof p === "object" && p?._id ? String(p._id) : String(p)
+      );
+    }
+
+    /* -------------------------------------------------
+       Final return object
+       ------------------------------------------------- */
     const normalized = {
       ...hashed,
       address: hashed.address || "",
@@ -502,7 +533,7 @@ if (Array.isArray(hashed.participants)) {
       participantsCount:
         hashed.participantsCount ??
         ((hashed.participants?.length || 0) +
-          (hashed.familyRegistrations?.length || 0)),
+        (hashed.familyRegistrations?.length || 0)),
       meta: {
         totalParticipants:
           (hashed.participants?.length || 0) +
@@ -513,11 +544,13 @@ if (Array.isArray(hashed.participants)) {
     };
 
     return res.json({ success: true, data: normalized });
+
   } catch (err) {
     console.error("❌ [getWorkshopById] Error:", err.message);
     return res.status(500).json({ message: "Server error fetching workshop" });
   }
 };
+
 
 
 
