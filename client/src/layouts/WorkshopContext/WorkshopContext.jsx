@@ -162,24 +162,37 @@ export const WorkshopProvider = ({ children }) => {
         const familyRegKeys = familyRegs.map((f) => sid(f.familyMemberKey || f.familyMemberId));
         const waitingList = Array.isArray(w.waitingList) ? w.waitingList : [];
 
-        const normalized = {
-          ...w,
-          hashedId,
-          workshopKey: hashedId,
-          _id: hashedId,
-          mongoId,
-          address: w.address || "",
-          city: w.city || "",
-          studio: w.studio || "",
-          coach: w.coach || "",
-          participants: participantKeys,
-          familyRegistrations: familyRegs,
-          userFamilyRegistrations: (w.userFamilyRegistrations || []).map((v) => sid(v)),
-          waitingList,
-          maxParticipants: Number(w.maxParticipants ?? 0),
-          waitingListMax: Number(w.waitingListMax ?? 0),
-          isUserRegistered: !!w.isUserRegistered,
-        };
+       const normalized = {
+  ...w,
+
+  // workshop identity stays hashed
+  hashedId: String(w?.hashedId || w?._id || w?.id || ""),
+  workshopKey: String(w?.hashedId || w?._id || w?.id || ""),
+
+  // Do NOT convert or sid() any participant/family keys
+  participants: Array.isArray(w.participants) ? w.participants : [],
+  familyRegistrations: Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [],
+  userFamilyRegistrations: Array.isArray(w.userFamilyRegistrations)
+    ? w.userFamilyRegistrations
+    : [],
+
+  waitingList: Array.isArray(w.waitingList) ? w.waitingList : [],
+
+  address: w.address || "",
+  city: w.city || "",
+  studio: w.studio || "",
+  coach: w.coach || "",
+
+  maxParticipants: Number(w.maxParticipants ?? 0),
+  waitingListMax: Number(w.waitingListMax ?? 0),
+
+  isUserRegistered: !!w.isUserRegistered,
+  participantsCount:
+    typeof w.participantsCount === "number"
+      ? w.participantsCount
+      : ((Array.isArray(w.participants) ? w.participants.length : 0) +
+         (Array.isArray(w.familyRegistrations) ? w.familyRegistrations.length : 0)),
+};
 
         const pLen = normalized.participants?.length ?? 0;
         const fLen = normalized.familyRegistrations?.length ?? 0;
