@@ -205,11 +205,13 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     [workshop, selectedWorkshopFromContext]
   );
 
-  const workshopId = useMemo(
-    () => String(resolvedWorkshop?._id ?? ""),
-    [resolvedWorkshop?._id]
+ const workshopId = useMemo(() => {
+  return String(
+    resolvedWorkshop?.workshopKey ||
+    resolvedWorkshop?._id ||
+    ""
   );
-
+}, [resolvedWorkshop]);
   // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
   const contextWorkshop = useMemo(() => {
     if (!workshopId) return null;

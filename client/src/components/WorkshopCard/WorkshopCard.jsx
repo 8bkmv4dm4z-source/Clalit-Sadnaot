@@ -67,6 +67,7 @@ export default function WorkshopCard({
 
   const wid = str(_id);
 
+
   // לוקחים את הסדנה העדכנית מתוך ה-Context (משתמשים ב-hashedId כ-_id)
   const workshop = useMemo(
     () =>
@@ -224,9 +225,8 @@ export default function WorkshopCard({
   }, [familyWorkshopMap, wid, userFamilyRegistrations]);
 
   /* ---------------- Button factory (self / family) ---------------- */
-  const getEntityButton = (entity) => {
-  // self = we pass a string (userKey)
-  // family = we pass the full member object (with entityKey)
+  /* ---------------- Button factory (self / family) ---------------- */
+const getEntityButton = (entity) => {
   const entityKey =
     typeof entity === "object" ? str(entity?.entityKey) : str(entity || userKey);
   const isSelf = typeof entity !== "object";
@@ -243,8 +243,6 @@ export default function WorkshopCard({
 
   const registered = isSelf ? isSelfRegistered : memberRegistered;
   const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
-
-  // ... (same availability logic as before)
 
   if (registered) {
     return {
@@ -280,6 +278,20 @@ export default function WorkshopCard({
     action: async () => registerEntityToWorkshop(wid, entityKey),
   };
 };
+
+/* ---------------- Self button (stable memo) ---------------- */
+const selfButton = useMemo(() => {
+  return getEntityButton(userKey);
+}, [
+  userKey,
+  isSelfRegistered,
+  selfOnWaitlist,
+  isWorkshopFull,
+  waitingListMax,
+  maxParticipants,
+  userWorkshopMap,
+  familyWorkshopMap,
+]);
 
 
   const runEntityAction = (entity) => {
@@ -512,15 +524,14 @@ export default function WorkshopCard({
 
           {/* Primary action (self) */}
           {isLoggedIn && (
-            <button
-onClick={() => runEntityAction({ entityKey: userKey })}
-              disabled={loading || !getEntityButton(userKey)?.action}
-              className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${
-                getEntityButton(userKey).color
-              }`}
-            >
-              {loading ? "..." : getEntityButton(userKey).label}
-            </button>
+   <button
+  onClick={() => runEntityAction(userKey)}
+  disabled={loading || !selfButton?.action}
+  className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${selfButton.color}`}
+>
+  {loading ? "..." : selfButton.label}
+</button>
+
           )}
 
           {/* Family modal trigger */}
