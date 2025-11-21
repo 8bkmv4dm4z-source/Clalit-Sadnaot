@@ -232,47 +232,44 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [userWorkshops, setUserWorkshops] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
 
-  const allRows = useMemo(() => contextProfiles, [contextProfiles]);
+  // FIX: Use flat entities from server + proper flags
+const allRows = useMemo(
+  () => (contextProfiles || []).map((r) => withEntityFlags(r)),
+  [contextProfiles]
+);
 
-  // initial list when no search
-  useEffect(() => {
-    if (!search.trim()) {
-      const defaults = allRows.slice(0, 100).map((row) => withEntityFlags(row));
-      setProfiles(defaults);
+// FIX: Default view (no search) → 100 entities flat (users + family)
+useEffect(() => {
+  if (!search.trim()) {
+    setProfiles(allRows.slice(0, 100));
+  }
+}, [allRows, search]);
+
+// FIX: Search → runs on entity.name (not parent only)
+useEffect(() => {
+  const q = search.trim();
+  if (!q) return;
+
+  setIsFetching(true);
+
+  const t = setTimeout(async () => {
+    try {
+      const result = await searchProfiles(q);
+      const list = Array.isArray(result)
+        ? result.map((r) => withEntityFlags(r))
+        : [];
+      setProfiles(list);
+    } catch (e) {
+      console.error("searchProfiles error:", e);
+      setProfiles([]);
+    } finally {
+      setIsFetching(false);
     }
-  }, [allRows, search]);
+  }, 300);
 
-  // search flow (debounced)
-  useEffect(() => {
-    const q = search.trim();
+  return () => clearTimeout(t);
+}, [search, searchProfiles]);
 
-    if (!q) {
-      const defaults = allRows.slice(0, 100).map((row) => withEntityFlags(row));
-      setProfiles(defaults);
-      return;
-    }
-
-    setIsFetching(true);
-
-    const t = setTimeout(async () => {
-      try {
-        const result = await searchProfiles(q);
-
-        const list = Array.isArray(result)
-          ? result.map((r) => withEntityFlags(r))
-          : [];
-
-        setProfiles(list);
-      } catch (e) {
-        console.error("searchProfiles error:", e);
-        setProfiles([]);
-      } finally {
-        setIsFetching(false);
-      }
-    }, 350);
-
-    return () => clearTimeout(t);
-  }, [search, searchProfiles, allRows]);
 
   const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);
