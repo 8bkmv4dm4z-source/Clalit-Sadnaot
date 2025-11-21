@@ -1,27 +1,28 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const nodeCrypto = require("node:crypto");
-const { encodeId } = require("../utils/hashId"); // adjust path if needed
+
+// ✅ HASHED ID UTILS (WORKSHOPS + USERS + FAMILY SHARE SAME SYSTEM)
+const { encodeId } = require("../utils/hashId");
 
 /**
  * FamilyMemberSchema
  * ------------------------------------------------------------
  * Embedded sub-document for family members.
- * Each member gets an automatic ObjectId and basic details.
+ * Each member gets an automatic ObjectId and a HASHED entityKey
+ * derived from _id so it can be REVERSIBLY matched by controllers.
  */
 const FamilyMemberSchema = new mongoose.Schema(
   {
     entityKey: {
-  type: String,
-  default: function () {
-    // Must hash the underlying ObjectId of this subdocument
-    if (this._id) {
-      return encodeId(this._id.toString());
-    }
-    return nodeCrypto.randomUUID(); // fallback (should not happen)
-  },
-  index: true,
-},
+      type: String,
+      default: function () {
+        // MUST be reversible so resolveEntityByKey() can decode back to _id
+        if (this._id) return encodeId(this._id.toString());
+        return nodeCrypto.randomUUID(); // fallback (rare)
+      },
+      index: true,
+    },
     name: { type: String, required: true },
     relation: { type: String, default: "" },
     idNumber: { type: String, default: "" },
@@ -30,25 +31,25 @@ const FamilyMemberSchema = new mongoose.Schema(
     city: { type: String, default: "" },
     birthDate: { type: String, default: "" },
   },
-  { _id: true } // unique ObjectId per family member
+  { _id: true }
 );
 
 /**
  * UserSchema
  * ------------------------------------------------------------
- * Main user document.
- * Includes authentication fields, family members,
- * and optimized workshop mapping arrays for fast lookups.
  */
 const UserSchema = new mongoose.Schema(
   {
-    // 👤 Basic Info
+    // 👤 Main user entityKey (ALSO hashed)
     entityKey: {
       type: String,
-      default: () => nodeCrypto.randomUUID(),
+      default: function () {
+        return encodeId(this._id.toString());
+      },
       index: true,
       unique: true,
     },
+
     name: { type: String, default: "" },
     email: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, select: false },
@@ -58,37 +59,30 @@ const UserSchema = new mongoose.Schema(
     city: { type: String, default: "" },
     canCharge: { type: Boolean, default: false },
 
-    // 👨‍👩‍👧 Family Members
+    // 👨‍👩‍👧 Family Members (using schema above)
     familyMembers: { type: [FamilyMemberSchema], default: [] },
 
     // 🔑 Role & Access
     role: { type: String, enum: ["user", "admin"], default: "user" },
 
-    /**
-     * Integrity fingerprints for tamper detection
-     * ------------------------------------------------------------
-     * These hashes do NOT replace the plain fields (role/idNumber).
-     * They simply allow us to verify that sensitive values were not
-     * altered without going through application code.
-     */
+    // Integrity hashes
     roleIntegrityHash: { type: String, select: false },
     idNumberHash: { type: String, select: false },
 
-    // 🔒 OTP Authentication
+    // 🔐 OTP
     otpCode: { type: String, select: false },
     otpExpires: { type: Number, default: 0 },
     otpAttempts: { type: Number, default: 0, select: false },
 
-    // 🔁 Password reset tokens (hashed)
+    // 🔁 Reset tokens
     passwordResetTokenHash: { type: String, select: false },
     passwordResetTokenExpires: { type: Number, default: 0 },
     passwordResetTokenIssuedAt: { type: Date },
 
-    // 🔐 Password Flags
     hasPassword: { type: Boolean, default: false },
     temporaryPassword: { type: Boolean, default: false },
 
-    // 🔁 Refresh Tokens
+    // 🔁 Refresh tokens
     refreshTokens: {
       type: [
         new mongoose.Schema(
@@ -103,26 +97,21 @@ const UserSchema = new mongoose.Schema(
       default: [],
     },
 
-    // ⚡️ Optimized Workshop Mapping
-    /**
-     * Direct workshops the user is registered to.
-     * Enables O(1) lookup for "my workshops".
-     */
+    // ⚡ O(1) Workshop Mapping
     userWorkshopMap: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: "Workshop",
       default: [],
     },
 
-    /**
-     * Family workshops per member.
-     * Each entry holds a familyMemberId and an array of workshop IDs.
-     */
     familyWorkshopMap: {
       type: [
         new mongoose.Schema(
           {
-            familyMemberId: { type: mongoose.Schema.Types.ObjectId, required: true },
+            familyMemberId: {
+              type: mongoose.Schema.Types.ObjectId,
+              required: true,
+            },
             workshops: [{ type: mongoose.Schema.Types.ObjectId, ref: "Workshop" }],
           },
           { _id: false }
@@ -135,7 +124,7 @@ const UserSchema = new mongoose.Schema(
 );
 
 /* ============================================================
-   🧾 Integrity Hash Helpers
+   Integrity Helpers
    ============================================================ */
 
 const ROLE_HASH_SECRET =
@@ -146,13 +135,22 @@ const hashValue = (value, salt = ROLE_HASH_SECRET) => {
   return nodeCrypto.createHash("sha256").update(`${salt}:${value}`).digest("hex");
 };
 
+/**
+ * Ensures entityKey exists for both user and family members.
+ * For family: entityKey = encodeId(_id)
+ */
 const ensureEntityKeys = (userDoc) => {
-  if (!userDoc.entityKey) {
-    userDoc.entityKey = nodeCrypto.randomUUID();
+  // user entityKey
+  if (!userDoc.entityKey && userDoc._id) {
+    userDoc.entityKey = encodeId(userDoc._id.toString());
   }
+
+  // family members
   if (Array.isArray(userDoc.familyMembers)) {
     userDoc.familyMembers.forEach((member) => {
-      if (!member.entityKey) member.entityKey = nodeCrypto.randomUUID();
+      if (!member.entityKey && member._id) {
+        member.entityKey = encodeId(member._id.toString());
+      }
     });
   }
 };
@@ -178,13 +176,11 @@ UserSchema.pre("validate", function (next) {
 });
 
 UserSchema.methods.isRoleIntegrityValid = function () {
-  if (!this.role) return true; // no role to validate
   const expected = this.constructor.computeRoleHash(this._id, this.role);
   return !expected || this.roleIntegrityHash === expected;
 };
 
 UserSchema.methods.hasIdNumberIntegrity = function () {
-  if (!this.idNumber) return true;
   const expected = this.constructor.computeIdNumberHash(this.idNumber);
   return !expected || this.idNumberHash === expected;
 };
@@ -195,12 +191,9 @@ UserSchema.pre("save", function (next) {
 });
 
 /* ============================================================
-   🔒 Password Helpers
+   Password Helpers
    ============================================================ */
 
-/**
- * Sets and hashes the user's password.
- */
 UserSchema.methods.setPassword = async function (plainPassword) {
   const salt = await bcrypt.genSalt(10);
   this.passwordHash = await bcrypt.hash(plainPassword, salt);
@@ -208,34 +201,28 @@ UserSchema.methods.setPassword = async function (plainPassword) {
   this.temporaryPassword = false;
 };
 
-/**
- * Validates a plain password against the stored hash.
- */
 UserSchema.methods.validatePassword = async function (plainPassword) {
   return bcrypt.compare(plainPassword, this.passwordHash);
 };
 
 /* ============================================================
-   ⚙️ Index Definitions (Performance Layer)
+   Indexes
    ============================================================ */
 
-// Basic field indexes
+// Basic fields
 UserSchema.index({ phone: 1 });
 UserSchema.index({ idNumber: 1 });
 UserSchema.index({ city: 1 });
 UserSchema.index({ role: 1 });
 
-// Compound index for admin filters
-UserSchema.index({ city: 1, role: 1, name: 1 });
-
-// Family member lookup acceleration
+// Family
+UserSchema.index({ "familyMembers.entityKey": 1 });
 UserSchema.index({ "familyMembers.name": 1 });
-UserSchema.index({ "familyMembers.idNumber": 1 });
 UserSchema.index({ "familyMembers.phone": 1 });
-UserSchema.index({"familyMembers.email":1});
-UserSchema.index({"familyMembers.city":1});
+UserSchema.index({ "familyMembers.email": 1 });
+UserSchema.index({ "familyMembers.city": 1 });
 
-// Text index for flexible search (admin/global)
+// Search
 UserSchema.index(
   {
     name: "text",
@@ -245,10 +232,9 @@ UserSchema.index(
     city: "text",
     "familyMembers.name": "text",
     "familyMembers.idNumber": "text",
-    "familyMembers.email":"text",
-    "familyMembers.phone":"text",
-    "familyMembers.city":"text",
-
+    "familyMembers.email": "text",
+    "familyMembers.phone": "text",
+    "familyMembers.city": "text",
   },
   {
     weights: {
@@ -262,6 +248,7 @@ UserSchema.index(
 );
 
 /* ============================================================
-   ✅ Model Export
+   Export
    ============================================================ */
+
 module.exports = mongoose.model("User", UserSchema);
