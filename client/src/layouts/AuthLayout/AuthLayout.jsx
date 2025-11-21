@@ -22,6 +22,7 @@ import {
   translateAuthError,
   translateNetworkError,
 } from "../../utils/errorTranslator";
+import { flattenUserEntities } from "../../utils/entityTypes";
 
 /* ------------------------------ Logger ------------------------------ */
 const AUTH_DEV = import.meta.env.MODE !== "production";
@@ -53,6 +54,17 @@ function fireLoggedIn(extra = {}) {
 function fireLoggedOut(extra = {}) {
   window.dispatchEvent(new CustomEvent("auth-logged-out", { detail: { ...extra } }));
 }
+
+const normalizeUserPayload = (payload = {}) => {
+  const { userEntity, familyMembers, allEntities } = flattenUserEntities(payload);
+
+  return {
+    ...payload,
+    ...userEntity,
+    familyMembers,
+    entities: allEntities,
+  };
+};
 
 /* --------------------------- Context Shape -------------------------- */
 const AuthContext = createContext({
@@ -226,21 +238,26 @@ export const AuthProvider = ({ children }) => {
           throw new Error(data?.message || "Failed to load profile");
         }
 
-        const isAdminFlag = Boolean(data?.isAdmin || data?.role === "admin");
+        const normalizedUser = normalizeUserPayload(data);
+        const isAdminFlag = Boolean(
+          normalizedUser?.isAdmin || normalizedUser?.role === "admin"
+        );
 
-        setUser(data);
+        setUser(normalizedUser);
         setIsLoggedIn(true);
         setIsAdmin(isAdminFlag);
         log(
           "✅ User loaded:",
-          data?.name || data?.email,
+          normalizedUser?.name || normalizedUser?.email,
           "| admin:",
           isAdminFlag,
           "| fingerprint:",
-          data?.roleFingerprint ? `${String(data.roleFingerprint).slice(0, 8)}…` : "none"
+          normalizedUser?.roleFingerprint
+            ? `${String(normalizedUser.roleFingerprint).slice(0, 8)}…`
+            : "none"
         );
 
-        return data;
+        return normalizedUser;
       } catch (err) {
         log("❌ fetchMe error:", err.message);
         localStorage.removeItem("accessToken");
