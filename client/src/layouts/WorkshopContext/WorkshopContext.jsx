@@ -87,22 +87,20 @@ export const WorkshopProvider = ({ children }) => {
   /* ───────────────────────── Derived user/family info ───────────────────────── */
 
   const userKey = useMemo(() => {
-    if (!user) return "";
-    if (user.entityKey) return sid(user.entityKey);
-    if (user._id) return sid(user._id);
-    return "";
-  }, [user]);
+  return user?.entityKey ? sid(user.entityKey) : "";
+}, [user]);
 
   const familyMembersList = useMemo(
-    () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
-    [user]
-  );
+  () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
+  [user]
+);
+
 
   // Signatures so that we only recompute maps when relevant identity changes
   const familyMembersSignature = useMemo(
-    () => familyMembersList.map((m) => sid(m.entityKey || m._id || m.id)).join(","),
-    [familyMembersList]
-  );
+  () => familyMembersList.map((m) => sid(m.entityKey)).join(","),
+  [familyMembersList]
+);
 
   const workshopsSignature = useMemo(
     () => (workshops || []).map((w) => w._id).join(","),
