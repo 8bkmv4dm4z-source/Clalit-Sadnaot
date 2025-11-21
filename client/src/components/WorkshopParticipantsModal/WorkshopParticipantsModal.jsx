@@ -215,12 +215,9 @@ const dedupeByEntityKey = (list) => {
   );
 
  const workshopId = useMemo(() => {
-  return String(
-    resolvedWorkshop?.workshopKey ||
-    resolvedWorkshop?._id ||
-    ""
-  );
+  return String(resolvedWorkshop?.workshopKey || "");
 }, [resolvedWorkshop]);
+
   // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
   const contextWorkshop = useMemo(() => {
     if (!workshopId) return null;
