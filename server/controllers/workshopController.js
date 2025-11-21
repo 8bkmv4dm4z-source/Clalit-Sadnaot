@@ -3,6 +3,12 @@ const Workshop = require("../models/Workshop");
 const User = require("../models/User");
 const ExcelJS = require("exceljs");
 const nodemailer = require("nodemailer");
+const {
+  unregisterUserFromWorkshop,
+  unregisterFamilyFromWorkshop,
+  registerFamilyToWorkshop,
+  registerUserToWorkshop,
+} = require("../services/workshopRegistration");
 const mongoose = require("mongoose");
 const { Resend } = require("resend");
 const fs = require("fs");
@@ -15,7 +21,6 @@ const {
   hydrateParentFields,
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
-const { generateEntityKey } = require("../utils/entityKey");
 
 const FORBIDDEN_IDENTITY_FIELDS = [
   "entityType",
@@ -86,23 +91,7 @@ const normalizeEntityKey = (entity) => {
   if (!entity) return null;
   if (typeof entity === "string") return entity;
   if (entity.entityKey) return entity.entityKey;
-  if (entity.familyMemberKey) return entity.familyMemberKey;
-
-  if (entity.familyMemberId && entity.parentUser) {
-    return generateEntityKey({
-      userId: entity.parentUser._id || entity.parentUser,
-      familyMemberId: entity.familyMemberId._id || entity.familyMemberId,
-    });
-  }
-
-  if (entity._id) {
-    return generateEntityKey({ userId: entity._id });
-  }
-
-  if (typeof entity.toString === "function") {
-    return generateEntityKey({ userId: entity.toString() });
-  }
-
+  if (entity._id) return String(entity._id);
   return null;
 };
 
@@ -118,7 +107,7 @@ const formatRegistration = ({
 
   const familyRegistrations = (normalizedWorkshop?.familyRegistrations || []).map((fr) => {
     const parentKey = normalizeEntityKey(fr.parentKey || fr.parentUser || {});
-    const memberKey = normalizeEntityKey(fr.entityKey || fr.familyMemberKey || fr.familyMemberId || {});
+    const memberKey = normalizeEntityKey(fr.familyMemberKey || fr.familyMemberId || {});
     const memberObj = fr.familyMemberId || {};
     return {
       parentKey,
@@ -130,7 +119,7 @@ const formatRegistration = ({
 
   const waitingList = (normalizedWorkshop?.waitingList || []).map((wl) => {
     const parentKey = normalizeEntityKey(wl.parentKey || wl.parentUser || {});
-    const memberKey = normalizeEntityKey(wl.entityKey || wl.familyMemberKey || wl.familyMemberId || {});
+    const memberKey = normalizeEntityKey(wl.familyMemberKey || wl.familyMemberId || {});
     const memberObj = wl.familyMemberId || {};
     return {
       parentKey,
@@ -212,51 +201,40 @@ const pickValue = (value, fallback = "") =>
 function buildRegistrationEntry({ parentUser, memberDoc = null }) {
   if (!parentUser) throw new Error("Parent user is required");
 
-  const hydratedParent = hydrateParentFields(parentUser);
-  const hydratedMember = memberDoc ? hydrateFamilyMember(memberDoc, parentUser) : null;
-
-  const parentKey = hydratedParent.entityKey || null;
-  const entityKey = hydratedMember?.entityKey || hydratedParent.entityKey || null;
-
+  const parent = hydrateParentFields(parentUser);
   const base = {
     parentUser: parentUser._id,
-    parentKey,
-    entityKey,
-    isFamily: !!memberDoc,
-    name: pickValue(hydratedParent.name, parentUser.name || ""),
+    parentKey: parent.entityKey || String(parentUser._id || ""),
+    name: pickValue(parent.name, parentUser.name || ""),
     relation: "self",
-    idNumber: pickValue(hydratedParent.idNumber),
-    phone: pickValue(hydratedParent.phone),
-    birthDate: pickValue(hydratedParent.birthDate),
-    city: pickValue(hydratedParent.city),
+    idNumber: pickValue(parent.idNumber),
+    phone: pickValue(parent.phone),
+    birthDate: pickValue(parent.birthDate),
   };
 
-  if (!memberDoc || !hydratedMember) {
+  if (!memberDoc) {
     return base;
   }
 
+  const hydrated = hydrateFamilyMember(memberDoc, parentUser);
   return {
-    ...base,
-    entityKey,
+    parentUser: parentUser._id,
     familyMemberId: memberDoc._id,
-    familyMemberKey: hydratedMember.entityKey || null,
-    name: pickValue(hydratedMember.name, pickValue(memberDoc.name, base.name)),
-    relation: pickValue(hydratedMember.relation, pickValue(memberDoc.relation, "self")),
+    parentKey: parent.entityKey || String(parentUser._id || ""),
+    familyMemberKey: hydrated.entityKey || String(memberDoc._id || ""),
+    name: pickValue(hydrated.name, pickValue(memberDoc.name, base.name)),
+    relation: pickValue(hydrated.relation, pickValue(memberDoc.relation, "")),
     idNumber: pickValue(
-      hydratedMember.idNumber,
-      pickValue(memberDoc.idNumber, pickValue(hydratedParent.idNumber, base.idNumber))
+      hydrated.idNumber,
+      pickValue(memberDoc.idNumber, pickValue(parent.idNumber, base.idNumber))
     ),
     phone: pickValue(
-      hydratedMember.phone,
-      pickValue(memberDoc.phone, pickValue(hydratedParent.phone, base.phone))
+      hydrated.phone,
+      pickValue(memberDoc.phone, pickValue(parent.phone, base.phone))
     ),
     birthDate: pickValue(
-      hydratedMember.birthDate,
-      pickValue(memberDoc.birthDate, pickValue(hydratedParent.birthDate, base.birthDate))
-    ),
-    city: pickValue(
-      hydratedMember.city,
-      pickValue(memberDoc.city, pickValue(hydratedParent.city, base.city))
+      hydrated.birthDate,
+      pickValue(memberDoc.birthDate, pickValue(parent.birthDate, base.birthDate))
     ),
   };
 }
@@ -275,7 +253,6 @@ async function autoPromoteFromWaitlist(workshop) {
         workshop.familyRegistrations.push({
           parentUser: entry.parentUser,
           familyMemberId: entry.familyMemberId,
-          entityKey: entry.entityKey || entry.familyMemberKey || "",
           parentKey: entry.parentKey || "",
           familyMemberKey: entry.familyMemberKey || "",
           name: entry.name,
@@ -896,38 +873,24 @@ exports.registerEntityToWorkshop = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
 
-    const parentKey = normalizeEntityKey(parentUser);
-    const memberKey = member
-      ? normalizeEntityKey({
-          ...member,
-          parentUser: parentUser._id,
-        })
-      : null;
-    const targetKey = member ? memberKey : parentKey;
-
-    const participantKeys = (workshop.participants || [])
-      .map((p) => normalizeEntityKey(p))
-      .filter(Boolean);
-
-    const familyKeys = (workshop.familyRegistrations || [])
-      .map((r) => normalizeEntityKey(r) || normalizeEntityKey({
-        familyMemberId: r.familyMemberId,
-        parentUser: r.parentUser,
-      }))
-      .filter(Boolean);
-
-    const waitlistKeys = (workshop.waitingList || [])
-      .map((w) => normalizeEntityKey(w) || normalizeEntityKey({
-        familyMemberId: w.familyMemberId,
-        parentUser: w.parentUser,
-      }))
-      .filter(Boolean);
+    const actingParentId = parentUser._id;
+    const actingMemberId = member?._id || null;
 
     const alreadyRegistered = member
-      ? familyKeys.includes(targetKey)
-      : participantKeys.includes(targetKey);
+      ? workshop.familyRegistrations.some(
+          (r) =>
+            String(r.familyMemberId) === String(actingMemberId) &&
+            String(r.parentUser) === String(actingParentId)
+        )
+      : workshop.participants.some((p) => String(p) === String(actingParentId));
 
-    const alreadyQueued = waitlistKeys.includes(targetKey);
+    const alreadyQueued = (workshop.waitingList || []).some((w) => {
+      const sameParent = String(w.parentUser) === String(actingParentId);
+      if (member) {
+        return sameParent && String(w.familyMemberId) === String(actingMemberId);
+      }
+      return sameParent && !w.familyMemberId;
+    });
 
     if (alreadyRegistered)
       return res.status(400).json({ success: false, message: "Entity already registered" });
@@ -967,9 +930,17 @@ exports.registerEntityToWorkshop = async (req, res) => {
     }
 
     if (member) {
-      const entry = buildRegistrationEntry({ parentUser, memberDoc: member });
       workshop.familyRegistrations.push({
-        ...entry,
+        parentUser: actingParentId,
+        familyMemberId: member._id,
+        parentKey: parentUser.entityKey || String(parentUser._id || ""),
+        familyMemberKey: member.entityKey || String(member._id || ""),
+        name: member.name,
+        relation: member.relation,
+        idNumber: member.idNumber,
+        phone: member.phone || parentUser.phone,
+        birthDate: member.birthDate,
+        city: member.city,
       });
 
       const existing = parentUser.familyWorkshopMap.find((f) =>
@@ -986,7 +957,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
         });
       }
     } else {
-      workshop.participants.push(parentUser._id);
+      workshop.participants.push(actingParentId);
       if (!parentUser.userWorkshopMap.includes(workshop._id)) {
         parentUser.userWorkshopMap.push(workshop._id);
       }
@@ -1042,21 +1013,16 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
 
-    const targetKey = normalizeEntityKey({
-      entityKey: targetEntityKey,
-      familyMemberId: member?._id,
-      parentUser: parentUser._id,
-      _id: member ? member._id : parentUser._id,
-    });
-
     let changed = false;
     if (member) {
       const before = workshop.familyRegistrations.length;
-      workshop.familyRegistrations = workshop.familyRegistrations.filter((f) => {
-        const key = normalizeEntityKey(f) ||
-          normalizeEntityKey({ familyMemberId: f.familyMemberId, parentUser: f.parentUser });
-        return String(key) !== String(targetKey);
-      });
+      workshop.familyRegistrations = workshop.familyRegistrations.filter(
+        (f) =>
+          !(
+            String(f.familyMemberId) === String(member._id) &&
+            String(f.parentUser) === String(parentUser._id)
+          )
+      );
       changed = before !== workshop.familyRegistrations.length;
 
       const mapEntry = parentUser.familyWorkshopMap.find(
@@ -1069,25 +1035,14 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
       }
     } else {
       const before = workshop.participants.length;
-      workshop.participants = workshop.participants.filter((u) => {
-        const key = normalizeEntityKey(u);
-        return String(key) !== String(targetKey);
-      });
+      workshop.participants = workshop.participants.filter(
+        (u) => String(u) !== String(parentUser._id)
+      );
       changed = before !== workshop.participants.length;
 
       parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(
         (wid) => String(wid) !== String(workshop._id)
       );
-    }
-
-    const waitBefore = workshop.waitingList.length;
-    workshop.waitingList = (workshop.waitingList || []).filter((w) => {
-      const key = normalizeEntityKey(w) ||
-        normalizeEntityKey({ familyMemberId: w.familyMemberId, parentUser: w.parentUser });
-      return String(key) !== String(targetKey);
-    });
-    if (waitBefore !== workshop.waitingList.length) {
-      changed = true;
     }
 
     if (changed) {
@@ -1155,17 +1110,12 @@ exports.addEntityToWaitlist = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
 
-    const targetKey = normalizeEntityKey({
-      entityKey: targetEntityKey,
-      familyMemberId: member?._id,
-      parentUser: parentUser._id,
-      _id: member ? member._id : parentUser._id,
-    });
-
     const already = (workshop.waitingList || []).some((e) => {
-      const key = normalizeEntityKey(e) ||
-        normalizeEntityKey({ familyMemberId: e.familyMemberId, parentUser: e.parentUser });
-      return String(key) === String(targetKey);
+      const sameParent = String(e.parentUser) === String(parentUser._id);
+      if (member) {
+        return sameParent && String(e.familyMemberId) === String(member._id);
+      }
+      return sameParent && !e.familyMemberId;
     });
     if (already)
       return res
@@ -1240,18 +1190,13 @@ exports.removeEntityFromWaitlist = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
 
-    const targetKey = normalizeEntityKey({
-      entityKey: targetEntityKey,
-      familyMemberId: member?._id,
-      parentUser: parentUser._id,
-      _id: member ? member._id : parentUser._id,
-    });
-
     const before = workshop.waitingList.length;
     workshop.waitingList = (workshop.waitingList || []).filter((e) => {
-      const key = normalizeEntityKey(e) ||
-        normalizeEntityKey({ familyMemberId: e.familyMemberId, parentUser: e.parentUser });
-      return String(key) !== String(targetKey);
+      const isParent = String(e.parentUser) === String(parentUser._id);
+      const isFamilyMatch = member
+        ? String(e.familyMemberId) === String(member._id)
+        : !e.familyMemberId;
+      return !(isParent && isFamilyMatch);
     });
 
     if (before === workshop.waitingList.length) {

@@ -1,41 +1,34 @@
-const { generateEntityKey } = require("../../utils/entityKey");
-
 const toPlain = (doc) =>
   doc && typeof doc.toObject === "function" ? doc.toObject({ getters: false }) : doc || {};
 
-const hasValue = (v) => !(v === undefined || v === null || v === "");
+const hasValue = (value) => !(value === undefined || value === null || value === "");
 
-function hydrateParentFields(parentDoc = {}) {
+const hydrateParentFields = (parentDoc = {}) => {
   const parent = toPlain(parentDoc);
-
-  // parent entityKey must already be canonical at the model level
-  const entityKey = parent.entityKey || generateEntityKey({ userId: parent._id });
-
+  const entityKey = parent.entityKey || (parent._id ? String(parent._id) : null);
   return {
-    ...parent,
+    _id: parent._id || null,
     entityKey,
-    parentKey: undefined,
-    parentEntityKey: undefined,
+    name: parent.name ?? "",
+    email: parent.email ?? "",
+    phone: parent.phone ?? "",
+    city: parent.city ?? "",
+    idNumber: parent.idNumber ?? "",
+    birthDate: parent.birthDate ?? "",
+    canCharge: typeof parent.canCharge === "boolean" ? parent.canCharge : false,
+    createdAt: parent.createdAt || null,
+    updatedAt: parent.updatedAt || null,
   };
-}
+};
 
 const hydrateUser = (userDoc = {}) => {
   const base = hydrateParentFields(userDoc);
   return { ...base };
 };
 
-function hydrateFamilyMember(memberDoc, parentDoc) {
+const hydrateFamilyMember = (memberDoc = {}, parentDoc = {}) => {
   const member = toPlain(memberDoc);
   const parent = hydrateParentFields(parentDoc);
-
-  const parentKey = parent.entityKey;
-  const entityKey =
-    member.entityKey ||
-    generateEntityKey({
-      userId: parent._id,
-      familyMemberId: member._id,
-    });
-
   const merged = { ...member };
 
   const inheritableFields = ["email", "phone", "city"];
@@ -43,23 +36,21 @@ function hydrateFamilyMember(memberDoc, parentDoc) {
     merged[field] = hasValue(member[field]) ? member[field] : parent[field];
   }
 
-  return {
-    ...merged,
-    parentKey,
-    parentEntityKey: parentKey,
-    entityKey,
-    parentName: parent.name,
-    parentEmail: parent.email,
-    parentPhone: parent.phone,
-    parentCity: parent.city,
-    parentCanCharge: parent.canCharge,
-    parentIdNumber: parent.idNumber,
-    parentBirthDate: parent.birthDate,
-    canCharge: hasValue(member.canCharge)
-      ? Boolean(member.canCharge)
-      : Boolean(parent.canCharge),
-  };
-}
+  merged.entityKey = member.entityKey || (member._id ? String(member._id) : null);
+  merged.parentKey = parent.entityKey || null;
+  merged.parentName = parent.name;
+  merged.parentEmail = parent.email;
+  merged.parentPhone = parent.phone;
+  merged.parentCity = parent.city;
+  merged.parentCanCharge = parent.canCharge;
+  merged.parentIdNumber = parent.idNumber;
+  merged.parentBirthDate = parent.birthDate;
+  merged.canCharge = hasValue(member.canCharge)
+    ? Boolean(member.canCharge)
+    : Boolean(parent.canCharge);
+
+  return merged;
+};
 
 module.exports = {
   hydrateUser,
