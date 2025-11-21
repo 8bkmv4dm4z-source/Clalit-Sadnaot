@@ -1,4 +1,4 @@
-// server/routes/workshops.js
+// server/routes/workshops.js — FIXED ORDER
 const express = require("express");
 const router = express.Router();
 
@@ -22,7 +22,7 @@ const {
    🟢 PUBLIC / USER ROUTES
    ============================================================ */
 
-// ✅ מטא ראוטים (חשוב להופיע לפני :id)
+// Meta
 router.get("/meta/cities", workshopController.getAvailableCities);
 router.get(
   "/meta/validate-address",
@@ -31,26 +31,16 @@ router.get(
   workshopController.validateAddress
 );
 
-// ✅ כל הסדנאות (כולל מידע אישי על המשתמש המחובר)
+// List + search
 router.get("/", workshopController.getAllWorkshops);
-
-// ✅ Smart search over workshops with filters
-// This endpoint performs an indexed text search (Atlas search) over
-// workshop fields (title, description, coach, type, city) and supports
-// additional filters such as city, day, hour, type, ageGroup, coach and availability.
-// It must appear before ":id" routes to avoid conflicting with numeric IDs.
 router.get("/search", workshopController.searchWorkshops);
-
-// ✅ רשימת הסדנאות שהמשתמש או אחד מבני משפחתו רשומים אליהן
 router.get("/registered", protect, workshopController.getRegisteredWorkshops);
 
-// ✅ פרטי סדנה בודדת
-router.get("/:id", workshopController.getWorkshopById);
+/* ============================================================
+   🟢 ACTION ROUTES — MUST COME BEFORE /:id
+   ============================================================ */
 
-// ✅ משתתפים בסדנה (למודאל של האדמין)
-router.get("/:id/participants", protect, workshopController.getWorkshopParticipants);
-
-// ✅ רישום משתמש או בן משפחה לסדנה
+// Register / Unregister entity
 router.post(
   "/:id/register-entity",
   protect,
@@ -58,7 +48,6 @@ router.post(
   workshopController.registerEntityToWorkshop
 );
 
-// ✅ ביטול רישום לסדנה
 router.delete(
   "/:id/unregister-entity",
   protect,
@@ -66,7 +55,7 @@ router.delete(
   workshopController.unregisterEntityFromWorkshop
 );
 
-// ✅ הוספה לרשימת המתנה (משתמש או בן משפחה)
+// Waitlist entity
 router.post(
   "/:id/waitlist-entity",
   protect,
@@ -74,7 +63,6 @@ router.post(
   workshopController.addEntityToWaitlist
 );
 
-// ✅ הסרה מרשימת המתנה (משתמש או בן משפחה)
 router.delete(
   "/:id/waitlist-entity",
   protect,
@@ -83,10 +71,21 @@ router.delete(
 );
 
 /* ============================================================
+   🟢 DETAIL ROUTES — SAFE NOW
+   ============================================================ */
+
+router.get(
+  "/:id/participants",
+  protect,
+  workshopController.getWorkshopParticipants
+);
+
+router.get("/:id", workshopController.getWorkshopById);
+
+/* ============================================================
    🟣 ADMIN ROUTES
    ============================================================ */
 
-// ✅ יצירת סדנה חדשה
 router.post(
   "/",
   protect,
@@ -95,7 +94,6 @@ router.post(
   workshopController.createWorkshop
 );
 
-// ✅ עדכון סדנה קיימת
 router.put(
   "/:id",
   protect,
@@ -104,22 +102,39 @@ router.put(
   workshopController.updateWorkshop
 );
 
-// ✅ מחיקת סדנה
-router.delete("/:id", protect, authorizeAdmin, workshopController.deleteWorkshop);
+router.delete(
+  "/:id",
+  protect,
+  authorizeAdmin,
+  workshopController.deleteWorkshop
+);
 
-// ✅ ייצוא סדנה לאקסל ושליחת מייל למנהל
-router.post("/:id/export", protect, authorizeAdmin, workshopController.exportWorkshopExcel);
+router.post(
+  "/:id/export",
+  protect,
+  authorizeAdmin,
+  workshopController.exportWorkshopExcel
+);
 
-// ✅ צפייה ברשימת ההמתנה
-router.get("/:id/waitlist", protect, authorizeAdmin, workshopController.getWaitlist);
+router.get(
+  "/:id/waitlist",
+  protect,
+  authorizeAdmin,
+  workshopController.getWaitlist
+);
 
-// ✅ הוספה ידנית לרשימת ההמתנה
-router.post("/:id/waitlist", protect, authorizeAdmin, workshopController.addToWaitlist);
+router.post(
+  "/:id/waitlist",
+  protect,
+  authorizeAdmin,
+  workshopController.addToWaitlist
+);
 
-// ✅ הסרה ידנית מרשימת ההמתנה
-router.delete("/:id/waitlist/:entryId", protect, authorizeAdmin, workshopController.removeFromWaitlist);
+router.delete(
+  "/:id/waitlist/:entryId",
+  protect,
+  authorizeAdmin,
+  workshopController.removeFromWaitlist
+);
 
-/* ============================================================
-   🧩 EXPORT ROUTER
-   ============================================================ */
 module.exports = router;
