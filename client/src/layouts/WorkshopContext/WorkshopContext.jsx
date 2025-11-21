@@ -118,69 +118,75 @@ export const WorkshopProvider = ({ children }) => {
     setLoading(true);
     setError(null);
 
-    try {
-      const res = await apiFetch("/api/workshops");
-      const data = await res.json();
+   try {
 
-      dbgCtx("fetchAllWorkshops:raw-response", {
-        ok: res.ok,
-        type: Array.isArray(data) ? "array" : typeof data,
-      });
+  const res = await apiFetch("/api/workshops");
+  const raw = await res.json();  // השרת שולח { data: [...] }
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to load workshops");
-      }
+  dbgCtx("fetchAllWorkshops:raw-response", {
+    ok: res.ok,
+    rawType: typeof raw,
+    hasData: Array.isArray(raw?.data),
+  });
 
-      // Always ensure list is an array
-      const list = Array.isArray(data) ? data : [];
+  // 🟢 תפיסה נכונה של כל הפורמטים
+  const data = Array.isArray(raw) ? raw : raw?.data || [];
 
-      // Normalize workshops
-      const normalizedList = list.map((w, idx) => {
-        const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
+  if (!res.ok) {
+    throw new Error(raw?.message || "Failed to load workshops");
+  }
 
-        const participants = Array.isArray(w.participants)
-          ? w.participants.map((p) => sid(p))
-          : [];
+  // 🟢 עכשיו באמת מערך סדנאות
+  const list = Array.isArray(data) ? data : [];
 
-        const waitingList = Array.isArray(w.waitingList)
-          ? w.waitingList
-          : [];
+  // Normalize workshops
+  const normalizedList = list.map((w, idx) => {
+    const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
 
-        const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
-          ? w.userFamilyRegistrations.map((id) => sid(id))
-          : [];
+    const participants = Array.isArray(w.participants)
+      ? w.participants.map((p) => sid(p))
+      : [];
 
-        const familyRegistrations = Array.isArray(w.familyRegistrations)
-          ? w.familyRegistrations
-          : [];
+    const waitingList = Array.isArray(w.waitingList)
+      ? w.waitingList
+      : [];
 
-        const isUserRegistered =
-          !!w.isUserRegistered ||
-          (userKey && participants.some((p) => sid(p) === userKey));
+    const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+      ? w.userFamilyRegistrations.map((id) => sid(id))
+      : [];
 
-        const normalized = {
-          ...w,
-          _id: wid,
-          workshopKey: wid,
-          participants,
-          waitingList,
-          userFamilyRegistrations,
-          familyRegistrations,
-          isUserRegistered,
-        };
+    const familyRegistrations = Array.isArray(w.familyRegistrations)
+      ? w.familyRegistrations
+      : [];
 
-        dbgCtx("normalize", {
-          i: idx,
-          wid,
-          title: normalized.title,
-          isUserRegistered: normalized.isUserRegistered,
-          participantsLen: participants.length,
-          userFamilyRegsLen: normalized.userFamilyRegistrations.length,
-          waitingListLen: normalized.waitingList.length,
-        });
+    const isUserRegistered =
+      !!w.isUserRegistered ||
+      (userKey && participants.some((p) => sid(p) === userKey));
 
-        return normalized;
-      });
+    const normalized = {
+      ...w,
+      _id: wid,
+      workshopKey: wid,
+      participants,
+      waitingList,
+      userFamilyRegistrations,
+      familyRegistrations,
+      isUserRegistered,
+    };
+
+    dbgCtx("normalize", {
+      i: idx,
+      wid,
+      title: normalized.title,
+      isUserRegistered: normalized.isUserRegistered,
+      participantsLen: participants.length,
+      userFamilyRegsLen: normalized.userFamilyRegistrations.length,
+      waitingListLen: normalized.waitingList.length,
+    });
+
+    return normalized;
+  });
+
 
       log(`✅ Workshops loaded (${normalizedList.length})`);
       dbgCtx("setState:workshops", { listLen: normalizedList.length });
