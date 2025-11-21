@@ -186,6 +186,15 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 
   const normalizeEntity = useCallback((entity) => {
   const flagged = withEntityFlags(entity);
+const dedupeByEntityKey = (list) => {
+  const map = new Map();
+  for (const item of list) {
+    const key = item.__entityKey || getEntityIdentifiers(item).key;
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, item);
+  }
+  return [...map.values()];
+};
 
   return {
     ...flagged,
@@ -284,8 +293,10 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
       if (!resW.ok) throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
       const participantList = Array.isArray(dataP.participants) ? dataP.participants : [];
-      setParticipants(participantList.map(normalizeEntity));
-
+const cleanedParticipants = dedupeByEntityKey(
+  participantList.map(normalizeEntity)
+);
+setParticipants(cleanedParticipants);
       // 🐛 server returns an object { success, count, waitingList }.
       // The previous code assumed the response itself was an array,
       // so waitlisted entries were discarded and the modal stayed empty.
@@ -294,8 +305,11 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         : Array.isArray(dataW)
         ? dataW
         : [];
-      setWaitlist(normalizedWaitlist.map(normalizeEntity));
-    } catch (e) {
+
+const cleanedWaitlist = dedupeByEntityKey(
+  normalizedWaitlist.map(normalizeEntity)
+);
+setWaitlist(cleanedWaitlist);    } catch (e) {
       // SECURITY FIX: log only sanitized error messages (no stack traces)
       console.error("❌ fetchAll", e?.message || e);
       setMessage("❌ " + e.message);
