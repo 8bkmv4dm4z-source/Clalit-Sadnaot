@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const nodeCrypto = require("node:crypto");
 const { encodeId } = require("../utils/hashId");
+const { resolveOpaqueId } = require("../utils/resolveEntity");
 
 /* ============================================================
    🧱 Workshop Schema — Optimized for High-Performance Search
@@ -50,20 +51,25 @@ const WorkshopSchema = new mongoose.Schema(
     image: { type: String, default: "" },
 
     /** 👥 Participants */
-    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-    familyRegistrations: [
-  {
-    parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    familyMemberId: { type: mongoose.Schema.Types.ObjectId },
-    parentKey: { type: String, default: "" },
-    familyMemberKey: { type: String, default: "" },
-    name: { type: String, default: "" },
-    relation: { type: String, default: "" },
-    idNumber: { type: String, default: "" },
-    phone: { type: String, default: "" },
-    birthDate: { type: String, default: "" },
+    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" ,  set: resolveOpaqueId
+}],
+   familyRegistrations: [{
+  parentUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    set: resolveOpaqueId
   },
-],
+  familyMemberId: {
+    type: mongoose.Schema.Types.ObjectId,
+    set: resolveOpaqueId
+  },
+  name: String,
+  relation: String,
+  idNumber: String,
+  phone: String,
+  birthDate: Date
+}],
+
 
 waitingList: [
   {
