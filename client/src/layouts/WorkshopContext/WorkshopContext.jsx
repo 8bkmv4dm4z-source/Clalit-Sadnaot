@@ -100,106 +100,108 @@ export const WorkshopProvider = ({ children }) => {
 
   // Signatures so that we only recompute maps when relevant identity changes
   const familyMembersSignature = useMemo(
-  () => familyMembersList.map(m => sid(m.entityKey || m._id || m.id)).join(","), 
-  [familyMembersList]
-);
-
+    () => familyMembersList.map((m) => sid(m.entityKey || m._id || m.id)).join(","),
+    [familyMembersList]
+  );
 
   const workshopsSignature = useMemo(
-  () => workshops.map(w => w._id).join(","), 
-  [workshops]
-);
-
+    () => (workshops || []).map((w) => w._id).join(","),
+    [workshops]
+  );
 
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
   async function fetchAllWorkshops(force = false) {
-  log(`📡 Fetching all workshops (force=${force})`);
-  dbgCtx("fetchAllWorkshops:start", { force });
-  setLoading(true);
-  setError(null);
+    log(`📡 Fetching all workshops (force=${force})`);
+    dbgCtx("fetchAllWorkshops:start", { force });
+    setLoading(true);
+    setError(null);
 
-  try {
-    const res = await apiFetch("/api/workshops");
-    const data = await res.json();
+    try {
+      const res = await apiFetch("/api/workshops");
+      const data = await res.json();
 
-    dbgCtx("fetchAllWorkshops:raw-response", {
-      ok: res.ok,
-      type: Array.isArray(data) ? "array" : typeof data,
-    });
-
-    if (!res.ok) {
-      throw new Error(data?.message || "Failed to load workshops");
-    }
-
-    // Always ensure list is an array
-    const list = Array.isArray(data) ? data : [];
-
-    // Normalize workshops
-    const normalizedList = list.map((w, idx) => {
-      const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
-
-      const participants = Array.isArray(w.participants)
-        ? w.participants.map((p) => sid(p))
-        : [];
-
-      const waitingList = Array.isArray(w.waitingList)
-        ? w.waitingList
-        : [];
-
-      const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
-        ? w.userFamilyRegistrations.map((id) => sid(id))
-        : [];
-
-      const familyRegistrations = Array.isArray(w.familyRegistrations)
-        ? w.familyRegistrations
-        : [];
-
-      const isUserRegistered =
-        !!w.isUserRegistered ||
-        (userKey && participants.some((p) => sid(p) === userKey));
-
-      const normalized = {
-        ...w,
-        _id: wid,
-        workshopKey: wid,
-        participants,
-        waitingList,
-        userFamilyRegistrations,
-        familyRegistrations,
-        isUserRegistered,
-      };
-
-      dbgCtx("normalize", {
-        i: idx,
-        wid,
-        title: normalized.title,
-        isUserRegistered: normalized.isUserRegistered,
-        participantsLen: participants.length,
-        userFamilyRegsLen: normalized.userFamilyRegistrations.length,
-        waitingListLen: normalized.waitingList.length,
+      dbgCtx("fetchAllWorkshops:raw-response", {
+        ok: res.ok,
+        type: Array.isArray(data) ? "array" : typeof data,
       });
 
-      return normalized;
-    });
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load workshops");
+      }
 
-    log(`✅ Workshops loaded (${normalizedList.length})`);
-    dbgCtx("setState:workshops", { listLen: normalizedList.length });
+      // Always ensure list is an array
+      const list = Array.isArray(data) ? data : [];
 
-    setWorkshops(normalizedList);
-    return normalizedList;
-  } catch (err) {
-    console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
-    setError(err.message);
-    dbgCtx("fetchAllWorkshops:error", { message: err.message });
-    return [];
-  } finally {
-    setLoading(false);
-    dbgCtx("fetchAllWorkshops:done");
+      // Normalize workshops
+      const normalizedList = list.map((w, idx) => {
+        const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
+
+        const participants = Array.isArray(w.participants)
+          ? w.participants.map((p) => sid(p))
+          : [];
+
+        const waitingList = Array.isArray(w.waitingList)
+          ? w.waitingList
+          : [];
+
+        const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+          ? w.userFamilyRegistrations.map((id) => sid(id))
+          : [];
+
+        const familyRegistrations = Array.isArray(w.familyRegistrations)
+          ? w.familyRegistrations
+          : [];
+
+        const isUserRegistered =
+          !!w.isUserRegistered ||
+          (userKey && participants.some((p) => sid(p) === userKey));
+
+        const normalized = {
+          ...w,
+          _id: wid,
+          workshopKey: wid,
+          participants,
+          waitingList,
+          userFamilyRegistrations,
+          familyRegistrations,
+          isUserRegistered,
+        };
+
+        dbgCtx("normalize", {
+          i: idx,
+          wid,
+          title: normalized.title,
+          isUserRegistered: normalized.isUserRegistered,
+          participantsLen: participants.length,
+          userFamilyRegsLen: normalized.userFamilyRegistrations.length,
+          waitingListLen: normalized.waitingList.length,
+        });
+
+        return normalized;
+      });
+
+      log(`✅ Workshops loaded (${normalizedList.length})`);
+      dbgCtx("setState:workshops", { listLen: normalizedList.length });
+
+      setWorkshops(normalizedList);
+      return normalizedList;
+    } catch (err) {
+      console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
+      setError(err.message);
+      dbgCtx("fetchAllWorkshops:error", { message: err.message });
+      return [];
+    } finally {
+      setLoading(false);
+      dbgCtx("fetchAllWorkshops:done");
+    }
   }
-}
 
+  /* 👈 NEW: initial fetch on mount (public view works even before auth events) */
+  useEffect(() => {
+    fetchAllWorkshops(true);
+  }, []);
 
   /* ============================================================
      📡 Fetch registered workshops (IDs only)
@@ -406,22 +408,20 @@ export const WorkshopProvider = ({ children }) => {
     familyMembersList,
   ]);
 
-  // Filter displayedWorkshops when viewMode === "mine" (only after mapsReady)
+  // Filter displayedWorkshops when viewMode === "mine"
   useEffect(() => {
-  if (viewMode === "mine") {
-    setDisplayedWorkshops(
-      (workshops || []).filter(
-        w =>
-          userWorkshopMap[w._id] ||
-          (familyWorkshopMap[w._id]?.length ?? 0) > 0
-      )
-    );
-  } else {
-    setDisplayedWorkshops(workshops || []);
-  }
-}, [viewMode, workshops, userWorkshopMap, familyWorkshopMap]);
-
-
+    if (viewMode === "mine") {
+      setDisplayedWorkshops(
+        (workshops || []).filter(
+          (w) =>
+            userWorkshopMap[w._id] ||
+            (familyWorkshopMap[w._id]?.length ?? 0) > 0
+        )
+      );
+    } else {
+      setDisplayedWorkshops(workshops || []);
+    }
+  }, [viewMode, workshops, userWorkshopMap, familyWorkshopMap]);
 
   /* ============================================================
      🔧 Mutations (server-source-of-truth + refetch)
