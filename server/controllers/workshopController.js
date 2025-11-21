@@ -859,11 +859,18 @@ exports.getWorkshopParticipants = async (req, res) => {
       return res.status(400).json({ message: "Invalid workshop ID" });
     }
 
-    const workshop = await loadWorkshopByIdentifier(req.params.id)
-      .populate("participants", "name email phone city birthDate idNumber canCharge")
-      .populate("familyRegistrations.parentUser", "name email phone city canCharge _id")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate email city _id")
-      .lean();
+    const workshopDoc = await loadWorkshopByIdentifier(req.params.id);
+if (!workshopDoc) {
+  return res.status(404).json({ message: "Workshop not found" });
+}
+
+const workshop = await Workshop.findById(workshopDoc._id)
+  .populate("participants", "name email phone city birthDate idNumber canCharge")
+  .populate("familyRegistrations.parentUser", "name email phone city canCharge _id")
+  .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate email city _id")
+  .populate("waitingList.parentUser", "name email phone")
+  .populate("waitingList.familyMemberId", "name relation")
+  .lean();
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
