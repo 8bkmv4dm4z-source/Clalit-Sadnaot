@@ -32,14 +32,6 @@ const { startAuditScheduler } = require("./services/auditService");
 const app = express();
 app.set("trust proxy", 1);
 
-// SECURITY FIX: enforce Helmet globally with relaxed cross-origin policy for assets
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginOpenerPolicy: false,
-  })
-);
-
 /* ----------------------------
  * Helpers
  * -------------------------- */
@@ -66,7 +58,7 @@ function logToFile(level, msg) {
     const line = `[${new Date().toISOString()}] [${level}] ${msg}\n`;
     fs.appendFile(logFilePath, line, () => {});
   } catch {
-    /* SECURITY FIX: ignore log persistence errors quietly */
+    /* SECURITY: ignore log persistence errors quietly */
   }
 }
 
@@ -80,6 +72,69 @@ function logToFile(level, msg) {
     orig.apply(console, args);
   };
 });
+
+/* ----------------------------
+ * GLOBAL CORS (must be before Helmet & routes)
+ * -------------------------- */
+/**
+ * CORS strategy:
+ * - In development (NODE_ENV !== "production") → allow all origins (easy dev).
+ * - In production:
+ *    - allow any origin listed in ALLOWED_ORIGINS (comma-separated)
+ *    - also allow PUBLIC_URL (Render frontend) + localhost dev ports
+ * - Non-browser requests (no Origin header) are always allowed.
+ */
+const ENV_ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
+const DEV_DEFAULTS = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+const DEPLOY_DEFAULTS = [
+  process.env.PUBLIC_URL, // e.g. https://sandaot.onrender.com
+];
+
+const ALL_ALLOWED_ORIGINS = [
+  ...new Set([
+    ...ENV_ALLOWED_ORIGINS,
+    ...DEV_DEFAULTS,
+    ...DEPLOY_DEFAULTS.filter(Boolean),
+  ]),
+];
+
+const corsOptions = {
+  origin(origin, cb) {
+    // Allow non-browser / server-side requests with no Origin
+    if (!origin) return cb(null, true);
+
+    // During development, allow everything for convenience
+    if (process.env.NODE_ENV !== "production") return cb(null, true);
+
+    if (ALL_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+
+    console.warn(`❌ CORS blocked request from origin: ${origin}`);
+    return cb(new Error("CORS: Origin not allowed"), false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Content-Disposition"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+};
+
+// Attach CORS globally so even 404/500 responses include the header
+app.use(cors(corsOptions));
+
+/* ----------------------------
+ * Helmet (after CORS)
+ * -------------------------- */
+// SECURITY: enforce Helmet globally with relaxed cross-origin policy for assets
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
+  })
+);
 
 /* ----------------------------
  * Body parsing (global)
@@ -114,12 +169,6 @@ api.use(sanitizeBody);
 api.use(mongoSanitize());
 api.use(compression());
 
-// NOTE: Unified CORS configuration — applied globally below before mounting routes.
-// We intentionally don't mount separate CORS middleware on the `api` router to
-// avoid duplicated/contradicting lists. The configuration below reads
-// ALLOWED_ORIGINS from env and falls back to a safe developer-friendly default.
-
-
 // Rate limits (API only)
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -129,7 +178,7 @@ const globalLimiter = rateLimit({
 });
 api.use(globalLimiter);
 
-// Write limiter for workshops (with admin JWT/email whitelist)
+// Admin whitelist for workshop write limiter
 const ADMIN_WHITELIST_IDS = parseCSV(process.env.ADMIN_WHITELIST_IDS).map((s) =>
   s.toLowerCase()
 );
@@ -153,7 +202,7 @@ const workshopWriteLimiter = rateLimit({
       if (uid && ADMIN_WHITELIST_IDS.includes(uid)) return true;
       if (email && ADMIN_WHITELIST_EMAILS.includes(email)) return true;
     } catch {
-      /* SECURITY FIX: suppress JWT decode errors during limiter skip */
+      /* SECURITY: suppress JWT decode errors during limiter skip */
     }
     return false;
   },
@@ -204,40 +253,7 @@ api.use((err, req, res, _next) => {
   return res.status(status).json(payload);
 });
 
-// Mount the API once
-
-// ----------------------------
-// Unified CORS configuration (global)
-// - Reads allowed origins from process.env.ALLOWED_ORIGINS (comma-separated)
-// - Falls back to a small developer whitelist (localhost ports)
-// - In non-production, we allow all origins to simplify local development
-// ----------------------------
-const ENV_ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
-const DEV_DEFAULTS = ["http://localhost:5173", "http://localhost:3000"];
-const ALL_ALLOWED_ORIGINS = [...new Set([...(ENV_ALLOWED_ORIGINS || []), ...DEV_DEFAULTS])];
-
-const corsOptions = {
-  origin(origin, cb) {
-    // allow non-browser requests (curl, server-to-server) which don't set Origin
-    if (!origin) return cb(null, true);
-
-    // during development allow all origins for convenience
-    if (process.env.NODE_ENV !== "production") return cb(null, true);
-
-    if (ALL_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-
-    console.warn(`❌ CORS blocked request from: ${origin}`);
-    return cb(new Error("CORS: Origin not allowed"), false);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-  exposedHeaders: ["Content-Disposition"],
-};
-
-app.use(cors(corsOptions));
-
-// Then mount `/api`
+// Mount the API once under /api (after CORS & Helmet)
 app.use("/api", api);
 
 /* ------------------------------------------------
@@ -315,6 +331,7 @@ const HOST = process.env.HOST || "0.0.0.0";
       const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
       console.log(`🚀 Server listening on ${HOST}:${PORT}`);
       console.log(`🔗 Open: ${url}`);
+      console.log("🌍 CORS allowed origins:", ALL_ALLOWED_ORIGINS);
     });
 
     const shutdown = (sig) => () => {
