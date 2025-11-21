@@ -307,54 +307,70 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   }, [fetchAll]);
 
   /** Remove entity */
-  const handleUnregister = async (person, fromWaitlist = false) => {
-    if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
-    try {
-      const { familyId } = getEntityIdentifiers(person);
-      // Use context helpers depending on whether we remove from waitlist or participants
-      let result;
-      if (fromWaitlist) {
-        result = await unregisterFromWaitlist(activeWorkshopId, familyId || undefined);
-      } else {
-        result = await unregisterEntityFromWorkshop(activeWorkshopId, familyId || undefined);
-      }
-      if (!result || result.success === false) {
-        throw new Error(result?.message || "שגיאה בביטול");
-      }
-      setMessage("🚫 בוטל בהצלחה");
-      await fetchAll();
-      await fetchWorkshops();
-    } catch (e) {
-      alert("❌ " + e.message);
+  /** Remove entity (participant or waitlist) */
+const handleUnregister = async (person, fromWaitlist = false) => {
+  if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
+
+  try {
+    // ALWAYS use entityKey — never familyId anymore
+    const { entityKey } = getEntityIdentifiers(person);
+
+    if (!entityKey) throw new Error("Missing entityKey");
+
+    let result;
+
+    if (fromWaitlist) {
+      result = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+    } else {
+      result = await unregisterEntityFromWorkshop(activeWorkshopId, entityKey);
     }
-  };
+
+    if (!result?.success) {
+      throw new Error(result?.message || "שגיאה בביטול");
+    }
+
+    setMessage("🚫 בוטל בהצלחה");
+    await fetchAll();
+    await fetchWorkshops();
+  } catch (e) {
+    alert("❌ " + e.message);
+  }
+};
+
 
   /** Promote from waitlist → participants */
-  const handlePromote = async (wl) => {
-    try {
-      const { familyId } = getEntityIdentifiers(wl);
-      // בדיקת מקום
-      if (isCapacityFull) {
-        alert("❌ אין מקום פנוי לקידום משתתף זה.");
-        return;
-      }
-      // שלב 1: הסר מרשימת ההמתנה באמצעות context
-      const unres = await unregisterFromWaitlist(activeWorkshopId, familyId);
-      if (!unres || unres.success === false) {
-        throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
-      }
-      // שלב 2: רשום לרשימת המשתתפים באמצעות context
-      const regRes = await registerEntityToWorkshop(activeWorkshopId, familyId);
-      if (!regRes || regRes.success === false) {
-        throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
-      }
-      setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
-      await fetchAll();
-      await fetchWorkshops();
-    } catch (e) {
-      alert("❌ " + e.message);
+ /** Promote from waitlist → participants */
+const handlePromote = async (wl) => {
+  try {
+    const { entityKey } = getEntityIdentifiers(wl);
+
+    if (!entityKey) throw new Error("Missing entityKey");
+
+    if (isCapacityFull) {
+      alert("❌ אין מקום פנוי לקידום משתתף זה.");
+      return;
     }
-  };
+
+    // 1️⃣ Remove from waitlist
+    const unres = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+    if (!unres?.success) {
+      throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
+    }
+
+    // 2️⃣ Add as full participant
+    const regRes = await registerEntityToWorkshop(activeWorkshopId, entityKey);
+    if (!regRes?.success) {
+      throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
+    }
+
+    setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
+    await fetchAll();
+    await fetchWorkshops();
+  } catch (e) {
+    alert("❌ " + e.message);
+  }
+};
+
 
   /** Export */
   const handleExport = async () => {
@@ -551,24 +567,28 @@ const city = wl.city || wl.parentCity || "-";
         {showProfiles && (
           <div className="border border-indigo-100 rounded-xl bg-indigo-50/30 mb-6 p-4">
             <AllProfiles
-              mode="select"
-              onSelectUser={async (p) => {
-                try {
-                  const { familyId } = getEntityIdentifiers(p);
-                  const res = await registerEntityToWorkshop(activeWorkshopId, familyId || undefined);
-                  if (!res || res.success === false) {
-                    throw new Error(res?.message || "שגיאה בהרשמה");
-                  }
-                  setShowProfiles(false);
-                  await fetchAll();
-                  await fetchWorkshops();
-                  alert("✅ נוסף בהצלחה!");
-                } catch (e) {
-                  alert("❌ " + e.message);
-                }
-              }}
-              existingIds={existingKeys}
-            />
+  mode="select"
+  onSelectUser={async (p) => {
+    try {
+      const { entityKey } = getEntityIdentifiers(p);
+      if (!entityKey) throw new Error("Missing entityKey");
+
+      const res = await registerEntityToWorkshop(activeWorkshopId, entityKey);
+      if (!res?.success) {
+        throw new Error(res?.message || "שגיאה בהרשמה");
+      }
+
+      setShowProfiles(false);
+      await fetchAll();
+      await fetchWorkshops();
+      alert("✅ נוסף בהצלחה!");
+    } catch (e) {
+      alert("❌ " + e.message);
+    }
+  }}
+  existingIds={existingKeys}
+/>
+
           </div>
         )}
 

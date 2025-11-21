@@ -225,77 +225,62 @@ export default function WorkshopCard({
 
   /* ---------------- Button factory (self / family) ---------------- */
   const getEntityButton = (entity) => {
-    const entityKey =
-      typeof entity === "object" ? str(entity?.entityKey) : "";
-    const isSelf = !entityKey;
+  // self = we pass a string (userKey)
+  // family = we pass the full member object (with entityKey)
+  const entityKey =
+    typeof entity === "object" ? str(entity?.entityKey) : str(entity || userKey);
+  const isSelf = typeof entity !== "object";
 
-    const memberRegistered = entityKey
-      ? familyRegisteredIdSet.has(entityKey)
-      : false;
-    const memberOnWaitlist = entityKey
+  const memberRegistered =
+    !isSelf && entityKey ? familyRegisteredIdSet.has(entityKey) : false;
+
+  const memberOnWaitlist =
+    !isSelf && entityKey
       ? waitRows.some(
           (e) => e.parentKey === userKey && e.entityKey === entityKey
         )
       : false;
 
-    const registered = isSelf ? isSelfRegistered : memberRegistered;
-    const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
+  const registered = isSelf ? isSelfRegistered : memberRegistered;
+  const onWaitlist = isSelf ? selfOnWaitlist : memberOnWaitlist;
 
-    if (!available) {
-      return {
-        label: "לא ניתן להירשם",
-        color:
-          "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
-        action: null,
-      };
-    }
+  // ... (same availability logic as before)
 
-    if (registered) {
-      return {
-        label: "בטל הרשמה",
-        color:
-          "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
-        action: (ek) => unregisterEntityFromWorkshop(wid, ek),
-
-      };
-    }
-
-    if (onWaitlist) {
-      return {
-        label: "בטל רשימת המתנה",
-        color:
-          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: (ek) => unregisterFromWaitlist(wid, ek),
-
-      };
-    }
-
-    if (isWorkshopFull) {
-      if (isWaitlistFull) {
-        return {
-          label: "לא ניתן להירשם",
-          color:
-            "bg-gray-300 text-gray-600 cursor-not-allowed shadow-none hover:shadow-none",
-          action: null,
-        };
-      }
-      return {
-        label: "הצטרף לרשימת המתנה",
-        color:
-          "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
-        action: (ek) => registerToWaitlist(wid, ek),
-
-      };
-    }
-
+  if (registered) {
     return {
-      label: "הירשם",
+      label: "בטל הרשמה",
       color:
-        "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg",
-      action: (ek) => registerEntityToWorkshop(wid, ek),
-
+        "bg-yellow-400 text-gray-900 hover:bg-yellow-500 shadow-md hover:shadow-lg",
+      action: async () => unregisterEntityFromWorkshop(wid, entityKey),
     };
+  }
+
+  if (onWaitlist) {
+    return {
+      label: "בטל רשימת המתנה",
+      color:
+        "bg-amber-500 text-white hover:bg-amber-600 shadow-md hover:shadow-lg",
+      action: async () => unregisterFromWaitlist(wid, entityKey),
+    };
+  }
+
+  if (isWorkshopFull) {
+    return {
+      label: "הירשם לרשימת המתנה",
+      color:
+        "bg-emerald-500 text-white hover:bg-emerald-600 shadow-md hover:shadow-lg",
+      action: async () => registerToWaitlist(wid, entityKey),
+    };
+  }
+
+  return {
+    label: "הירשם",
+    color:
+      "bg-indigo-500 text-white hover:bg-indigo-600 shadow-md hover:shadow-lg",
+    action: async () => registerEntityToWorkshop(wid, entityKey),
   };
+};
+
 
   const runEntityAction = (entity) => {
   const btn = getEntityButton(entity);

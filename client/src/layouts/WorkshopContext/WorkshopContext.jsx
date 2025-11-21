@@ -18,7 +18,6 @@ import React, {
   useContext,
   useEffect,
   useState,
-  useRef,
   useMemo,
 } from "react";
 import { useProfiles } from "../ProfileContext";
@@ -38,7 +37,10 @@ try {
 
 const dbgCtx = (...args) => {
   try {
-    if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
+    if (
+      typeof window !== "undefined" &&
+      localStorage.getItem("DEBUG_WS") === "1"
+    ) {
       console.log("[WS-CTX]", ...args);
     }
   } catch {
@@ -49,11 +51,14 @@ const dbgCtx = (...args) => {
 const WorkshopContext = createContext();
 
 const WORKSHOP_DEV = import.meta.env.MODE !== "production";
-// SECURITY FIX: avoid logging full payloads unless in development
+// SECURITY: avoid logging full payloads unless in development
 const log = (msg) => {
   if (!WORKSHOP_DEV) return;
   const now = new Date().toLocaleTimeString("he-IL");
-  console.info(`%c[${now}] [WORKSHOP] ${msg}` , "color:#43a047;font-weight:bold;");
+  console.info(
+    `%c[${now}] [WORKSHOP] ${msg}`,
+    "color:#43a047;font-weight:bold;"
+  );
 };
 
 /* ───────────────────────── ID Helpers ───────────────────────── */
@@ -61,147 +66,133 @@ const sid = (x) => String(x ?? "");
 /* ================================================================== */
 
 export const WorkshopProvider = ({ children }) => {
+  const { user } = useAuth();
+  const { fetchProfiles } = useProfiles();
+
   const [workshops, setWorkshops] = useState([]);
   const [displayedWorkshops, setDisplayedWorkshops] = useState([]);
   const [registeredWorkshopIds, setRegisteredWorkshopIds] = useState([]);
 
-  // Derived maps (context-only, never mutated directly)
-  const [userWorkshopMap, setUserWorkshopMap] = useState({});     // { [workshopId]: true }
-  const [familyWorkshopMap, setFamilyWorkshopMap] = useState({}); // { [workshopId]: [familyId,...] }
-  const [mapsReady, setMapsReady] = useState(false);               // UI gate for stable maps
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [viewMode, setViewMode] = useState("all");
+
+  const [viewMode, setViewMode] = useState("all"); // "all" | "mine"
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
 
-  const fetchCooldown = useRef(false);
+  // Derived maps (context-only, never mutated directly)
+  const [userWorkshopMap, setUserWorkshopMap] = useState({}); // { [workshopId]: true }
+  const [familyWorkshopMap, setFamilyWorkshopMap] = useState({}); // { [workshopId]: [familyId,...] }
+  const [mapsReady, setMapsReady] = useState(false);
 
-  const { fetchProfiles } = useProfiles();
-  const { user } = useAuth();
+  /* ───────────────────────── Derived user/family info ───────────────────────── */
 
-  // One-time banner if debug is enabled
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined" && localStorage.getItem("DEBUG_WS") === "1") {
-        console.log("%c[WS-CTX] DEBUG ENABLED", "color:#2962ff;font-weight:bold");
-      }
-    } catch {
-      /* intentionally ignore debug banner failures */
-    }
-  }, []);
+  const userKey = useMemo(() => {
+    if (!user) return "";
+    if (user.entityKey) return sid(user.entityKey);
+    if (user._id) return sid(user._id);
+    return "";
+  }, [user]);
 
-  // FIXED: derive stable signatures to satisfy linted dependency arrays
-  const userKey = useMemo(() => sid(user?.entityKey), [user?.entityKey]);
   const familyMembersList = useMemo(
     () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
-    [user?.familyMembers]
+    [user]
   );
+
+  // Signatures so that we only recompute maps when relevant identity changes
   const familyMembersSignature = useMemo(
-    () => JSON.stringify(familyMembersList.map((m) => sid(m.entityKey || m._id)).sort()),
+    () =>
+      JSON.stringify(
+        familyMembersList.map((m) => sid(m.entityKey || m._id || m.id))
+      ),
     [familyMembersList]
   );
-  const workshopsSignature = useMemo(() => {
-    if (!Array.isArray(workshops)) return "[]";
-    return JSON.stringify(
-      workshops.map((w) => ({
-        id: sid(w?._id || w?.id),
-        isUserRegistered: !!w?.isUserRegistered,
-        participantsLen: Array.isArray(w?.participants) ? w.participants.length : 0,
-        userFamilyLen: Array.isArray(w?.userFamilyRegistrations)
-          ? w.userFamilyRegistrations.length
-          : 0,
-        familyRegsPairs: Array.isArray(w?.familyRegistrations)
-          ? w.familyRegistrations
-              .filter((fr) => fr && fr.parentUser && fr.familyMemberId)
-              .map((fr) => `${sid(fr.parentUser)}:${sid(fr.familyMemberId)}`)
-              .sort()
-              .join("|")
-          : "",
-      }))
-    );
-  }, [workshops]);
+
+  const workshopsSignature = useMemo(
+    () =>
+      JSON.stringify(
+        (workshops || []).map((w) => ({
+          id: sid(w._id ?? w.id ?? w.workshopKey),
+          participantsLen: Array.isArray(w.participants)
+            ? w.participants.length
+            : 0,
+          userFamilyRegsLen: Array.isArray(w.userFamilyRegistrations)
+            ? w.userFamilyRegistrations.length
+            : 0,
+          familyRegsLen: Array.isArray(w.familyRegistrations)
+            ? w.familyRegistrations.length
+            : 0,
+        }))
+      ),
+    [workshops]
+  );
 
   /* ============================================================
-     📦 Fetch all workshops (server source-of-truth)
+     📡 Fetch all workshops (server → normalized list)
      ============================================================ */
   async function fetchAllWorkshops(force = false) {
-    if (fetchCooldown.current && !force) {
-      log("⏳ Skipped fetchAllWorkshops due to cooldown");
-      return;
-    }
-    fetchCooldown.current = true;
-    setTimeout(() => (fetchCooldown.current = false), 1200);
+    log(`📡 Fetching all workshops (force=${force})`);
+    dbgCtx("fetchAllWorkshops:start", { force });
+    setLoading(true);
+    setError(null);
 
     try {
-      setLoading(true);
-      setError(null);
-      log("📡 Fetching all workshops...");
-      dbgCtx("fetchAllWorkshops:start", { force });
-
-      const res = await apiFetch(`/api/workshops`);
+      const res = await apiFetch("/api/workshops");
       const data = await res.json();
-      dbgCtx("fetchAllWorkshops:raw-response", { ok: res.ok, keys: Object.keys(data || {}) });
 
-      if (!res.ok) throw new Error(data.message || "Failed to fetch workshops");
+      dbgCtx("fetchAllWorkshops:raw-response", {
+        ok: res.ok,
+        type: Array.isArray(data) ? "array" : typeof data,
+      });
 
-      const workshopsArray = Array.isArray(data?.data)
-        ? data.data
-        : Array.isArray(data)
-        ? data
-        : [];
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load workshops");
+      }
 
-      dbgCtx("fetchAllWorkshops:array-size", { workshopsArrayLen: workshopsArray.length });
+      const list = Array.isArray(data) ? data : [];
 
-      // Normalize ONLY. Do not build maps here (maps are derived below).
-      const list = workshopsArray.map((w, idx) => {
-        const hashedId = String(w?.hashedId || w?._id || w?.id || "");
-        const mongoId = w?.mongoId || (w?._id && w?.hashedId ? String(w?._id) : "");
-        const participantKeys = (w.participants || []).map((p) => sid(p));
-        const familyRegs = Array.isArray(w.familyRegistrations) ? w.familyRegistrations : [];
-        const familyRegKeys = familyRegs.map((f) => sid(f.familyMemberKey || f.familyMemberId));
-        const waitingList = Array.isArray(w.waitingList) ? w.waitingList : [];
+      const normalizedList = list.map((w, idx) => {
+        const wid = sid(w.workshopKey ?? w._id ?? w.id ?? idx);
+
+        const participants = Array.isArray(w.participants)
+          ? w.participants.map((p) => sid(p))
+          : [];
+
+        const waitingList = Array.isArray(w.waitingList)
+          ? w.waitingList
+          : [];
+
+        const userFamilyRegistrations = Array.isArray(
+          w.userFamilyRegistrations
+        )
+          ? w.userFamilyRegistrations.map((id) => sid(id))
+          : [];
+
+        const familyRegistrations = Array.isArray(w.familyRegistrations)
+          ? w.familyRegistrations
+          : [];
+
+        const isUserRegistered =
+          !!w.isUserRegistered ||
+          (userKey && participants.some((p) => sid(p) === userKey));
 
         const normalized = {
           ...w,
-          hashedId,
-          workshopKey: hashedId,
-          _id: hashedId,
-          mongoId,
-          address: w.address || "",
-          city: w.city || "",
-          studio: w.studio || "",
-          coach: w.coach || "",
-          participants: participantKeys,
-          familyRegistrations: familyRegs,
-          userFamilyRegistrations: (w.userFamilyRegistrations || []).map((v) => sid(v)),
+          _id: wid,
+          workshopKey: wid,
+          participants,
           waitingList,
-          maxParticipants: Number(w.maxParticipants ?? 0),
-          waitingListMax: Number(w.waitingListMax ?? 0),
-          isUserRegistered: !!w.isUserRegistered,
+          userFamilyRegistrations,
+          familyRegistrations,
+          isUserRegistered,
         };
-
-        const pLen = normalized.participants?.length ?? 0;
-        const fLen = normalized.familyRegistrations?.length ?? 0;
-        normalized.participantsCount =
-          typeof w.participantsCount === "number" ? w.participantsCount : pLen + fLen;
-
-        if (Array.isArray(w.familyRegistrations)) {
-          normalized.userFamilyRegistrations = [
-            ...new Set([
-              ...normalized.userFamilyRegistrations,
-              ...familyRegKeys,
-            ]),
-          ];
-        }
 
         // 🔍 Compact per-workshop log
         dbgCtx("normalize", {
           i: idx,
-          wid: String(normalized?.workshopKey || ""),
-          title: normalized?.title,
+          wid,
+          title: normalized.title,
           isUserRegistered: normalized.isUserRegistered,
-          participantsLen: pLen,
+          participantsLen: participants.length,
           userFamilyRegsLen: normalized.userFamilyRegistrations.length,
           waitingListLen: normalized.waitingList.length,
         });
@@ -209,22 +200,25 @@ export const WorkshopProvider = ({ children }) => {
         return normalized;
       });
 
-      log(`✅ Workshops loaded (${list.length})`);
-      dbgCtx("setState:workshops", { listLen: list.length });
+      log(`✅ Workshops loaded (${normalizedList.length})`);
+      dbgCtx("setState:workshops", { listLen: normalizedList.length });
 
-      setWorkshops(list);
-      setDisplayedWorkshops(list); // default view ("all") shows everything
-      return list;
+      setWorkshops(normalizedList);
+      return normalizedList;
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
       setError(err.message);
       dbgCtx("fetchAllWorkshops:error", { message: err.message });
+      return [];
     } finally {
       setLoading(false);
       dbgCtx("fetchAllWorkshops:done");
     }
   }
 
+  /* ============================================================
+     📡 Fetch registered workshops (IDs only)
+     ============================================================ */
   async function fetchRegisteredWorkshops() {
     log("📡 Fetching registered workshops (ids)...");
     dbgCtx("fetchRegisteredWorkshops:start");
@@ -234,15 +228,21 @@ export const WorkshopProvider = ({ children }) => {
       const regIds = await res.json();
       dbgCtx("fetchRegisteredWorkshops:raw-response", {
         ok: res.ok,
-        type: Array.isArray(regIds) ? "array" : typeof regIds
+        type: Array.isArray(regIds) ? "array" : typeof regIds,
       });
 
-      if (!res.ok) throw new Error(regIds.message || "Failed to load registrations");
+      if (!res.ok) {
+        throw new Error(regIds.message || "Failed to load registrations");
+      }
+
       const parsed = (Array.isArray(regIds) ? regIds : []).map((v) =>
         typeof v === "string" ? v : String(v?.workshopKey ?? v ?? "")
       );
       log(`✅ Registered workshops loaded (${parsed.length})`);
-      dbgCtx("fetchRegisteredWorkshops:parsed", { count: parsed.length, sample: parsed.slice(0, 5) });
+      dbgCtx("fetchRegisteredWorkshops:parsed", {
+        count: parsed.length,
+        sample: parsed.slice(0, 5),
+      });
       setRegisteredWorkshopIds(parsed);
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchRegisteredWorkshops error:", err);
@@ -260,19 +260,6 @@ export const WorkshopProvider = ({ children }) => {
     return fetchAllWorkshops(force);
   }
 
-  // Fetch list by view mode
-  useEffect(() => {
-    log(`🔀 ViewMode → ${viewMode}`);
-    dbgCtx("viewMode:effect", { viewMode });
-    if (viewMode === "mine") {
-      fetchRegisteredWorkshops(); // optional meta
-      fetchAllWorkshops();        // still need full list to compute maps
-    } else {
-      fetchAllWorkshops();
-    }
-     
-  }, [viewMode]);
-
   /* ============================================================
      🔔 Global auth events wiring
      ============================================================ */
@@ -283,8 +270,12 @@ export const WorkshopProvider = ({ children }) => {
       setFamilyWorkshopMap({});
       setMapsReady(false);
       setViewMode("all");
+      setRegisteredWorkshopIds([]);
+      setSelectedWorkshop(null);
       // refetch public list and render it right away
-      fetchAllWorkshops(true)?.then((list) => setDisplayedWorkshops(list || []));
+      fetchAllWorkshops(true)?.then((list) =>
+        setDisplayedWorkshops(list || [])
+      );
     };
 
     const onLoggedIn = () => {
@@ -309,13 +300,12 @@ export const WorkshopProvider = ({ children }) => {
       dbgCtx("event:auth-user-updated");
       // user/family changed → safe to refetch so maps rebuild
       fetchAllWorkshops(true);
-      // no need to force Registered IDs here unless viewMode === "mine"
       if (viewMode === "mine") fetchRegisteredWorkshops();
     };
 
     window.addEventListener("auth-logged-out", onLoggedOut);
     window.addEventListener("auth-logged-in", onLoggedIn);
-    window.addEventListener("auth-ready", onAuthReady);           // legacy + payload
+    window.addEventListener("auth-ready", onAuthReady);
     window.addEventListener("auth-user-updated", onUserUpdated);
 
     return () => {
@@ -324,14 +314,13 @@ export const WorkshopProvider = ({ children }) => {
       window.removeEventListener("auth-ready", onAuthReady);
       window.removeEventListener("auth-user-updated", onUserUpdated);
     };
-     
   }, [viewMode]);
 
   /* ============================================================
      🧭 Map lifecycle helpers
      ============================================================ */
 
-  // Reset maps only when user context effectively clears (logout / switch user)
+  // Reset maps when user effectively clears (logout / switch user)
   useEffect(() => {
     const hasUser = !!userKey;
     if (!hasUser) {
@@ -342,7 +331,7 @@ export const WorkshopProvider = ({ children }) => {
     }
   }, [userKey, familyMembersSignature]);
 
-  // === Derived maps: built from current normalized list + current user ===
+  // Derived maps: built from current normalized list + current user
   useEffect(() => {
     // Clear before recompute to avoid one-frame stale view
     setMapsReady(false);
@@ -357,7 +346,9 @@ export const WorkshopProvider = ({ children }) => {
     }
 
     const currentUserId = userKey;
-    const familyIds = familyMembersList.map((m) => sid(m.entityKey || m._id));
+    const familyIds = familyMembersList.map((m) =>
+      sid(m.entityKey || m._id || m.id)
+    );
 
     const uMap = Object.create(null);
     const fMap = Object.create(null);
@@ -422,9 +413,13 @@ export const WorkshopProvider = ({ children }) => {
     setUserWorkshopMap(uMap);
     setFamilyWorkshopMap(fMap);
     setMapsReady(true);
-
-    // Dependencies: user/family identity + relevant workshop content summary
-  }, [userKey, familyMembersSignature, workshopsSignature, workshops, familyMembersList]);
+  }, [
+    userKey,
+    familyMembersSignature,
+    workshopsSignature,
+    workshops,
+    familyMembersList,
+  ]);
 
   // Filter displayedWorkshops when viewMode === "mine" (only after mapsReady)
   useEffect(() => {
@@ -432,7 +427,9 @@ export const WorkshopProvider = ({ children }) => {
 
     if (viewMode === "mine") {
       const filtered = (workshops || []).filter(
-        (w) => userWorkshopMap[w._id] || (familyWorkshopMap[w._id]?.length > 0)
+        (w) =>
+          userWorkshopMap[w._id] ||
+          (familyWorkshopMap[w._id]?.length ?? 0) > 0
       );
       setDisplayedWorkshops(filtered);
     } else {
@@ -443,13 +440,192 @@ export const WorkshopProvider = ({ children }) => {
   /* ============================================================
      🔧 Mutations (server-source-of-truth + refetch)
      ============================================================ */
+
+  // Register an entity (self or family member) to a workshop
+  const registerEntityToWorkshop = async (workshopKey, entityKey) => {
+    dbgCtx("registerEntity:start", { workshopKey, entityKey });
+
+    if (!entityKey) {
+      console.error("❌ registerEntityToWorkshop called WITHOUT entityKey");
+      return { success: false, message: "Missing entityKey" };
+    }
+
+    try {
+      const res = await apiFetch(
+        `/api/workshops/${workshopKey}/register-entity`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entityKey }),
+        }
+      );
+
+      const data = await res.json();
+      dbgCtx("registerEntity:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+
+      if (!res.ok) throw new Error(data.message || "Failed to register");
+
+      // Always refresh after modifying workshop state
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+
+      dbgCtx("registerEntity:success", { workshopKey, entityKey });
+      return { success: true, data };
+    } catch (err) {
+      console.error("❌ registerEntityToWorkshop error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  // Unregister an entity from a workshop
+  const unregisterEntityFromWorkshop = async (workshopKey, entityKey) => {
+    dbgCtx("unregisterEntity:start", { workshopKey, entityKey });
+
+    if (!entityKey) {
+      console.error("❌ unregisterEntityFromWorkshop called WITHOUT entityKey");
+      return { success: false, message: "Missing entityKey" };
+    }
+
+    try {
+      const res = await apiFetch(
+        `/api/workshops/${workshopKey}/unregister-entity`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entityKey }),
+        }
+      );
+
+      const data = await res.json();
+      dbgCtx("unregisterEntity:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+
+      if (!res.ok) throw new Error(data.message || "Failed to unregister");
+
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+
+      dbgCtx("unregisterEntity:success", { workshopKey, entityKey });
+      return { success: true, data };
+    } catch (err) {
+      console.error("❌ unregisterEntityFromWorkshop error:", err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  // Register to waitlist
+  const registerToWaitlist = async (workshopKey, entityKey) => {
+    dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
+
+    if (!entityKey) {
+      console.error("❌ registerToWaitlist called WITHOUT entityKey");
+      return { success: false, message: "Missing entityKey" };
+    }
+
+    try {
+      const res = await apiFetch(
+        `/api/workshops/${workshopKey}/waitlist-entity`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entityKey }),
+        }
+      );
+
+      const data = await res.json();
+      dbgCtx("waitlistRegister:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+
+      if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
+
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+
+      dbgCtx("waitlistRegister:success", { workshopKey, entityKey });
+      return { success: true, data };
+    } catch (e) {
+      console.error("❌ registerToWaitlist error:", e);
+      dbgCtx("waitlistRegister:error", {
+        workshopKey,
+        entityKey,
+        message: e?.message,
+      });
+      return {
+        success: false,
+        message: e?.message || "Waitlist registration failed",
+      };
+    }
+  };
+
+  const unregisterFromWaitlist = async (workshopKey, entityKey) => {
+    dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
+
+    if (!entityKey) {
+      console.error("❌ unregisterFromWaitlist called WITHOUT entityKey");
+      return { success: false, message: "Missing entityKey" };
+    }
+
+    try {
+      const res = await apiFetch(
+        `/api/workshops/${workshopKey}/waitlist-entity`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entityKey }),
+        }
+      );
+
+      const data = await res.json();
+      dbgCtx("waitlistUnregister:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+
+      if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
+
+      await fetchAllWorkshops(true);
+      await fetchRegisteredWorkshops();
+      await fetchProfiles();
+
+      dbgCtx("waitlistUnregister:success", { workshopKey, entityKey });
+      return { success: true, data };
+    } catch (e) {
+      console.error("❌ unregisterFromWaitlist error:", e);
+      dbgCtx("waitlistUnregister:error", {
+        workshopKey,
+        entityKey,
+        message: e?.message,
+      });
+      return {
+        success: false,
+        message: e?.message || "Waitlist removal failed",
+      };
+    }
+  };
+
+  /* ============================================================
+   🛠️ Admin: Create & Update Workshops
+   ============================================================ */
   const deleteWorkshop = async (id) => {
     dbgCtx("deleteWorkshop:start", { id });
     try {
-      const res = await apiFetch(`/api/workshops/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/workshops/${id}`, {
+        method: "DELETE",
+      });
       const data = await res.json();
       dbgCtx("deleteWorkshop:raw-response", { ok: res.ok });
-      if (!res.ok) throw new Error(data.message || "Failed to delete workshop");
+      if (!res.ok)
+        throw new Error(data.message || "Failed to delete workshop");
       await fetchAllWorkshops(true); // refresh from server
       dbgCtx("deleteWorkshop:success", { id });
       return { success: true, message: "Workshop deleted successfully" };
@@ -460,115 +636,6 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const registerEntityToWorkshop = async (workshopKey, entityKey = null) => {
-    dbgCtx("registerEntity:start", { workshopKey, entityKey });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/register-entity`, {
-        method: "POST",
-        body: JSON.stringify({ entityKey }),
-
-
-      });
-      const data = await res.json();
-      dbgCtx("registerEntity:raw-response", { ok: res.ok, message: data?.message });
-
-      if (!res.ok) throw new Error(data.message || "Failed to register");
-
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("registerEntity:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ registerEntityToWorkshop error:", err);
-      dbgCtx("registerEntity:error", { workshopKey, entityKey, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
-
-  const unregisterEntityFromWorkshop = async (workshopKey, entityKey = null) => {
-    dbgCtx("unregisterEntity:start", { workshopKey, entityKey });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/unregister-entity`, {
-        method: "DELETE",
-body: JSON.stringify({ entityKey }),
-      });
-      const data = await res.json();
-      dbgCtx("unregisterEntity:raw-response", { ok: res.ok, message: data?.message });
-
-      if (!res.ok) throw new Error(data.message || "Failed to unregister");
-
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("unregisterEntity:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ unregisterEntityFromWorkshop error:", err);
-      dbgCtx("unregisterEntity:error", { workshopKey, entityKey, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
-
-  const registerToWaitlist = async (workshopKey, entityKey) => {
-    dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
-const body = { entityKey };
-
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      dbgCtx("waitlistRegister:raw-response", { ok: res.ok, message: data?.message });
-
-      if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
-
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("waitlistRegister:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (e) {
-      dbgCtx("waitlistRegister:error", e);
-      return { success: false, message: e?.message || "Waitlist registration failed" };
-    }
-  };
-
-  const unregisterFromWaitlist = async (workshopKey, entityKey) => {
-    dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
-const body = { entityKey };
-
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      dbgCtx("waitlistUnregister:raw-response", { ok: res.ok, message: data?.message });
-
-      if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
-
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("waitlistUnregister:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (e) {
-      dbgCtx("waitlistUnregister:error", e);
-      return { success: false, message: e?.message || "Waitlist removal failed" };
-    }
-  };
-
-  /* ============================================================
-   🛠️ Admin: Create & Update Workshops
-   ============================================================ */
   const createWorkshop = async (payload) => {
     dbgCtx("createWorkshop:start", { payload });
     try {
@@ -577,9 +644,13 @@ const body = { entityKey };
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      dbgCtx("createWorkshop:raw-response", { ok: res.ok, message: data?.message });
-      if (!res.ok) throw new Error(data.message || "Failed to create workshop");
-      await fetchAllWorkshops(true);   // refresh
+      dbgCtx("createWorkshop:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+      if (!res.ok)
+        throw new Error(data.message || "Failed to create workshop");
+      await fetchAllWorkshops(true); // refresh
       return { success: true, data };
     } catch (err) {
       console.error("❌ createWorkshop error:", err);
@@ -596,8 +667,12 @@ const body = { entityKey };
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      dbgCtx("updateWorkshop:raw-response", { ok: res.ok, message: data?.message });
-      if (!res.ok) throw new Error(data.message || "Failed to update workshop");
+      dbgCtx("updateWorkshop:raw-response", {
+        ok: res.ok,
+        message: data?.message,
+      });
+      if (!res.ok)
+        throw new Error(data.message || "Failed to update workshop");
       await fetchAllWorkshops(true);
       return { success: true, data };
     } catch (err) {
@@ -615,8 +690,12 @@ const body = { entityKey };
     try {
       const res = await apiFetch("/api/workshops/meta/cities");
       const data = await res.json();
-      dbgCtx("fetchAvailableCities:raw-response", { ok: res.ok, keys: Object.keys(data || {}) });
-      if (!res.ok) throw new Error(data.message || "Failed to fetch cities");
+      dbgCtx("fetchAvailableCities:raw-response", {
+        ok: res.ok,
+        keys: Object.keys(data || {}),
+      });
+      if (!res.ok)
+        throw new Error(data.message || "Failed to fetch cities");
       const cities = data.cities || [];
       dbgCtx("fetchAvailableCities:success", { count: cities.length });
       return cities;
@@ -631,11 +710,14 @@ const body = { entityKey };
     dbgCtx("validateAddress:start", { city, address });
     try {
       const res = await apiFetch(
-        `/api/workshops/validate-address?city=${encodeURIComponent(city)}&address=${encodeURIComponent(address)}`
+        `/api/workshops/validate-address?city=${encodeURIComponent(
+          city
+        )}&address=${encodeURIComponent(address)}`
       );
       const data = await res.json();
       dbgCtx("validateAddress:raw-response", { ok: res.ok, data });
-      if (!res.ok) throw new Error(data.message || "Failed to validate address");
+      if (!res.ok)
+        throw new Error(data.message || "Failed to validate address");
       dbgCtx("validateAddress:success");
       return data;
     } catch (err) {
