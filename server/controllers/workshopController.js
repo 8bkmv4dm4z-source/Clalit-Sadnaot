@@ -95,83 +95,85 @@ const normalizeEntityKey = (entity) => {
   return null;
 };
 
-const formatRegistration = ({
-  workshop,
-}) => {
-  const normalizedWorkshop = ensureHashedWorkshop(workshop);
-  const hashedId = normalizedWorkshop?.hashedId || "";
-  const ownerKey = normalizeEntityKey(normalizedWorkshop?.__ownerKey);
-  const participants = (normalizedWorkshop?.participants || [])
-    .map((p) => normalizeEntityKey(p))
+const formatRegistration = ({ workshop }) => {
+  const w = workshop || {};
+
+  // hashed ID
+  const hashedId = w.hashedId || w._id?.toString() || "";
+
+  // owner key
+  const ownerKey = normalizeEntityKey(w.__ownerKey);
+
+  // Participants: populated user objects → extract entityKey
+  const participants = (w.participants || [])
+    .map(u => normalizeEntityKey(u.entityKey || u))
     .filter(Boolean);
 
-  const familyRegistrations = (normalizedWorkshop?.familyRegistrations || []).map((fr) => {
-    const parentKey = normalizeEntityKey(fr.parentKey || fr.parentUser || {});
-    const memberKey = normalizeEntityKey(fr.familyMemberKey || fr.familyMemberId || {});
-    const memberObj = fr.familyMemberId || {};
+  // Family registrations
+  const familyRegistrations = (w.familyRegistrations || []).map(fr => {
+    const parentKey = normalizeEntityKey(fr.parentUser?.entityKey || fr.parentKey);
+    const memberKey = normalizeEntityKey(fr.familyMemberId?.entityKey || fr.familyMemberKey);
+
     return {
       parentKey,
       familyMemberKey: memberKey,
-      name: fr.name || memberObj.name || "",
-      relation: fr.relation || memberObj.relation || "",
+      name: fr.familyMemberId?.name || fr.name || "",
+      relation: fr.familyMemberId?.relation || fr.relation || "",
     };
   });
 
-  const waitingList = (normalizedWorkshop?.waitingList || []).map((wl) => {
-    const parentKey = normalizeEntityKey(wl.parentKey || wl.parentUser || {});
-    const memberKey = normalizeEntityKey(wl.familyMemberKey || wl.familyMemberId || {});
-    const memberObj = wl.familyMemberId || {};
+  // Waiting list
+  const waitingList = (w.waitingList || []).map(wl => {
+    const parentKey = normalizeEntityKey(wl.parentUser?.entityKey || wl.parentKey);
+    const memberKey = normalizeEntityKey(wl.familyMemberId?.entityKey || wl.familyMemberKey);
+
     return {
       parentKey,
       familyMemberKey: memberKey,
-      name: wl.name || memberObj.name || "",
-      relation:
-        wl.relation ||
-        memberObj.relation ||
-        (memberKey ? "בן משפחה" : "עצמי"),
+      name: wl.familyMemberId?.name || wl.name || "",
+      relation: wl.familyMemberId?.relation || wl.relation || (memberKey ? "בן משפחה" : "עצמי"),
     };
   });
 
+  // find user family registrations
   const familyKeysForUser = familyRegistrations
-    .filter((fr) => fr.parentKey && ownerKey && ownerKey === fr.parentKey)
-    .map((fr) => fr.familyMemberKey)
+    .filter(fr => fr.parentKey && ownerKey === fr.parentKey)
+    .map(fr => fr.familyMemberKey)
     .filter(Boolean);
 
   const isUserRegistered =
-    participants.some((pk) => pk === ownerKey) ||
-    familyKeysForUser.length > 0;
+    participants.includes(ownerKey) || familyKeysForUser.length > 0;
 
   const isUserInWaitlist = waitingList.some(
-    (wl) => wl.parentKey && ownerKey && wl.parentKey === ownerKey && !wl.familyMemberKey
+    wl => wl.parentKey === ownerKey && !wl.familyMemberKey
   );
+
   const familyMembersInWaitlist = waitingList
-    .filter((wl) => wl.parentKey && ownerKey && wl.parentKey === ownerKey && wl.familyMemberKey)
-    .map((wl) => wl.familyMemberKey);
+    .filter(wl => wl.parentKey === ownerKey && wl.familyMemberKey)
+    .map(wl => wl.familyMemberKey);
 
   return {
-    _id: hashedId || String(workshop?._id || ""),
+    _id: hashedId,
     hashedId,
-    mongoId: normalizedWorkshop?.mongoId,
-    workshopKey: normalizedWorkshop?.workshopKey,
-    title: normalizedWorkshop?.title,
-    type: normalizedWorkshop?.type,
-    description: normalizedWorkshop?.description,
-    ageGroup: normalizedWorkshop?.ageGroup,
-    coach: normalizedWorkshop?.coach,
-    city: normalizedWorkshop?.city,
-    address: normalizedWorkshop?.address,
-    studio: normalizedWorkshop?.studio,
-    days: normalizedWorkshop?.days,
-    hour: normalizedWorkshop?.hour,
-    price: normalizedWorkshop?.price,
-    image: normalizedWorkshop?.image,
-    available: normalizedWorkshop?.available,
-    maxParticipants: normalizedWorkshop?.maxParticipants,
-    sessionsCount: normalizedWorkshop?.sessionsCount,
-    participantsCount:
-      typeof normalizedWorkshop?.participantsCount === "number"
-        ? normalizedWorkshop.participantsCount
-        : (normalizedWorkshop?.participants?.length || 0) + (normalizedWorkshop?.familyRegistrations?.length || 0),
+    workshopKey: w.workshopKey,
+    mongoId: w.mongoId,
+
+    title: w.title,
+    type: w.type,
+    description: w.description,
+    ageGroup: w.ageGroup,
+    coach: w.coach,
+    city: w.city,
+    address: w.address,
+    studio: w.studio,
+    days: w.days,
+    hour: w.hour,
+    price: w.price,
+    image: w.image,
+    available: w.available,
+    maxParticipants: w.maxParticipants,
+    sessionsCount: w.sessionsCount,
+
     participants,
     familyRegistrations,
     userFamilyRegistrations: familyKeysForUser,
@@ -179,8 +181,13 @@ const formatRegistration = ({
     isUserRegistered,
     isUserInWaitlist,
     familyMembersInWaitlist,
+
+    participantsCount:
+      w.participantsCount ??
+      participants.length + familyRegistrations.length,
   };
 };
+
 
 /* ============================================================
    🔍 Workshop Search Helpers
