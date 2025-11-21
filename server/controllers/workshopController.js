@@ -1031,24 +1031,29 @@ exports.registerEntityToWorkshop = async (req, res) => {
         city: member.city,
       });
 
-      const existing = parentUser.familyWorkshopMap.find((f) =>
-        String(f.familyMemberId) === String(member._id)
-      );
-      if (existing) {
-        if (!existing.workshops.some((wid) => String(wid) === String(workshop._id))) {
-          existing.workshops.push(workshop._id);
-        }
-      } else {
-        parentUser.familyWorkshopMap.push({
-          familyMemberId: member._id,
-          workshops: [workshop._id],
-        });
-      }
+      const hashed = workshop.hashedId || encodeId(workshop._id.toString());
+
+const existing = parentUser.familyWorkshopMap.find(
+  (f) => String(f.familyMemberId) === String(member._id)
+);
+
+if (existing) {
+  if (!existing.workshops.includes(hashed)) {
+    existing.workshops.push(hashed);
+  }
+} else {
+  parentUser.familyWorkshopMap.push({
+    familyMemberId: member._id,
+    workshops: [hashed],
+  });
+}
+
     } else {
       workshop.participants.push(actingParentId);
-      if (!parentUser.userWorkshopMap.includes(workshop._id)) {
-        parentUser.userWorkshopMap.push(workshop._id);
-      }
+
+      if (!parentUser.userWorkshopMap.includes(hashed)) {
+  parentUser.userWorkshopMap.push(hashed);
+}
     }
 
     await workshop.save();
