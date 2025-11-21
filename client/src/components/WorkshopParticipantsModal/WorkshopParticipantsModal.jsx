@@ -209,30 +209,42 @@ const dedupeByEntityKey = (list) => {
 }, []);
 
 
-  const resolvedWorkshop = useMemo(
-    () => workshop || selectedWorkshopFromContext || {},
-    [workshop, selectedWorkshopFromContext]
-  );
+  /* --------------------------------------------------------
+   WORKSHOP ID NORMALIZATION (USE hashedId ONLY)
+   -------------------------------------------------------- */
 
- const workshopId = useMemo(() => {
-  return String(resolvedWorkshop?.workshopKey || "");
-}, [resolvedWorkshop]);
+/** pick source workshop */
+const resolvedWorkshop = useMemo(
+  () => workshop || selectedWorkshopFromContext || {},
+  [workshop, selectedWorkshopFromContext]
+);
 
-  // FIXED: subscribe to WorkshopContext for live participants/waitlist metadata
-  const contextWorkshop = useMemo(() => {
-    if (!workshopId) return null;
-return (workshops || []).find((w) => String(w.workshopKey) === workshopId) || null;
-  }, [workshops, workshopId]);
+/** client-facing workshop ID = hashedId = _id */
+const workshopId = useMemo(
+  () => String(resolvedWorkshop?._id || ""),
+  [resolvedWorkshop]
+);
 
-  const activeWorkshop = useMemo(
+/** resolve workshop from context using hashedId */
+const contextWorkshop = useMemo(() => {
+  if (!workshopId) return null;
+  return (workshops || []).find(
+    (w) => String(w?._id) === workshopId
+  ) || null;
+}, [workshops, workshopId]);
+
+/** final workshop object */
+const activeWorkshop = useMemo(
   () => contextWorkshop || resolvedWorkshop || {},
   [contextWorkshop, resolvedWorkshop]
 );
 
+/** ALWAYS use hashedId for server routes */
 const activeWorkshopId = useMemo(
-  () => String(activeWorkshop?.workshopKey || workshopId || ""),
-  [activeWorkshop, workshopId]
+  () => String(activeWorkshop?._id || ""),
+  [activeWorkshop]
 );
+
 
 
   const participantsTotal = useMemo(() => {
