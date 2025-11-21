@@ -473,109 +473,138 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const registerEntityToWorkshop = async (workshopKey, entityKey = null) => {
-    dbgCtx("registerEntity:start", { workshopKey, entityKey });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/register-entity`, {
-        method: "POST",
-        body: JSON.stringify(entityKey ? { entityKey } : {}),
-      });
-      const data = await res.json();
-      dbgCtx("registerEntity:raw-response", { ok: res.ok, message: data?.message });
+  const registerEntityToWorkshop = async (workshopKey, entityKey) => {
+  dbgCtx("registerEntity:start", { workshopKey, entityKey });
 
-      if (!res.ok) throw new Error(data.message || "Failed to register");
+  if (!entityKey) {
+    console.error("❌ registerEntityToWorkshop called WITHOUT entityKey");
+    return { success: false, message: "Missing entityKey" };
+  }
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("registerEntity:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ registerEntityToWorkshop error:", err);
-      dbgCtx("registerEntity:error", { workshopKey, entityKey, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopKey}/register-entity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entityKey }),
+    });
 
-  const unregisterEntityFromWorkshop = async (workshopKey, entityKey = null) => {
-    dbgCtx("unregisterEntity:start", { workshopKey, entityKey });
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/unregister-entity`, {
-        method: "DELETE",
-        body: JSON.stringify(entityKey ? { entityKey } : {}),
-      });
-      const data = await res.json();
-      dbgCtx("unregisterEntity:raw-response", { ok: res.ok, message: data?.message });
+    const data = await res.json();
+    dbgCtx("registerEntity:raw-response", { ok: res.ok, message: data?.message });
 
-      if (!res.ok) throw new Error(data.message || "Failed to unregister");
+    if (!res.ok) throw new Error(data.message || "Failed to register");
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("unregisterEntity:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (err) {
-      console.error("❌ unregisterEntityFromWorkshop error:", err);
-      dbgCtx("unregisterEntity:error", { workshopKey, entityKey, message: err.message });
-      return { success: false, message: err.message };
-    }
-  };
+    // 🔥 Always refresh after modifying workshop state
+    await fetchAllWorkshops(true);
+    await fetchRegisteredWorkshops();
+    await fetchProfiles();
+
+    dbgCtx("registerEntity:success", { workshopKey, entityKey });
+    return { success: true, data };
+  } catch (err) {
+    console.error("❌ registerEntityToWorkshop error:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+
+ const unregisterEntityFromWorkshop = async (workshopKey, entityKey) => {
+  dbgCtx("unregisterEntity:start", { workshopKey, entityKey });
+
+  if (!entityKey) {
+    console.error("❌ unregisterEntityFromWorkshop called WITHOUT entityKey");
+    return { success: false, message: "Missing entityKey" };
+  }
+
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopKey}/unregister-entity`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entityKey }),
+    });
+
+    const data = await res.json();
+    dbgCtx("unregisterEntity:raw-response", { ok: res.ok, message: data?.message });
+
+    if (!res.ok) throw new Error(data.message || "Failed to unregister");
+
+    await fetchAllWorkshops(true);
+    await fetchRegisteredWorkshops();
+    await fetchProfiles();
+
+    dbgCtx("unregisterEntity:success", { workshopKey, entityKey });
+    return { success: true, data };
+  } catch (err) {
+    console.error("❌ unregisterEntityFromWorkshop error:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+
 
   const registerToWaitlist = async (workshopKey, entityKey) => {
-    dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
-    const body = entityKey ? { entityKey } : {};
+  dbgCtx("waitlistRegister:start", { workshopKey, entityKey });
 
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
+  if (!entityKey) {
+    console.error("❌ registerToWaitlist called WITHOUT entityKey");
+    return { success: false, message: "Missing entityKey" };
+  }
 
-      const data = await res.json();
-      dbgCtx("waitlistRegister:raw-response", { ok: res.ok, message: data?.message });
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entityKey }),
+    });
 
-      if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
+    const data = await res.json();
+    dbgCtx("waitlistRegister:raw-response", { ok: res.ok, message: data?.message });
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("waitlistRegister:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (e) {
-      dbgCtx("waitlistRegister:error", e);
-      return { success: false, message: e?.message || "Waitlist registration failed" };
-    }
-  };
+    if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
 
-  const unregisterFromWaitlist = async (workshopKey, entityKey) => {
-    dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
-    const body = entityKey ? { entityKey } : {};
+    await fetchAllWorkshops(true);
+    await fetchRegisteredWorkshops();
+    await fetchProfiles();
+    dbgCtx("waitlistRegister:success", { workshopKey, entityKey });
+    return { success: true, data };
+  } catch (e) {
+    console.error("❌ registerToWaitlist error:", e);
+    dbgCtx("waitlistRegister:error", { workshopKey, entityKey, message: e?.message });
+    return { success: false, message: e?.message || "Waitlist registration failed" };
+  }
+};
 
-    try {
-      const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+const unregisterFromWaitlist = async (workshopKey, entityKey) => {
+  dbgCtx("waitlistUnregister:start", { workshopKey, entityKey });
 
-      const data = await res.json();
-      dbgCtx("waitlistUnregister:raw-response", { ok: res.ok, message: data?.message });
+  if (!entityKey) {
+    console.error("❌ unregisterFromWaitlist called WITHOUT entityKey");
+    return { success: false, message: "Missing entityKey" };
+  }
 
-      if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
+  try {
+    const res = await apiFetch(`/api/workshops/${workshopKey}/waitlist-entity`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entityKey }),
+    });
 
-      await fetchAllWorkshops(true);
-      await fetchRegisteredWorkshops();
-      await fetchProfiles();
-      dbgCtx("waitlistUnregister:success", { workshopKey, entityKey });
-      return { success: true, data };
-    } catch (e) {
-      dbgCtx("waitlistUnregister:error", e);
-      return { success: false, message: e?.message || "Waitlist removal failed" };
-    }
-  };
+    const data = await res.json();
+    dbgCtx("waitlistUnregister:raw-response", { ok: res.ok, message: data?.message });
+
+    if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
+
+    await fetchAllWorkshops(true);
+    await fetchRegisteredWorkshops();
+    await fetchProfiles();
+    dbgCtx("waitlistUnregister:success", { workshopKey, entityKey });
+    return { success: true, data };
+  } catch (e) {
+    console.error("❌ unregisterFromWaitlist error:", e);
+    dbgCtx("waitlistUnregister:error", { workshopKey, entityKey, message: e?.message });
+    return { success: false, message: e?.message || "Waitlist removal failed" };
+  }
+};
+
 
   /* ============================================================
    🛠️ Admin: Create & Update Workshops
