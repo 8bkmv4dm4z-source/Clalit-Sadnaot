@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const nodeCrypto = require("node:crypto");
 const { encodeId } = require("../utils/hashId");
-const { resolveOpaqueId } = require("../services/entities/resolveEntity");
 
 /* ============================================================
    🧱 Workshop Schema — Optimized for High-Performance Search
@@ -19,17 +18,16 @@ const WorkshopSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+
     title: { type: String, required: true, trim: true },
     type: { type: String, default: "", trim: true },
     ageGroup: { type: String, default: "", trim: true },
 
-    /** 📍 Location (Validated City + Address) */
     city: { type: String, required: true, trim: true },
     address: { type: String, default: "", trim: true },
     studio: { type: String, default: "", trim: true },
     coach: { type: String, default: "", trim: true },
 
-    /** 🗓 Scheduling */
     days: {
       type: [String],
       default: [],
@@ -38,84 +36,85 @@ const WorkshopSchema = new mongoose.Schema(
         message: "At least one meeting day is required",
       },
     },
+
     hour: { type: String, default: "", trim: true },
     sessionsCount: { type: Number, default: 4, min: 1 },
     startDate: { type: Date },
     endDate: { type: Date },
     inactiveDates: { type: [Date], default: [] },
 
-    /** 📋 Details */
     available: { type: Boolean, default: true },
     description: { type: String, default: "" },
     price: { type: Number, default: 0 },
     image: { type: String, default: "" },
 
     /** 👥 Participants */
-    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" ,  set: resolveOpaqueId
-}],
-   familyRegistrations: [{
-  parentUser: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    set: resolveOpaqueId
-  },
-  familyMemberId: {
-    type: mongoose.Schema.Types.ObjectId,
-    set: resolveOpaqueId
-  },
-  name: String,
-  relation: String,
-  idNumber: String,
-  phone: String,
-  birthDate: Date
-}],
+    participants: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      }
+    ],
 
+    familyRegistrations: [
+      {
+        parentUser: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        familyMemberId: {
+          type: mongoose.Schema.Types.ObjectId,
+        },
+        parentKey: { type: String, default: "" },
+        familyMemberKey: { type: String, default: "" },
+        name: String,
+        relation: String,
+        idNumber: String,
+        phone: String,
+        birthDate: Date,
+      },
+    ],
 
-waitingList: [
-  {
-    parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    familyMemberId: { type: mongoose.Schema.Types.ObjectId },
-    parentKey: { type: String, default: "" },
-    familyMemberKey: { type: String, default: "" },
-    name: { type: String, default: "" },
-    relation: { type: String, default: "" },
-    idNumber: { type: String, default: "" },
-    phone: { type: String, default: "" },
-    birthDate: { type: String, default: "" },
-  },
-],
+    waitingList: [
+      {
+        parentUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        familyMemberId: { type: mongoose.Schema.Types.ObjectId },
+        parentKey: { type: String, default: "" },
+        familyMemberKey: { type: String, default: "" },
+        name: { type: String, default: "" },
+        relation: { type: String, default: "" },
+        idNumber: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        birthDate: { type: String, default: "" },
+      },
+    ],
 
     waitingListMax: { type: Number, default: 10, min: 0 },
     autoEnrollOnVacancy: { type: Boolean, default: false },
 
-    /** 📊 Counters */
     participantsCount: { type: Number, default: 0 },
     maxParticipants: { type: Number, default: 20, min: 0 },
   },
   { timestamps: true }
 );
 
+/* ============================================================
+   Auto calc hashedId + endDate
+   ============================================================ */
 WorkshopSchema.pre("validate", function (next) {
-  if (!this.workshopKey) {
-    this.workshopKey = nodeCrypto.randomUUID();
-  }
+  if (!this.workshopKey) this.workshopKey = nodeCrypto.randomUUID();
   next();
 });
 
 WorkshopSchema.pre("save", function (next) {
-  if (!this.hashedId && this._id) {
-    this.hashedId = encodeId(this._id);
-  }
+  if (!this.hashedId && this._id) this.hashedId = encodeId(this._id);
   next();
 });
 
-/* ============================================================
-   🧮 Middleware — Auto calculate endDate (with inactiveDates)
-   ============================================================ */
 WorkshopSchema.pre("save", function (next) {
   try {
-    if (this.startDate && Array.isArray(this.days) && this.days.length > 0 && this.sessionsCount) {
-      const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    if (this.startDate && this.days?.length > 0 && this.sessionsCount) {
+      const weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const start = new Date(this.startDate);
       let sessions = 0;
       const current = new Date(start);
@@ -137,46 +136,41 @@ WorkshopSchema.pre("save", function (next) {
       this.endDate = current;
     }
 
-    // ✅ Auto update participant count
-    const familyCount = this.familyRegistrations?.length || 0;
-    const directCount = this.participants?.length || 0;
-    this.participantsCount = directCount + familyCount;
+    this.participantsCount =
+      (this.participants?.length || 0) +
+      (this.familyRegistrations?.length || 0);
 
     next();
   } catch (err) {
-    console.warn("⚠️ Error calculating endDate:", err.message);
+    console.warn("⚠️ endDate calc error:", err.message);
     next();
   }
 });
 
 /* ============================================================
-   ✅ Helper — Capacity check
+   Capacity function
    ============================================================ */
 WorkshopSchema.methods.canAddParticipant = function () {
   if (this.maxParticipants === 0) return true;
-  const total = (this.participants?.length || 0) + (this.familyRegistrations?.length || 0);
-  return total < this.maxParticipants;
+  return (
+    this.participants.length + this.familyRegistrations.length <
+    this.maxParticipants
+  );
 };
 
 /* ============================================================
-   ⚙️ Index Layer — for Search & Filters
+   Indexes
    ============================================================ */
-
-// 🎯 Single-field indexes
 WorkshopSchema.index({ city: 1 });
 WorkshopSchema.index({ coach: 1 });
 WorkshopSchema.index({ type: 1 });
 WorkshopSchema.index({ available: 1 });
 WorkshopSchema.index({ startDate: 1 });
-
-// ⚙️ Compound index (used by admin dashboards & filters)
 WorkshopSchema.index({ city: 1, coach: 1, type: 1, available: 1 });
 
-// 📦 Multikey indexes for family registration lookups
 WorkshopSchema.index({ "familyRegistrations.familyMemberId": 1 });
 WorkshopSchema.index({ "familyRegistrations.idNumber": 1 });
 
-// 🧠 Weighted text index for smart search
 WorkshopSchema.index(
   {
     title: "text",
