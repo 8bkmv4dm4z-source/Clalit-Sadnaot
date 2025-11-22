@@ -13,7 +13,8 @@
  * - Never hold stale data: every mutation refetches from server.
  */
 
-import React, {
+import React,
+{
   createContext,
   useContext,
   useEffect,
@@ -81,27 +82,26 @@ export const WorkshopProvider = ({ children }) => {
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
 
   // Derived maps (context-only, never mutated directly)
-  const [userWorkshopMap, setUserWorkshopMap] = useState({}); // { [workshopId]: true }
+  const [userWorkshopMap, setUserWorkshopMap] = useState({});   // { [workshopId]: true }
   const [familyWorkshopMap, setFamilyWorkshopMap] = useState({}); // { [workshopId]: [familyId,...] }
   const [mapsReady, setMapsReady] = useState(false);
 
   /* ───────────────────────── Derived user/family info ───────────────────────── */
 
   const userKey = useMemo(() => {
-  return user?.entityKey ? sid(user.entityKey) : "";
-}, [user]);
+    return user?.entityKey ? sid(user.entityKey) : "";
+  }, [user]);
 
   const familyMembersList = useMemo(
-  () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
-  [user]
-);
-
+    () => (Array.isArray(user?.familyMembers) ? user.familyMembers : []),
+    [user]
+  );
 
   // Signatures so that we only recompute maps when relevant identity changes
   const familyMembersSignature = useMemo(
-  () => familyMembersList.map((m) => sid(m.entityKey)).join(","),
-  [familyMembersList]
-);
+    () => familyMembersList.map((m) => sid(m.entityKey)).join(","),
+    [familyMembersList]
+  );
 
   const workshopsSignature = useMemo(
     () => (workshops || []).map((w) => w._id).join(","),
@@ -111,103 +111,173 @@ export const WorkshopProvider = ({ children }) => {
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
- async function fetchAllWorkshops(force = false) {
-  log(`📡 Fetching all workshops (force=${force})`);
-  dbgCtx("fetchAllWorkshops:start", { force });
-  setLoading(true);
-  setError(null);
+  async function fetchAllWorkshops(force = false) {
+    log(`📡 Fetching all workshops (force=${force})`);
+    dbgCtx("fetchAllWorkshops:start", { force });
+    setLoading(true);
+    setError(null);
 
-  try {
-    const res = await apiFetch("/api/workshops");
-    const raw = await res.json();
+    try {
+      const res = await apiFetch("/api/workshops");
+      const raw = await res.json();
 
-    dbgCtx("fetchAllWorkshops:raw-response", {
-      ok: res.ok,
-      rawType: typeof raw,
-      hasData: Array.isArray(raw?.data),
-    });
+      dbgCtx("fetchAllWorkshops:raw-response", {
+        ok: res.ok,
+        rawType: typeof raw,
+        hasData: Array.isArray(raw?.data),
+      });
 
-    // Accept all backend formats safely
-    const data =
-      Array.isArray(raw?.data)
-        ? raw.data
-        : Array.isArray(raw?.workshops)
-        ? raw.workshops
-        : Array.isArray(raw)
-        ? raw
-        : [];
+      // Accept all backend formats safely
+      const data =
+        Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray(raw?.workshops)
+          ? raw.workshops
+          : Array.isArray(raw)
+          ? raw
+          : [];
 
-    if (!res.ok) {
-      throw new Error(raw?.message || "Failed to load workshops");
+      if (!res.ok) {
+        throw new Error(raw?.message || "Failed to load workshops");
+      }
+
+      const list = Array.isArray(data) ? data : [];
+
+      const normalizedList = list
+        .map((w, idx) => {
+          const wid = sid(
+            w.workshopKey ||
+              w._id ||
+              w.hashedId ||
+              ""
+          );
+
+          if (!wid || /^[0-9]+$/.test(wid)) {
+            console.warn("⚠ Invalid workshop identifier received:", {
+              idx,
+              rawId: { workshopKey: w.workshopKey, _id: w._id, hashedId: w.hashedId },
+              title: w.title,
+            });
+            return null;
+          }
+
+          /* ---------------- participants: true entities ---------------- */
+          const participantsRaw = Array.isArray(w.participants)
+            ? w.participants
+            : [];
+
+          const participants = participantsRaw.map((p) =>
+            typeof p === "string"
+              ? normalizeEntity({ entityKey: p })
+              : normalizeEntity(p)
+          );
+
+          /* ---------------- waitingList: relation rows ---------------- */
+          const waitingList = Array.isArray(w.waitingList)
+            ? w.waitingList.map((wl) => {
+                // parent
+                let parentKey = sid(
+                  wl.parentUser?.entityKey ??
+                    wl.parentUser ??
+                    wl.parentKey ??
+                    ""
+                );
+
+                // entity (self or family member)
+                const entityRaw =
+                  wl.entityKey?.entityKey ??
+                  wl.entityKey ??
+                  wl.familyMemberId?.entityKey ??
+                  wl.familyMemberId ??
+                  wl.familyMemberKey ??
+                  "";
+
+                const entityKey = sid(entityRaw);
+
+                // if backend didn't explicitly set parentUser for self rows,
+                // align parentKey with entityKey so UI logic (selfOnWaitlist)
+                // can do parentKey === userKey && entityKey === userKey
+                if (!parentKey && entityKey) {
+                  parentKey = entityKey;
+                }
+
+                const isSelf = parentKey && entityKey && parentKey === entityKey;
+
+                const memberKey = isSelf ? "" : entityKey;
+
+                return {
+                  ...wl,
+                  parentUser: parentKey || null,
+                  parentKey: parentKey || null,
+                  entityKey: entityKey || "",
+                  familyMemberId: memberKey || null,
+                  familyMemberKey: memberKey || null,
+                };
+              })
+            : [];
+
+          /* ---------------- familyRegistrations: relation rows ---------------- */
+          const familyRegistrations = Array.isArray(w.familyRegistrations)
+            ? w.familyRegistrations.map((fr) => {
+                const parentKey = sid(
+                  fr.parentUser?.entityKey ??
+                    fr.parentUser ??
+                    fr.parentKey ??
+                    ""
+                );
+                const memberKey = sid(
+                  fr.familyMemberId?.entityKey ??
+                    fr.familyMemberId ??
+                    fr.familyMemberKey ??
+                    ""
+                );
+
+                return {
+                  ...fr,
+                  parentUser: parentKey || null,
+                  parentKey: parentKey || null,
+                  familyMemberId: memberKey || null,
+                  familyMemberKey: memberKey || null,
+                  relation: fr.relation || "",
+                };
+              })
+            : [];
+
+          /* ---------------- userFamilyRegistrations: id list ---------------- */
+          const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+            ? w.userFamilyRegistrations.map((id) => sid(id))
+            : [];
+
+          /* ---------------- isUserRegistered ---------------- */
+          const isUserRegistered =
+            !!w.isUserRegistered ||
+            (userKey &&
+              participants.some((p) => sid(p.entityKey) === userKey));
+
+          return {
+            ...w,
+            _id: wid,
+            workshopKey: wid,
+            participants,
+            waitingList,
+            userFamilyRegistrations,
+            familyRegistrations,
+            isUserRegistered,
+          };
+        })
+        .filter(Boolean); // clean list
+
+      log(`✅ Workshops loaded (${normalizedList.length})`);
+      setWorkshops(normalizedList);
+      return normalizedList;
+    } catch (err) {
+      console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
+      setError(err.message);
+      return [];
+    } finally {
+      setLoading(false);
     }
-
-    const list = Array.isArray(data) ? data : [];
-
-    const normalizedList = list
-      .map((w, idx) => {
-        const wid = sid(
-          w.workshopKey ||
-            w._id ||
-            w.hashedId ||
-            ""
-        );
-
-        if (!wid || /^[0-9]+$/.test(wid)) {
-          console.warn("⚠ Invalid workshop identifier received:", {
-            idx,
-            rawId: { workshopKey: w.workshopKey, _id: w._id, hashedId: w.hashedId },
-            title: w.title,
-          });
-          return null;
-        }
-
-       const participants = Array.isArray(w.participants)
-  ? w.participants.map(normalizeEntity)
-  : [];
-
-
-const waitingList = Array.isArray(w.waitingList)
-  ? w.waitingList.map(normalizeEntity)
-  : [];
-
-const familyRegistrations = Array.isArray(w.familyRegistrations)
-  ? w.familyRegistrations.map(normalizeEntity)
-  : [];
-
-const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
-  ? w.userFamilyRegistrations.map((id) => sid(id))
-  : [];
-
-
-        const isUserRegistered =
-          !!w.isUserRegistered ||
-          (userKey && participants.some((p) => sid(p) === userKey));
-
-        return {
-          ...w,
-          _id: wid,
-          workshopKey: wid,
-          participants,
-          waitingList,
-          userFamilyRegistrations,
-          familyRegistrations,
-          isUserRegistered,
-        };
-      })
-      .filter(Boolean); // clean list
-
-    log(`✅ Workshops loaded (${normalizedList.length})`);
-    setWorkshops(normalizedList);
-    return normalizedList;
-  } catch (err) {
-    console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
-    setError(err.message);
-    return [];
-  } finally {
-    setLoading(false);
   }
-}
-
 
   /* 👈 NEW: initial fetch on mount (public view works even before auth events) */
   useEffect(() => {
@@ -354,17 +424,16 @@ const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
     for (const w of list) {
       const wid = sid(w?.workshopKey || w?._id || w?.id);
 
-      // user map: prefer isUserRegistered; otherwise check participants
+      /* ---- user map ---- */
       if (w?.isUserRegistered) {
         uMap[wid] = true;
       } else if (Array.isArray(w?.participants)) {
-        if (w.participants.some((p) => sid(p) === currentUserId)) {
+        if (w.participants.some((p) => sid(p.entityKey) === currentUserId)) {
           uMap[wid] = true;
         }
       }
 
-      // family map: union of userFamilyRegistrations and familyRegistrations
-      // where parentUser === current user; then filter to current user's familyIds
+      /* ---- family map (union of userFamilyRegistrations + familyRegistrations) ---- */
       const famSet = new Set();
 
       if (Array.isArray(w?.userFamilyRegistrations)) {
@@ -376,18 +445,8 @@ const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
 
       if (Array.isArray(w?.familyRegistrations)) {
         for (const fr of w.familyRegistrations) {
-          const parent =
-            fr?.parentUser != null
-              ? sid(fr.parentUser)
-              : fr?.parentKey != null
-              ? sid(fr.parentKey)
-              : null;
-          const memberId =
-            fr?.familyMemberId != null
-              ? sid(fr.familyMemberId)
-              : fr?.familyMemberKey != null
-              ? sid(fr.familyMemberKey)
-              : null;
+          const parent = sid(fr.parentUser);
+          const memberId = sid(fr.familyMemberId);
           if (parent && memberId && parent === currentUserId) {
             famSet.add(memberId);
           }
