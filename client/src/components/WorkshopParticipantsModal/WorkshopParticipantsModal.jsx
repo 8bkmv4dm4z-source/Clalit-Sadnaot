@@ -36,7 +36,8 @@ import { apiFetch } from "../../utils/apiFetch";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAuth } from "../../layouts/AuthLayout";
 import AllProfiles from "../../pages/AllProfiles";
-import { getEntityIdentifiers, withEntityFlags } from "../../utils/entityTypes";
+import { getEntityIdentifiers } from "../../utils/entityTypes";
+import { normalizeEntity } from "../../utils/normalizeEntity";
 
 const calcAge = (d) => {
   if (!d) return null;
@@ -183,30 +184,6 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     return [...map.values()];
   };
 
-  const normalizeEntity = useCallback((entity) => {
-    const flagged = withEntityFlags(entity);
-    const entityKey =
-      flagged.entityKey ||
-      flagged.familyMemberKey ||
-      flagged.parentKey ||
-      flagged._id ||
-      "";
-
-    return {
-      ...flagged,
-      entityKey,
-      __entityKey: flagged.parentKey
-        ? `${flagged.parentKey}:${entityKey}`
-        : entityKey,
-      phone: flagged.phone || "",
-      email: flagged.email || "",
-      city: flagged.city || "",
-      birthDate: flagged.birthDate || null,
-      name: flagged.name || "",
-      relation: flagged.relation || "",
-      parentName: flagged.parentName || "",
-    };
-  }, []);
 
   /* --------------------------------------------------------
    WORKSHOP ID NORMALIZATION (USE hashedId ONLY)
