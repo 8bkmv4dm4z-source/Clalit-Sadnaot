@@ -380,22 +380,54 @@ exports.getAllWorkshops = async (req, res) => {
     const ownerKey = req.user?.entityKey || null;
 
     let workshops = await Workshop.find({})
-      .populate("participants", "entityKey name email phone city")
-      .populate("familyRegistrations.familyMemberId", "entityKey name relation")
-      .populate("familyRegistrations.parentUser", "entityKey name email phone")
-      .populate("waitingList.parentUser", "entityKey name email phone")
-      .populate("waitingList.familyMemberId", "entityKey name relation");
+      .populate(
+  "participants",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "familyRegistrations.familyMemberId",
+  "entityKey name relation phone city birthDate idNumber"
+)
+.populate(
+  "familyRegistrations.parentUser",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "waitingList.parentUser",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "waitingList.familyMemberId",
+  "entityKey name relation phone city birthDate idNumber"
+);
+
 
     // 🧹 Clean stale entities + reload each document cleanly
     for (let i = 0; i < workshops.length; i++) {
       await removeStaleParticipants(workshops[i]);
 
       workshops[i] = await Workshop.findById(workshops[i]._id)
-        .populate("participants", "entityKey name email phone city")
-        .populate("familyRegistrations.familyMemberId", "entityKey name relation")
-        .populate("familyRegistrations.parentUser", "entityKey name email phone")
-        .populate("waitingList.parentUser", "entityKey name email phone")
-        .populate("waitingList.familyMemberId", "entityKey name relation");
+        .populate(
+  "participants",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "familyRegistrations.familyMemberId",
+  "entityKey name relation phone city birthDate idNumber"
+)
+.populate(
+  "familyRegistrations.parentUser",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "waitingList.parentUser",
+  "entityKey name email phone city birthDate idNumber"
+)
+.populate(
+  "waitingList.familyMemberId",
+  "entityKey name relation phone city birthDate idNumber"
+);
+
     }
 
     const result = workshops.map((w) => {
