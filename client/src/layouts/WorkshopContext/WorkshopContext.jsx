@@ -162,8 +162,9 @@ export const WorkshopProvider = ({ children }) => {
         }
 
        const participants = Array.isArray(w.participants)
-  ? w.participants.map((p) => sid(p.entityKey || p))
+  ? w.participants.map(normalizeEntity)
   : [];
+
 
 const waitingList = Array.isArray(w.waitingList)
   ? w.waitingList.map(normalizeEntity)
