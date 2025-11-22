@@ -138,10 +138,14 @@ export default function WorkshopCard({
           .join(", ")
       : null;
 
-  const participantIdSet = useMemo(
-    () => new Set(participantsArr.map((p) => str(p))),
-    [participantsArr]
+  const participantIdSet = useMemo(() => {
+  return new Set(
+    participantsArr
+      .map((p) => str(p?.entityKey || p))   // <— FIX
+      .filter(Boolean)
   );
+}, [participantsArr]);
+
 
   // -------- Normalize waitlist --------
   const waitRows = useMemo(() => {
