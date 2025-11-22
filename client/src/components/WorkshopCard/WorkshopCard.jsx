@@ -59,13 +59,10 @@ export default function WorkshopCard({
   const wid = str(_id);
 
   // -------- Workshop lookup --------
-  const workshop = useMemo(
-    () =>
-      Array.isArray(workshops)
-        ? workshops.find((w) => str(w._id) === wid) || {}
-        : {},
-    [workshops, wid]
-  );
+  const workshop = Array.isArray(workshops)
+  ? workshops.find((w) => str(w._id) === wid) || {}
+  : {};
+
 
   const adminEnabled = typeof isAdminProp === "boolean" ? isAdminProp : isAdmin;
 
