@@ -57,7 +57,6 @@ function QuickEdit({ person, onClose, onSaved }) {
     city: person?.city || "",
     birthDate: person?.birthDate ? String(person.birthDate).slice(0, 10) : "",
     idNumber: person?.idNumber || "",
-    relation: person?.relation || "",
   }));
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -126,16 +125,6 @@ function QuickEdit({ person, onClose, onSaved }) {
               />
             </label>
           ))}
-          {person.isFamily && (
-            <label className="flex flex-col">
-              קרבה:
-              <input
-                className="mt-1 border rounded-lg px-3 py-2"
-                value={form.relation}
-                onChange={(e) => update("relation", e.target.value)}
-              />
-            </label>
-          )}
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
@@ -183,6 +172,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   const [message, setMessage] = useState(null);
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
+
   const dedupeByEntityKey = (list) => {
     const map = new Map();
     for (const item of list) {
@@ -205,7 +195,9 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     return {
       ...flagged,
       entityKey,
-      __entityKey: flagged.parentKey ? `${flagged.parentKey}:${entityKey}` : entityKey,
+      __entityKey: flagged.parentKey
+        ? `${flagged.parentKey}:${entityKey}`
+        : entityKey,
       phone: flagged.phone || "",
       email: flagged.email || "",
       city: flagged.city || "",
@@ -216,46 +208,40 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     };
   }, []);
 
-
   /* --------------------------------------------------------
    WORKSHOP ID NORMALIZATION (USE hashedId ONLY)
    -------------------------------------------------------- */
 
-/** pick source workshop */
-const resolvedWorkshop = useMemo(
-  () => workshop || selectedWorkshopFromContext || {},
-  [workshop, selectedWorkshopFromContext]
-);
-
-/** client-facing workshop ID = hashedId = _id */
-const workshopId = useMemo(
-  () => String(resolvedWorkshop?._id || ""),
-  [resolvedWorkshop]
-);
-
-/** resolve workshop from context using hashedId */
-const contextWorkshop = useMemo(() => {
-  if (!workshopId) return null;
-  return (workshops || []).find(
-    (w) => String(w?._id) === workshopId
-  ) || null;
-}, [workshops, workshopId]);
-
-/** final workshop object */
-const activeWorkshop = useMemo(
-  () => contextWorkshop || resolvedWorkshop || {},
-  [contextWorkshop, resolvedWorkshop]
-);
-
-/** ALWAYS use hashedId for server routes */
-const activeWorkshopId = useMemo(() => {
-  return (
-    activeWorkshop?.hashedId ||
-    activeWorkshop?._id || // fallback
-    workshopId || "" 
+  /** pick source workshop */
+  const resolvedWorkshop = useMemo(
+    () => workshop || selectedWorkshopFromContext || {},
+    [workshop, selectedWorkshopFromContext]
   );
-}, [activeWorkshop, workshopId]);
 
+  /** client-facing workshop ID = hashedId = _id */
+  const workshopId = useMemo(
+    () => String(resolvedWorkshop?._id || ""),
+    [resolvedWorkshop]
+  );
+
+  /** resolve workshop from context using hashedId */
+  const contextWorkshop = useMemo(() => {
+    if (!workshopId) return null;
+    return (
+      (workshops || []).find((w) => String(w?._id) === workshopId) || null
+    );
+  }, [workshops, workshopId]);
+
+  /** final workshop object */
+  const activeWorkshop = useMemo(
+    () => contextWorkshop || resolvedWorkshop || {},
+    [contextWorkshop, resolvedWorkshop]
+  );
+
+  /** ALWAYS use hashedId for server routes */
+  const activeWorkshopId = useMemo(() => {
+    return activeWorkshop?.hashedId || activeWorkshop?._id || workshopId || "";
+  }, [activeWorkshop, workshopId]);
 
   const participantsTotal = useMemo(() => {
     if (participants.length > 0) return participants.length;
@@ -291,7 +277,9 @@ const activeWorkshopId = useMemo(() => {
 
   const existingKeys = useMemo(
     () =>
-      [...participants, ...waitlist].map((p) => p.__entityKey || getEntityIdentifiers(p).key),
+      [...participants, ...waitlist].map(
+        (p) => p.__entityKey || getEntityIdentifiers(p).key
+      ),
     [participants, waitlist]
   );
 
@@ -301,123 +289,128 @@ const activeWorkshopId = useMemo(() => {
   }, [participantsTotal, capacityLimit]);
 
   /** Load both lists */
-  const fetchAll = useCallback(async () => {
-    if (!activeWorkshopId) return;
-    setLoading(true);
-    try {
-      const [resP, resW] = await Promise.all([
-        apiFetch(`/api/workshops/${activeWorkshopId}/participants`),
-        apiFetch(`/api/workshops/${activeWorkshopId}/waitlist`),
-      ]);
-      const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
-      if (!resP.ok) throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
-      if (!resW.ok) throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
-      const participantList = Array.isArray(dataP.participants) ? dataP.participants : [];
-const cleanedParticipants = dedupeByEntityKey(
-  participantList.map(normalizeEntity)
-);
-setParticipants(cleanedParticipants);
-      // 🐛 server returns an object { success, count, waitingList }.
-      // The previous code assumed the response itself was an array,
-      // so waitlisted entries were discarded and the modal stayed empty.
-      const normalizedWaitlist = Array.isArray(dataW?.waitingList)
-        ? dataW.waitingList
-        : Array.isArray(dataW)
-        ? dataW
-        : [];
+  const fetchAll = useCallback(
+    async () => {
+      if (!activeWorkshopId) return;
+      setLoading(true);
+      try {
+        const [resP, resW] = await Promise.all([
+          apiFetch(`/api/workshops/${activeWorkshopId}/participants`),
+          apiFetch(`/api/workshops/${activeWorkshopId}/waitlist`),
+        ]);
+        const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
+        if (!resP.ok)
+          throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
+        if (!resW.ok)
+          throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
 
-const cleanedWaitlist = dedupeByEntityKey(
-  normalizedWaitlist.map(normalizeEntity)
-);
-setWaitlist(cleanedWaitlist);    } catch (e) {
-      // SECURITY FIX: log only sanitized error messages (no stack traces)
-      console.error("❌ fetchAll", e?.message || e);
-      setMessage("❌ " + e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeWorkshopId, normalizeEntity]);
+        const participantList = Array.isArray(dataP.participants)
+          ? dataP.participants
+          : [];
+        const cleanedParticipants = dedupeByEntityKey(
+          participantList.map(normalizeEntity)
+        );
+        setParticipants(cleanedParticipants);
+
+        const normalizedWaitlist = Array.isArray(dataW?.waitingList)
+          ? dataW.waitingList
+          : Array.isArray(dataW)
+          ? dataW
+          : [];
+
+        const cleanedWaitlist = dedupeByEntityKey(
+          normalizedWaitlist.map(normalizeEntity)
+        );
+        setWaitlist(cleanedWaitlist);
+      } catch (e) {
+        console.error("❌ fetchAll", e?.message || e);
+        setMessage("❌ " + e.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [activeWorkshopId, normalizeEntity]
+  );
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  /** Remove entity */
   /** Remove entity (participant or waitlist) */
-const handleUnregister = async (person, fromWaitlist = false) => {
-  if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
+  const handleUnregister = async (person, fromWaitlist = false) => {
+    if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
 
-  try {
-    // ALWAYS use entityKey — never familyId anymore
-    const { entityKey } = getEntityIdentifiers(person);
+    try {
+      const { entityKey } = getEntityIdentifiers(person);
 
-    if (!entityKey) throw new Error("Missing entityKey");
+      if (!entityKey) throw new Error("Missing entityKey");
 
-    let result;
+      let result;
 
-    if (fromWaitlist) {
-      result = await unregisterFromWaitlist(activeWorkshopId, entityKey);
-    } else {
-      result = await unregisterEntityFromWorkshop(activeWorkshopId, entityKey);
+      if (fromWaitlist) {
+        result = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+      } else {
+        result = await unregisterEntityFromWorkshop(activeWorkshopId, entityKey);
+      }
+
+      if (!result?.success) {
+        throw new Error(result?.message || "שגיאה בביטול");
+      }
+
+      setMessage("🚫 בוטל בהצלחה");
+      await fetchAll();
+      await fetchWorkshops();
+    } catch (e) {
+      alert("❌ " + e.message);
     }
-
-    if (!result?.success) {
-      throw new Error(result?.message || "שגיאה בביטול");
-    }
-
-    setMessage("🚫 בוטל בהצלחה");
-    await fetchAll();
-    await fetchWorkshops();
-  } catch (e) {
-    alert("❌ " + e.message);
-  }
-};
-
+  };
 
   /** Promote from waitlist → participants */
- /** Promote from waitlist → participants */
-const handlePromote = async (wl) => {
-  try {
-    const { entityKey } = getEntityIdentifiers(wl);
+  const handlePromote = async (wl) => {
+    try {
+      const { entityKey } = getEntityIdentifiers(wl);
 
-    if (!entityKey) throw new Error("Missing entityKey");
+      if (!entityKey) throw new Error("Missing entityKey");
 
-    if (isCapacityFull) {
-      alert("❌ אין מקום פנוי לקידום משתתף זה.");
-      return;
+      if (isCapacityFull) {
+        alert("❌ אין מקום פנוי לקידום משתתף זה.");
+        return;
+      }
+
+      const unres = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+      if (!unres?.success) {
+        throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
+      }
+
+      const regRes = await registerEntityToWorkshop(
+        activeWorkshopId,
+        entityKey
+      );
+      if (!regRes?.success) {
+        throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
+      }
+
+      setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
+      await fetchAll();
+      await fetchWorkshops();
+    } catch (e) {
+      alert("❌ " + e.message);
     }
-
-    // 1️⃣ Remove from waitlist
-    const unres = await unregisterFromWaitlist(activeWorkshopId, entityKey);
-    if (!unres?.success) {
-      throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
-    }
-
-    // 2️⃣ Add as full participant
-    const regRes = await registerEntityToWorkshop(activeWorkshopId, entityKey);
-    if (!regRes?.success) {
-      throw new Error(regRes?.message || "שגיאה בקידום מהרשימה");
-    }
-
-    setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
-    await fetchAll();
-    await fetchWorkshops();
-  } catch (e) {
-    alert("❌ " + e.message);
-  }
-};
-
+  };
 
   /** Export */
   const handleExport = async () => {
     const type = view === "participants" ? "current" : "waitlist";
     try {
-      const res = await apiFetch(`/api/workshops/${activeWorkshopId}/export?type=${type}`, {
-        method: "POST",
-      });
+      const res = await apiFetch(
+        `/api/workshops/${activeWorkshopId}/export?type=${type}`,
+        {
+          method: "POST",
+        }
+      );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "שגיאה ביצוא דו\"ח");
-      alert("📤 דו\"ח נשלח למייל שלך!");
+      if (!res.ok) throw new Error(data.message || 'שגיאה ביצוא דו"ח');
+      alert('📤 דו"ח נשלח למייל שלך!');
     } catch (e) {
       alert("❌ " + e.message);
     }
@@ -425,58 +418,54 @@ const handlePromote = async (wl) => {
 
   /** Render waitlist item */
   const renderWaitlistItem = (wl) => {
-  const age = calcAge(wl.birthDate);
+    const age = calcAge(wl.birthDate);
 
-  // Use normalized fields only (like participants card)
-  const phone = wl.phone || "-";
-  const email = wl.email || "-";
-  const city = wl.city || "-";
+    const phone = wl.phone || "-";
+    const email = wl.email || "-";
+    const city = wl.city || "-";
 
-  return (
-    <div
-      key={wl.__entityKey || wl._id}
-      className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
-    >
-      <div className="flex justify-between items-center mb-2">
-        <h4 className="text-lg font-semibold text-gray-800">{wl.name}</h4>
-        <div className="flex gap-3 text-xs">
-          {!isCapacityFull && (
+    return (
+      <div
+        key={wl.__entityKey || wl._id}
+        className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
+      >
+        <div className="flex justify-between items-center mb-2">
+          <h4 className="text-lg font-semibold text-gray-800">{wl.name}</h4>
+          <div className="flex gap-3 text-xs">
+            {!isCapacityFull && (
+              <button
+                onClick={() => handlePromote(wl)}
+                className="text-green-600 hover:underline"
+              >
+                קדם לרשימה
+              </button>
+            )}
             <button
-              onClick={() => handlePromote(wl)}
-              className="text-green-600 hover:underline"
+              onClick={() => handleUnregister(wl, true)}
+              className="text-red-600 hover:underline"
             >
-              קדם לרשימה
+              בטל המתנה
             </button>
-          )}
-          <button
-            onClick={() => handleUnregister(wl, true)}
-            className="text-red-600 hover:underline"
-          >
-            בטל המתנה
-          </button>
+          </div>
+        </div>
+
+        <p className="text-sm text-gray-600">{email}</p>
+
+        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+          <p>טלפון: {phone}</p>
+          <p>עיר: {city}</p>
+          <p>
+            תאריך לידה:{" "}
+            {wl.birthDate
+              ? new Date(wl.birthDate).toLocaleDateString("he-IL")
+              : "-"}{" "}
+            {typeof age === "number" && <>— גיל: {age}</>}
+          </p>
+          <p>ת.ז: {wl.idNumber || "-"}</p>
         </div>
       </div>
-
-      <p className="text-sm text-gray-600">{email}</p>
-
-      <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-        <p>טלפון: {phone}</p>
-        <p>עיר: {city}</p>
-        <p>
-          תאריך לידה:{" "}
-          {wl.birthDate ? new Date(wl.birthDate).toLocaleDateString("he-IL") : "-"}{" "}
-          {typeof age === "number" && <>— גיל: {age}</>}
-        </p>
-        <p>ת.ז: {wl.idNumber || "-"}</p>
-        {wl.relation && <p>קרבה: {wl.relation}</p>}
-        {wl.isFamily && wl.parentName && (
-          <p>בן/בת משפחה של: {wl.parentName}</p>
-        )}
-      </div>
-    </div>
-  );
-};
-
+    );
+  };
 
   const renderParticipant = (p) => {
     const age = calcAge(p.birthDate);
@@ -500,7 +489,9 @@ const handlePromote = async (wl) => {
           <p>עיר: {p.city || "-"}</p>
           <p>
             תאריך לידה:{" "}
-            {p.birthDate ? new Date(p.birthDate).toLocaleDateString("he-IL") : "-"}{" "}
+            {p.birthDate
+              ? new Date(p.birthDate).toLocaleDateString("he-IL")
+              : "-"}{" "}
             {typeof age === "number" && <>— גיל: {age}</>}
           </p>
           <p>ת.ז: {p.idNumber || "-"}</p>
@@ -606,28 +597,30 @@ const handlePromote = async (wl) => {
         {showProfiles && (
           <div className="border border-indigo-100 rounded-xl bg-indigo-50/30 mb-6 p-4">
             <AllProfiles
-  mode="select"
-  onSelectUser={async (p) => {
-    try {
-      const { entityKey } = getEntityIdentifiers(p);
-      if (!entityKey) throw new Error("Missing entityKey");
+              mode="select"
+              onSelectUser={async (p) => {
+                try {
+                  const { entityKey } = getEntityIdentifiers(p);
+                  if (!entityKey) throw new Error("Missing entityKey");
 
-      const res = await registerEntityToWorkshop(activeWorkshopId, entityKey);
-      if (!res?.success) {
-        throw new Error(res?.message || "שגיאה בהרשמה");
-      }
+                  const res = await registerEntityToWorkshop(
+                    activeWorkshopId,
+                    entityKey
+                  );
+                  if (!res?.success) {
+                    throw new Error(res?.message || "שגיאה בהרשמה");
+                  }
 
-      setShowProfiles(false);
-      await fetchAll();
-      await fetchWorkshops();
-      alert("✅ נוסף בהצלחה!");
-    } catch (e) {
-      alert("❌ " + e.message);
-    }
-  }}
-  existingIds={existingKeys}
-/>
-
+                  setShowProfiles(false);
+                  await fetchAll();
+                  await fetchWorkshops();
+                  alert("✅ נוסף בהצלחה!");
+                } catch (e) {
+                  alert("❌ " + e.message);
+                }
+              }}
+              existingIds={existingKeys}
+            />
           </div>
         )}
 
