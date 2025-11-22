@@ -1798,7 +1798,7 @@ exports.getWaitlist = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 2️⃣ Load actual Mongo document with population for IDs only
+    // 2️⃣ Load Mongo document (lean for speed)
     const workshop = await Workshop.findById(workshopDoc._id)
       .lean()
       .exec();
@@ -1811,18 +1811,28 @@ exports.getWaitlist = async (req, res) => {
     const waitingList = await Promise.all(
       (workshop.waitingList || []).map(async (w) => {
         const key = w.familyMemberKey || w.parentKey;
+        if (!key) return null;
 
-        if (!key) {
-          return null; // skip invalid entry
+        const resolved = await resolveEntityByKey(key);
+        if (!resolved) return null;
+
+        // Unwrap the resolved entity before normalization
+        if (resolved.type === "user") {
+          return normalizeEntity(resolved.userDoc);
         }
 
-        const entity = await resolveEntity(key);
-        const normalized = normalizeEntity(entity);
-        return normalized;
+        if (resolved.type === "familyMember") {
+          return normalizeEntity({
+            ...resolved.userDoc._doc || resolved.userDoc,
+            ...resolved.memberDoc._doc || resolved.memberDoc,
+          });
+        }
+
+        return null;
       })
     );
 
-    // filter out nulls from invalid entries
+    // 4️⃣ Remove invalid/null entries
     const cleaned = waitingList.filter(Boolean);
 
     return res.json({
