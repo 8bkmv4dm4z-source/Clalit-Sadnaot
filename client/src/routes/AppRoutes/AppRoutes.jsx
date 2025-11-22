@@ -50,7 +50,9 @@ export default function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route element={<AppShell />}>
           <Route path="/workshops" element={<Workshops />} />
-          <Route path="/myworkshops" element={<MyWorkshopsSimpleGcal/>} /> 
+           <Route path="/myworkshops" element={<MyWorkshopsSimpleGcal />} />
+<Route path="/myworkshops/*" element={<MyWorkshopsSimpleGcal />} />
+
           <Route path="/profile" element={<Profile />} />
           {isAdmin && (
             <>
