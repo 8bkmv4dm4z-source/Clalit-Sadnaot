@@ -39,13 +39,17 @@ async function fixWorkshop(w) {
   const newFamily = [];
   const newWaitlist = [];
 
-  // Build user cache index
+  // Build user cache index (stores actual documents, NOT queries)
   const userCache = {};
 
-  function getUserCached(id) {
+  async function getUserCached(id) {
     const key = String(id);
     if (userCache[key]) return userCache[key];
-    return (userCache[key] = User.findById(id).lean());
+
+    // FIXED: execute the query *before* caching
+    const user = await User.findById(id).lean();
+    userCache[key] = user || null;
+    return userCache[key];
   }
 
   // -----------------------------
@@ -83,7 +87,6 @@ async function fixWorkshop(w) {
       continue;
     }
 
-    // Resolve parent & familyMember keys
     const parentKey = resolveEntityKey(user, null);
     const familyKey = resolveEntityKey(user, memberId);
 
@@ -137,8 +140,7 @@ async function fixWorkshop(w) {
   w.familyRegistrations = newFamily;
   w.waitingList = newWaitlist;
 
-  w.participantsCount =
-    newParticipants.length + newFamily.length;
+  w.participantsCount = newParticipants.length + newFamily.length;
 
   await w.save({ validateBeforeSave: false });
 
