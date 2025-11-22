@@ -21,6 +21,7 @@ const {
   hydrateParentFields,
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
+const { normalizeEntity } = require("../services/entities/normalize");
 
 const FORBIDDEN_IDENTITY_FIELDS = [
   "entityType",
@@ -1790,7 +1791,7 @@ exports.getWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Resolve hashedId / ObjectId
+    // 1️⃣ Resolve hashedId/ObjectId
     const workshopDoc = await loadWorkshopByIdentifier(id);
     await removeStaleParticipants(workshopDoc);
 
@@ -1798,16 +1799,13 @@ exports.getWaitlist = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 2️⃣ Load Mongo document (lean for speed)
-    const workshop = await Workshop.findById(workshopDoc._id)
-      .lean()
-      .exec();
-
+    // 2️⃣ Load lean workshop document
+    const workshop = await Workshop.findById(workshopDoc._id).lean().exec();
     if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 3️⃣ Hydrate each waitlist entry using the GLOBAL entity pipeline
+    // 3️⃣ Resolve each waitlist entry as a FULL ENTITY
     const waitingList = await Promise.all(
       (workshop.waitingList || []).map(async (w) => {
         const key = w.familyMemberKey || w.parentKey;
@@ -1816,23 +1814,24 @@ exports.getWaitlist = async (req, res) => {
         const resolved = await resolveEntityByKey(key);
         if (!resolved) return null;
 
-        // Unwrap the resolved entity before normalization
+        // Convert resolved entity to a plain object for normalization
+        let flat;
         if (resolved.type === "user") {
-          return normalizeEntity(resolved.userDoc);
+          flat = resolved.userDoc._doc || resolved.userDoc;
+        } else if (resolved.type === "familyMember") {
+          flat = {
+            ...(resolved.userDoc._doc || resolved.userDoc),
+            ...(resolved.memberDoc._doc || resolved.memberDoc),
+            isFamily: true,
+          };
+        } else {
+          return null;
         }
 
-        if (resolved.type === "familyMember") {
-          return normalizeEntity({
-            ...resolved.userDoc._doc || resolved.userDoc,
-            ...resolved.memberDoc._doc || resolved.memberDoc,
-          });
-        }
-
-        return null;
+        return normalizeEntity(flat);
       })
     );
 
-    // 4️⃣ Remove invalid/null entries
     const cleaned = waitingList.filter(Boolean);
 
     return res.json({
