@@ -198,36 +198,99 @@ if (!wid || /^[0-9]+$/.test(wid)) {
       !!w.isUserRegistered ||
       (userKey && participants.some((p) => sid(p) === userKey));
 
-    const normalized = {
-      ...w,
-      _id: wid,
-      workshopKey: wid,
-      participants,
-      waitingList,
-      userFamilyRegistrations,
-      familyRegistrations,
-      isUserRegistered,
-    };
+      // 🟢 עכשיו באמת מערך סדנאות
+  const list = Array.isArray(data) ? data : [];
 
-    dbgCtx("normalize", {
-      i: idx,
-      wid,
-      title: normalized.title,
-      isUserRegistered: normalized.isUserRegistered,
-      participantsLen: participants.length,
-      userFamilyRegsLen: normalized.userFamilyRegistrations.length,
-      waitingListLen: normalized.waitingList.length,
-    });
+  // Normalize workshops
+  const normalizedList = list
+    .map((w, idx) => {
+      const wid = sid(
+        w.workshopKey ||
+          w._id ||
+          w.hashedId ||
+          ""
+      );
 
-    return normalized;
-  });
+      // Reject accidental numeric or empty IDs
+      if (!wid || /^[0-9]+$/.test(wid)) {
+        console.warn("⚠ Invalid workshop identifier received:", {
+          idx,
+          rawId: { workshopKey: w.workshopKey, _id: w._id, hashedId: w.hashedId },
+          title: w.title,
+        });
+        return null; // we'll filter this out below
+      }
 
+      const participants = Array.isArray(w.participants)
+        ? w.participants.map((p) => sid(p.entityKey || p))
+        : [];
 
-      log(`✅ Workshops loaded (${normalizedList.length})`);
-      dbgCtx("setState:workshops", { listLen: normalizedList.length });
+      const normalizeEntity = (item = {}) => {
+        const familyMemberKey = item.familyMemberKey ? sid(item.familyMemberKey) : null;
+        const parentKey = item.parentKey ? sid(item.parentKey) : null;
+        const entityKey = sid(item.entityKey || familyMemberKey || parentKey);
 
-      setWorkshops(normalizedList);
-      return normalizedList;
+        return {
+          ...item,
+          entityKey,
+          __entityKey:
+            entityKey || parentKey ? `${parentKey || ""}:${entityKey}` : entityKey,
+          familyMemberKey,
+          parentKey,
+          name: item.name || "",
+          relation: item.relation || "",
+          phone: item.phone || "",
+          birthDate: item.birthDate || null,
+        };
+      };
+
+      const waitingList = Array.isArray(w.waitingList)
+        ? w.waitingList.map(normalizeEntity)
+        : [];
+
+      const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+        ? w.userFamilyRegistrations.map((id) => sid(id))
+        : [];
+
+      const familyRegistrations = Array.isArray(w.familyRegistrations)
+        ? w.familyRegistrations.map(normalizeEntity)
+        : [];
+
+      const isUserRegistered =
+        !!w.isUserRegistered ||
+        (userKey && participants.some((p) => sid(p) === userKey));
+
+      const normalized = {
+        ...w,
+        _id: wid,
+        workshopKey: wid,
+        participants,
+        waitingList,
+        userFamilyRegistrations,
+        familyRegistrations,
+        isUserRegistered,
+      };
+
+      dbgCtx("normalize", {
+        i: idx,
+        wid,
+        title: normalized.title,
+        isUserRegistered: normalized.isUserRegistered,
+        participantsLen: participants.length,
+        userFamilyRegsLen: normalized.userFamilyRegistrations.length,
+        waitingListLen: normalized.waitingList.length,
+      });
+
+      return normalized;
+    })
+    .filter(Boolean); // ⬅️ critical: drop null / invalid entries
+
+  log(`✅ Workshops loaded (${normalizedList.length})`);
+  dbgCtx("setState:workshops", { listLen: normalizedList.length });
+
+  setWorkshops(normalizedList);
+  return normalizedList;
+
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
       setError(err.message);
