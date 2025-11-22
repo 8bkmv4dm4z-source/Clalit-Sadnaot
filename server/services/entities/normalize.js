@@ -99,10 +99,18 @@ const normalizeSearchQuery = (q) => {
   s = s.replace(/[^\w@.\u0590-\u05FF\s]/g, "");
   return s;
 };
+const normalizeEntity = (entity = {}) => {
+  if (entity.isFamily || entity.parentKey || entity.entityType === "familyMember") {
+    return normalizeFamilyMember(entity);
+  }
+  return normalizeUser(entity);
+};
 
 module.exports = {
   normalizeUser,
   normalizeFamilyMember,
   normalizeSearchQuery,
   sanitizePhone,
+  normalizeEntity, // correct place
 };
+
