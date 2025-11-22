@@ -1790,7 +1790,7 @@ exports.getWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Resolve hashed / ObjectId
+    // 1️⃣ Resolve hashedId / ObjectId
     const workshopDoc = await loadWorkshopByIdentifier(id);
     await removeStaleParticipants(workshopDoc);
 
@@ -1798,56 +1798,50 @@ exports.getWaitlist = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 2️⃣ Now load the REAL mongoose document so populate works
+    // 2️⃣ Load actual Mongo document with population for IDs only
     const workshop = await Workshop.findById(workshopDoc._id)
-      .populate("waitingList.parentUser", "name email phone city canCharge")
-      .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate")
-      .lean();
+      .lean()
+      .exec();
 
     if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 3️⃣ Normalize each entry
-    const waitingList = (workshop.waitingList || []).map((w) => {
-      const parent = w.parentUser || {};
-      const member = w.familyMemberId || {};
+    // 3️⃣ Hydrate each waitlist entry using the GLOBAL entity pipeline
+    const waitingList = await Promise.all(
+      (workshop.waitingList || []).map(async (w) => {
+        const key = w.familyMemberKey || w.parentKey;
 
-      return {
-        _id: w._id,
+        if (!key) {
+          return null; // skip invalid entry
+        }
 
-        // visible
-        name: member.name || w.name || "",
-        relation: member.relation || "",
+        const entity = await resolveEntity(key);
+        const normalized = normalizeEntity(entity);
+        return normalized;
+      })
+    );
 
-        parentName: parent.name || "",
-
-        // inherited fields
-        phone: member.phone || parent.phone || "",
-        email: member.email || parent.email || "",
-        city: member.city || parent.city || "",
-
-        // charge status
-        canCharge:
-          typeof w.canCharge === "boolean" ? w.canCharge : !!parent.canCharge,
-
-        parentUserId: parent._id,
-        familyMemberId: member._id || null,
-      };
-    });
+    // filter out nulls from invalid entries
+    const cleaned = waitingList.filter(Boolean);
 
     return res.json({
       success: true,
-      count: waitingList.length,
-      waitingList,
+      count: cleaned.length,
+      waitingList: cleaned,
     });
+
   } catch (err) {
-    console.error("❌ [getWaitlist] error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error fetching waitlist" });
+    console.error("❌ getWaitlist error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Server error",
+    });
   }
 };
+
+
+   
 
 exports.getAvailableCities = async (req, res) => {
   try {
