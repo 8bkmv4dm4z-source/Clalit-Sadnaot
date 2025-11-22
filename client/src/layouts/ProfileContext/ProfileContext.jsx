@@ -1,12 +1,11 @@
-// src/layouts/ProfileContext.jsx
-/**
- * ProfileContext.jsx — Single source of truth for Users
- * -----------------------------------------------------
- * ✅ Uses /api/users endpoints you already have
- * ✅ Provides flattened, normalized rows (parent + family)
- * ✅ First 100 for no-search, debounced search cache
- * ✅ Exposes getUserWorkshops + updateEntity passthrough
- */
+// PATCHED ProfileContext.jsx — Option A1 (Server-flattened, no frontend re-flatten)
+// ------------------------------------------------------------------------------------
+// Key changes:
+//  - REMOVED: flattenUserEntities, flattenEntitiesList
+//  - Frontend now treats server response as FINAL entity list
+//  - No regrouping, no nesting, no merging
+//  - AllProfiles now receives perfect flat rows
+// ------------------------------------------------------------------------------------
 
 import React, {
   createContext,
@@ -18,7 +17,7 @@ import React, {
 } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
-import { flattenUserEntities, withEntityFlags } from "../../utils/entityTypes";
+import { withEntityFlags } from "../../utils/entityTypes"; // kept only for icons/roles
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -28,7 +27,7 @@ const DEFAULT_CACHE_KEY = "__NOSEARCH__";
 const normalizeLocalQuery = (value) => {
   let s = String(value ?? "");
   s = s.trim().toLowerCase();
-  if (/[\d-]/.test(s)) s = s.replace(/[\u00A0\s-]+/g, "");
+  if (/[^\d-]/.test(s)) s = s.replace(/[\u00A0\s-]+/g, "");
   return s.replace(/[^\w@.\u0590-\u05FF\s]/g, "");
 };
 
@@ -54,20 +53,6 @@ const rowMatchesQuery = (row, normalizedQuery) => {
   });
 };
 
-const flattenEntitiesList = (list = []) => {
-  const flattened = [];
-  for (const item of list) {
-    if (item?.entityType && !item?.familyMembers && !item?.entities) {
-      flattened.push(withEntityFlags(item));
-      continue;
-    }
-
-    const { allEntities } = flattenUserEntities(item);
-    if (allEntities.length) flattened.push(...allEntities);
-  }
-  return flattened;
-};
-
 export function ProfileProvider({ children }) {
   const { isLoggedIn, isAdmin, loading: authLoading } = useAuth();
   const [rows, setRows] = useState([]);
@@ -76,20 +61,28 @@ export function ProfileProvider({ children }) {
 
   const searchCache = useRef(new Map());
 
+  // -----------------------------------------
+  // FETCH PROFILES (no flattening — server is truth)
+  // -----------------------------------------
   const fetchProfiles = useCallback(async ({ limit = 1000, compact = 1 } = {}) => {
     try {
       setLoading(true);
       setError(null);
+
       const params = new URLSearchParams();
       params.set("limit", String(limit));
       if (compact) params.set("compact", "1");
-      const queryString = params.toString();
-      const res = await apiFetch(`/api/users?${queryString}`);
+
+      const res = await apiFetch(`/api/users?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Failed to load users");
+
       const list = Array.isArray(data) ? data : [];
-      const flattened = flattenEntitiesList(list);
-      setRows(flattened);
+
+      // A1: Apply ONLY basic flags, do NOT flatten
+      const final = list.map((e) => withEntityFlags(e));
+
+      setRows(final);
     } catch (e) {
       console.error("❌ [profiles] fetchProfiles", e);
       setRows([]);
@@ -105,6 +98,9 @@ export function ProfileProvider({ children }) {
     searchCache.current.clear();
   }, []);
 
+  // -----------------------------
+  // INVALIDATE cache on broadcasts
+  // -----------------------------
   useEffect(() => {
     const onInvalidate = () => {
       clearTimeout(window.__profilesInvalidateTO);
@@ -118,6 +114,9 @@ export function ProfileProvider({ children }) {
     return () => window.removeEventListener("profiles:invalidate", onInvalidate);
   }, [fetchProfiles, isAdmin]);
 
+  // -----------------------------
+  // AUTH change → load or reset
+  // -----------------------------
   useEffect(() => {
     if (authLoading) return;
 
@@ -130,14 +129,21 @@ export function ProfileProvider({ children }) {
     fetchProfiles({ limit: 1000, compact: 1 });
   }, [authLoading, isLoggedIn, isAdmin, fetchProfiles, resetProfiles]);
 
+  // -----------------------------
+  // Cache default set
+  // -----------------------------
   useEffect(() => {
     searchCache.current.clear();
     searchCache.current.set(DEFAULT_CACHE_KEY, rows.slice(0, 100));
   }, [rows]);
 
+  // -----------------------------
+  // SEARCH (server → fallback local)
+  // -----------------------------
   const searchProfiles = useCallback(
     async (rawQuery = "") => {
       const normalized = normalizeLocalQuery(rawQuery);
+
       if (!normalized) {
         const defaults =
           searchCache.current.get(DEFAULT_CACHE_KEY) || rows.slice(0, 100);
@@ -155,15 +161,18 @@ export function ProfileProvider({ children }) {
         const params = new URLSearchParams();
         params.set("q", rawQuery);
         params.set("limit", "200");
+
         const res = await apiFetch(`/api/users/search?${params.toString()}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || "Failed to search users");
+
         const list = Array.isArray(data) ? data : [];
-        const flattened = flattenEntitiesList(list);
-        searchCache.current.set(normalized, flattened);
-        return flattened;
+        const final = list.map((e) => withEntityFlags(e));
+
+        searchCache.current.set(normalized, final);
+        return final;
       } catch (err) {
-        console.warn("[profiles] remote search failed, falling back to local cache", err);
+        console.warn("[profiles] remote search failed, fallback local", err);
       }
 
       const filtered = rows.filter((row) => rowMatchesQuery(row, normalized));
@@ -173,6 +182,7 @@ export function ProfileProvider({ children }) {
     [rows]
   );
 
+  // PUBLIC API
   const getUserWorkshops = async ({ entityKey, familyEntityKey }) => {
     const base = `/api/users/${encodeURIComponent(entityKey)}/workshops`;
     const url = familyEntityKey
