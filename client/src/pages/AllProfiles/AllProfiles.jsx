@@ -233,21 +233,11 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [modalLoading, setModalLoading] = useState(false);
  //Use flat entities from server + proper flags
 // FIX: Use flat entities from server + proper flags
-const allRows = useMemo(() => {
-  const flat = [];
-  for (const userDoc of contextProfiles || []) {
-    collectEntitiesFromUserDoc(userDoc, flat);
-  }
-  return flat.map((e) => withEntityFlags(e));
-}, [contextProfiles]);
+const allRows = useMemo(
+  () => (contextProfiles || []).map((row) => withEntityFlags(row)),
+  [contextProfiles]
+);
 
-
-// FIX: Default view (no search) → 100 entities flat (users + family)
-useEffect(() => {
-  if (!search.trim()) {
-    setProfiles(allRows.slice(0, 100));
-  }
-}, [allRows, search]);
 
 // FIX: Search → runs on entity.name (not parent only)
 useEffect(() => {
