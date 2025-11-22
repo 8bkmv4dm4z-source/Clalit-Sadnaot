@@ -72,4 +72,4 @@ async function resolveEntityByKey(entityKey) {
 
 
 
-module.exports = resolveEntityByKey;
+module.exports = {resolveEntityByKey,};
