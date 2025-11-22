@@ -2141,4 +2141,3 @@ async function removeStaleParticipants(workshop) {
 }
 
 
-this way
