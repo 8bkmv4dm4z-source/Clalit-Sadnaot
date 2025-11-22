@@ -39,6 +39,7 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import CalendarGStyle from "../../components/calendar/CalendarGStyle";
 import MobileiOSCalendar from "../../components/calendar/MobileiOSCalendar";
 import { flattenUserEntities } from "../../utils/entityTypes";
+import { useNavigate } from "react-router-dom";
 
 const sid = (x) => String(x ?? "");
 
@@ -194,6 +195,8 @@ export default function MyWorkshopsSimpleGcal() {
 
 /* ============================== SCREEN (real UI & logic) ============================== */
 function MyWorkshopsScreen() {
+  const navigate = useNavigate();
+
   const { user } = useAuth();
   const {
     displayedWorkshops,
@@ -244,6 +247,16 @@ function MyWorkshopsScreen() {
         ? addMonths(anchorDate, -1)
         : addDays(anchorDate, -7)
     );
+    // ENTITY FILTER NAVIGATION
+  const showEntityCalendar = (entityKey) => {
+    if (!entityKey) return;
+    navigate(`/myworkshops?entity=${entityKey}`, { replace: true });
+  };
+
+  const showAllEntities = () => {
+    navigate("/myworkshops", { replace: true });
+  };
+
   const goNext = () =>
     setAnchorDate(
       isMobile || view === "month"
@@ -584,15 +597,8 @@ function MyWorkshopsScreen() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      try {
-                        const url = new URL(window.location.href);
-                        url.searchParams.delete("entity");
-                        window.location.href = url.toString();
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
+                    onClick={showAllEntities}
+
                     className="text-xs text-indigo-600 hover:text-indigo-800 underline decoration-dotted"
                   >
                     הצג את כל המשפחה
@@ -637,6 +643,8 @@ function MyWorkshopsScreen() {
                   <div
                     key={entityId}
                     className="rounded-2xl border border-indigo-100/70 bg-white/80 shadow-sm p-3"
+                      onClick={() => showEntityCalendar(info.entityKey)}
+
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
