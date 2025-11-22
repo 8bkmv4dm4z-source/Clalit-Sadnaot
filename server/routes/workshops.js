@@ -123,18 +123,18 @@ router.get(
   workshopController.getWaitlist
 );
 
-router.post(
-  "/:id/waitlist",
-  protect,
-  authorizeAdmin,
-  workshopController.addToWaitlist
-);
 
-router.delete(
-  "/:id/waitlist/:entryId",
+router.post(
+  "/:id/waitlist-entity",
   protect,
-  authorizeAdmin,
-  workshopController.removeFromWaitlist
+  validateWaitlistEntity,
+  workshopController.addEntityToWaitlist
+);
+router.delete(
+  "/:id/waitlist-entity",
+  protect,
+  validateWaitlistEntity,
+  workshopController.removeEntityFromWaitlist
 );
 
 module.exports = router;
