@@ -69,5 +69,20 @@ async function resolveEntityByKey(entityKey) {
 
   return { type: "familyMember", userDoc, memberDoc };
 }
+const normalizeEntity = (entity = {}) => {
+  // Family member if entity has parentKey or entityType already set
+  if (entity.isFamily || entity.parentKey || entity.entityType === "familyMember") {
+    return normalizeFamilyMember(entity);
+  }
 
-module.exports = { resolveEntityByKey };
+  // Otherwise treat as a user
+  return normalizeUser(entity);
+};
+
+module.exports = {
+  normalizeUser,
+  normalizeFamilyMember,
+  normalizeSearchQuery,
+  sanitizePhone,
+  normalizeEntity,   // ← add this
+};
