@@ -1,6 +1,7 @@
 // server/routes/workshops.js — FIXED ORDER
 const express = require("express");
 const router = express.Router();
+const { runWorkshopAudit } = require("../services/workshopAuditService");
 
 const {
   authenticate: protect,
@@ -124,17 +125,18 @@ router.get(
 );
 
 
-router.post(
-  "/:id/waitlist-entity",
-  protect,
-  validateWaitlistEntity,
-  workshopController.addEntityToWaitlist
-);
-router.delete(
-  "/:id/waitlist-entity",
-  protect,
-  validateWaitlistEntity,
-  workshopController.removeEntityFromWaitlist
-);
 
+router.get(
+  "/audit/run",
+  protect,
+  authorizeAdmin,
+  async (req, res) => {
+    try {
+      const result = await runWorkshopAudit();
+      res.json({ success: true, result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  }
+);
 module.exports = router;
