@@ -110,197 +110,120 @@ export const WorkshopProvider = ({ children }) => {
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
-  async function fetchAllWorkshops(force = false) {
-    log(`📡 Fetching all workshops (force=${force})`);
-    dbgCtx("fetchAllWorkshops:start", { force });
-    setLoading(true);
-    setError(null);
+ async function fetchAllWorkshops(force = false) {
+  log(`📡 Fetching all workshops (force=${force})`);
+  dbgCtx("fetchAllWorkshops:start", { force });
+  setLoading(true);
+  setError(null);
 
-   try {
+  try {
+    const res = await apiFetch("/api/workshops");
+    const raw = await res.json();
 
-  const res = await apiFetch("/api/workshops");
-  const raw = await res.json();  // השרת שולח { data: [...] }
+    dbgCtx("fetchAllWorkshops:raw-response", {
+      ok: res.ok,
+      rawType: typeof raw,
+      hasData: Array.isArray(raw?.data),
+    });
 
-  dbgCtx("fetchAllWorkshops:raw-response", {
-    ok: res.ok,
-    rawType: typeof raw,
-    hasData: Array.isArray(raw?.data),
-  });
-
-  // 🟢 תפיסה נכונה של כל הפורמטים
-const data =
-  Array.isArray(raw?.data)
-    ? raw.data
-    : Array.isArray(raw?.workshops)
-    ? raw.workshops
-    : Array.isArray(raw)
-    ? raw
-    : [];
-
-  if (!res.ok) {
-    throw new Error(raw?.message || "Failed to load workshops");
-  }
-
-  // 🟢 עכשיו באמת מערך סדנאות
-  const list = Array.isArray(data) ? data : [];
-
-  // Normalize workshops
-  const normalizedList = list.map((w, idx) => {
-const wid = sid(
-  w.workshopKey ||
-  w._id ||
-  w.hashedId ||
-  w.mongoId ||
-  ""
-);
-
-// Reject accidental numeric fallback
-if (!wid || /^[0-9]+$/.test(wid)) {
-  console.warn("⚠ Invalid workshop identifier received:", w);
-  return null; // skip corrupt items instead of generating wrong IDs
-}
-
-    const participants = Array.isArray(w.participants)
-      ? w.participants.map((p) => sid(p.entityKey || p))
-      : [];
-
-    const normalizeEntity = (item = {}) => {
-      const familyMemberKey = item.familyMemberKey ? sid(item.familyMemberKey) : null;
-      const parentKey = item.parentKey ? sid(item.parentKey) : null;
-      const entityKey = sid(item.entityKey || familyMemberKey || parentKey || item._id);
-
-      return {
-        ...item,
-        entityKey,
-        __entityKey: entityKey || parentKey ? `${parentKey || ""}:${entityKey}` : entityKey,
-        familyMemberKey,
-        parentKey,
-        name: item.name || "",
-        relation: item.relation || "",
-        phone: item.phone || "",
-        birthDate: item.birthDate || null,
-      };
-    };
-
-    const waitingList = Array.isArray(w.waitingList)
-      ? w.waitingList.map(normalizeEntity)
-      : [];
-
-    const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
-      ? w.userFamilyRegistrations.map((id) => sid(id))
-      : [];
-
-    const familyRegistrations = Array.isArray(w.familyRegistrations)
-      ? w.familyRegistrations.map(normalizeEntity)
-      : [];
-
-    const isUserRegistered =
-      !!w.isUserRegistered ||
-      (userKey && participants.some((p) => sid(p) === userKey));
-
-      // 🟢 עכשיו באמת מערך סדנאות
-  const list = Array.isArray(data) ? data : [];
-
-  // Normalize workshops
-  const normalizedList = list
-    .map((w, idx) => {
-      const wid = sid(
-        w.workshopKey ||
-          w._id ||
-          w.hashedId ||
-          ""
-      );
-
-      // Reject accidental numeric or empty IDs
-      if (!wid || /^[0-9]+$/.test(wid)) {
-        console.warn("⚠ Invalid workshop identifier received:", {
-          idx,
-          rawId: { workshopKey: w.workshopKey, _id: w._id, hashedId: w.hashedId },
-          title: w.title,
-        });
-        return null; // we'll filter this out below
-      }
-
-      const participants = Array.isArray(w.participants)
-        ? w.participants.map((p) => sid(p.entityKey || p))
+    // Accept all backend formats safely
+    const data =
+      Array.isArray(raw?.data)
+        ? raw.data
+        : Array.isArray(raw?.workshops)
+        ? raw.workshops
+        : Array.isArray(raw)
+        ? raw
         : [];
 
-      const normalizeEntity = (item = {}) => {
-        const familyMemberKey = item.familyMemberKey ? sid(item.familyMemberKey) : null;
-        const parentKey = item.parentKey ? sid(item.parentKey) : null;
-        const entityKey = sid(item.entityKey || familyMemberKey || parentKey);
+    if (!res.ok) {
+      throw new Error(raw?.message || "Failed to load workshops");
+    }
+
+    const list = Array.isArray(data) ? data : [];
+
+    const normalizedList = list
+      .map((w, idx) => {
+        const wid = sid(
+          w.workshopKey ||
+            w._id ||
+            w.hashedId ||
+            ""
+        );
+
+        if (!wid || /^[0-9]+$/.test(wid)) {
+          console.warn("⚠ Invalid workshop identifier received:", {
+            idx,
+            rawId: { workshopKey: w.workshopKey, _id: w._id, hashedId: w.hashedId },
+            title: w.title,
+          });
+          return null;
+        }
+
+        const participants = Array.isArray(w.participants)
+          ? w.participants.map((p) => sid(p.entityKey || p))
+          : [];
+
+        const normalizeEntity = (item = {}) => {
+          const familyMemberKey = item.familyMemberKey ? sid(item.familyMemberKey) : null;
+          const parentKey = item.parentKey ? sid(item.parentKey) : null;
+          const entityKey = sid(item.entityKey || familyMemberKey || parentKey);
+
+          return {
+            ...item,
+            entityKey,
+            __entityKey:
+              entityKey || parentKey ? `${parentKey || ""}:${entityKey}` : entityKey,
+            familyMemberKey,
+            parentKey,
+            name: item.name || "",
+            relation: item.relation || "",
+            phone: item.phone || "",
+            birthDate: item.birthDate || null,
+          };
+        };
+
+        const waitingList = Array.isArray(w.waitingList)
+          ? w.waitingList.map(normalizeEntity)
+          : [];
+
+        const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
+          ? w.userFamilyRegistrations.map((id) => sid(id))
+          : [];
+
+        const familyRegistrations = Array.isArray(w.familyRegistrations)
+          ? w.familyRegistrations.map(normalizeEntity)
+          : [];
+
+        const isUserRegistered =
+          !!w.isUserRegistered ||
+          (userKey && participants.some((p) => sid(p) === userKey));
 
         return {
-          ...item,
-          entityKey,
-          __entityKey:
-            entityKey || parentKey ? `${parentKey || ""}:${entityKey}` : entityKey,
-          familyMemberKey,
-          parentKey,
-          name: item.name || "",
-          relation: item.relation || "",
-          phone: item.phone || "",
-          birthDate: item.birthDate || null,
+          ...w,
+          _id: wid,
+          workshopKey: wid,
+          participants,
+          waitingList,
+          userFamilyRegistrations,
+          familyRegistrations,
+          isUserRegistered,
         };
-      };
+      })
+      .filter(Boolean); // clean list
 
-      const waitingList = Array.isArray(w.waitingList)
-        ? w.waitingList.map(normalizeEntity)
-        : [];
-
-      const userFamilyRegistrations = Array.isArray(w.userFamilyRegistrations)
-        ? w.userFamilyRegistrations.map((id) => sid(id))
-        : [];
-
-      const familyRegistrations = Array.isArray(w.familyRegistrations)
-        ? w.familyRegistrations.map(normalizeEntity)
-        : [];
-
-      const isUserRegistered =
-        !!w.isUserRegistered ||
-        (userKey && participants.some((p) => sid(p) === userKey));
-
-      const normalized = {
-        ...w,
-        _id: wid,
-        workshopKey: wid,
-        participants,
-        waitingList,
-        userFamilyRegistrations,
-        familyRegistrations,
-        isUserRegistered,
-      };
-
-      dbgCtx("normalize", {
-        i: idx,
-        wid,
-        title: normalized.title,
-        isUserRegistered: normalized.isUserRegistered,
-        participantsLen: participants.length,
-        userFamilyRegsLen: normalized.userFamilyRegistrations.length,
-        waitingListLen: normalized.waitingList.length,
-      });
-
-      return normalized;
-    })
-    .filter(Boolean); // ⬅️ critical: drop null / invalid entries
-
-  log(`✅ Workshops loaded (${normalizedList.length})`);
-  dbgCtx("setState:workshops", { listLen: normalizedList.length });
-
-  setWorkshops(normalizedList);
-  return normalizedList;
-
-    } catch (err) {
-      console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
-      setError(err.message);
-      dbgCtx("fetchAllWorkshops:error", { message: err.message });
-      return [];
-    } finally {
-      setLoading(false);
-      dbgCtx("fetchAllWorkshops:done");
-    }
+    log(`✅ Workshops loaded (${normalizedList.length})`);
+    setWorkshops(normalizedList);
+    return normalizedList;
+  } catch (err) {
+    console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
+    setError(err.message);
+    return [];
+  } finally {
+    setLoading(false);
   }
+}
+
 
   /* 👈 NEW: initial fetch on mount (public view works even before auth events) */
   useEffect(() => {
