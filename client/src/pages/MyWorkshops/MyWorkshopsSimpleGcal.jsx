@@ -1,36 +1,10 @@
 // src/pages/MyWorkshops/MyWorkshopsSimpleGcal.jsx
 /**
  * MyWorkshopsSimpleGcal — Family workshops calendar (Google-style on desktop, iOS-style on mobile)
- * ------------------------------------------------------------------------------------------------
- * Architecture:
- *  - Gate component (default export) renders cheap “loading / auth required” UI WITHOUT using data hooks,
- *    then mounts the real Screen only when data is ready. This prevents React error #310 (hook order changes).
- *  - Screen component owns all data-dependent hooks and renders the full experience.
- *
- * Data sources (from contexts):
- *  - useAuth(): { user, isLoggedIn }
- *  - useWorkshops(): {
- *      displayedWorkshops,        // Workshop[] already filtered (search, visibility, etc.)
- *      userWorkshopMap,           // { [workshopId]: true } — the current user is registered
- *      familyWorkshopMap,         // { [workshopId]: [familyMemberId, ...] } — family registrations
- *      loading, error, mapsReady  // status flags purely for UI
- *    }
- *
- * Child components used:
- *  - <CalendarGStyle /> (desktop)
- *  - <MobileiOSCalendar /> (mobile)
- *
- * Notes:
- *  - We normalize IDs with `sid()` and build a `workshopsByEntity` map:
- *      { [entityId]: { name, relation, entityKey, workshops: Workshop[] } }
- *    so both the legend and the event list can color-code per entity.
- *  - We dedupe events by (workshopId, day, entityId, startMs) to avoid duplicates.
- *  - MODE 1 FILTER (Option B):
- *      /myworkshops                → multi-entity family calendar
- *      /myworkshops?entity=<key>   → ONLY that entity's workshops (hard filter)
+ * MODE 1 FILTER (Option B):
+ *   /myworkshops                → multi-entity family calendar
+ *   /myworkshops?entity=<key>   → ONLY that entity's workshops
  */
-
-/* -------------------------------- Utilities -------------------------------- */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, CalendarDays, Globe } from "lucide-react";
@@ -42,7 +16,6 @@ import { flattenUserEntities } from "../../utils/entityTypes";
 import { useNavigate } from "react-router-dom";
 
 const sid = (x) => String(x ?? "");
-
 const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
 const toHhmm = (h) => {
   const hh = Math.floor(h);
@@ -50,7 +23,6 @@ const toHhmm = (h) => {
   return `${pad2(hh)}:${pad2(mm)}`;
 };
 
-// Parses typical hour inputs from workshop object into a float hour (e.g., "18:30" -> 18.5)
 function parseHourToFloatFlexible(w) {
   const raw =
     w?.hour ??
@@ -64,19 +36,18 @@ function parseHourToFloatFlexible(w) {
   if (typeof raw === "number") return raw;
 
   const s = String(raw).trim();
-  let m = s.match(/^(\d{1,2}):(\d{2})$/); // "HH:MM"
+  let m = s.match(/^(\d{1,2}):(\d{2})$/);
   if (m) return Number(m[1]) + Number(m[2]) / 60;
-  m = s.match(/^(\d{1,2})\.(\d{2})$/); // "HH.MM"
+  m = s.match(/^(\d{1,2})\.(\d{2})$/);
   if (m) return Number(m[1]) + Number(m[2]) / 60;
-  m = s.match(/^(\d{1,2})$/); // "HH"
+  m = s.match(/^(\d{1,2})$/);
   if (m) return Number(m[1]);
   return null;
 }
 
-// Date helpers
 const startOfWeekSunday = (d) => {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diff = date.getDay(); // 0 = Sun
+  const diff = date.getDay();
   date.setDate(date.getDate() - diff);
   date.setHours(0, 0, 0, 0);
   return date;
@@ -101,23 +72,15 @@ const endOfDay = (d) => {
   x.setHours(23, 59, 59, 999);
   return x;
 };
-function startOfWeek(date, weekStartsOn = 0) {
+const startOfWeek = (date, weekStartsOn = 0) => {
   const d = new Date(date);
   const day = d.getDay();
   const diff = (day - weekStartsOn + 7) % 7;
   d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
   return d;
-}
-function monthGridRange(anchor, weekStartsOn = 0) {
-  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
-  const gridStart = startOfWeek(first, weekStartsOn);
-  const gridEnd = endOfDay(addDays(startOfWeek(last, weekStartsOn), 6));
-  return { gridStart, gridEnd };
-}
+};
 
-// Normalizes workshop recurring “days” to day indices 0..6 (Sun..Sat). Falls back to startDate’s weekday.
 function normalizeDays(w) {
   const raw = Array.isArray(w?.days) ? w.days : [];
   const he = {
@@ -139,6 +102,7 @@ function normalizeDays(w) {
     Saturday: 6,
   };
   const sh = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
   const out = [];
   for (const d of raw) {
     if (typeof d === "number" && d >= 0 && d <= 6) {
@@ -157,15 +121,10 @@ function normalizeDays(w) {
   return out;
 }
 
-/* ============================== GATE (safe, no hook-order risk) ============================== */
-/**
- * The Gate renders one of a few simple branches (auth required / loading / ready).
- * It DOES NOT touch data-dependent hooks in ways that would change their order.
- * When “ready”, it mounts <MyWorkshopsScreen/>, which owns all hook logic.
- */
+/* ============================== GATE ============================== */
 export default function MyWorkshopsSimpleGcal() {
   const { isLoggedIn } = useAuth();
-  const { mapsReady, loading, error } = useWorkshops();
+  const { mapsReady } = useWorkshops();
 
   if (!isLoggedIn) {
     return (
@@ -189,39 +148,30 @@ export default function MyWorkshopsSimpleGcal() {
     );
   }
 
-  // When ready → mount the real screen (stable hook order inside).
   return <MyWorkshopsScreen />;
 }
 
-/* ============================== SCREEN (real UI & logic) ============================== */
+/* ============================== SCREEN ============================== */
 function MyWorkshopsScreen() {
   const navigate = useNavigate();
 
   const { user } = useAuth();
-  const {
-    displayedWorkshops,
-    userWorkshopMap, // { [workshopId]: true }
-    familyWorkshopMap, // { [workshopId]: [familyMemberId, ...] }
-  } = useWorkshops();
+  const { displayedWorkshops, userWorkshopMap, familyWorkshopMap } =
+    useWorkshops();
 
-  // 🔍 MODE 1 FILTER: read ?entity=<entityKey> from URL (no hooks, safe)
+  /** MODE 1 FILTER: read entity from URL */
   let selectedEntityKey = null;
   try {
-    if (typeof window !== "undefined") {
-      const qs = new URLSearchParams(window.location.search || "");
-      selectedEntityKey = qs.get("entity");
-    }
-  } catch {
-    selectedEntityKey = null;
-  }
+    const qs = new URLSearchParams(window.location.search || "");
+    selectedEntityKey = qs.get("entity");
+  } catch {}
 
   const { userEntity, familyMembers, allEntities } = useMemo(
     () => flattenUserEntities(user || {}),
     [user]
   );
 
-  // View & anchor (passed to both calendars)
-  const [view, setView] = useState("week"); // desktop: "week" | "month"
+  const [view, setView] = useState("week");
   const [anchorDate, setAnchorDate] = useState(() =>
     startOfWeekSunday(new Date())
   );
@@ -229,33 +179,23 @@ function MyWorkshopsScreen() {
     window.matchMedia("(max-width: 767px)").matches
   );
 
-  // Keep a month-only experience on mobile
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const handle = () => setIsMobile(mq.matches);
     mq.addEventListener("change", handle);
     return () => mq.removeEventListener("change", handle);
   }, []);
+
   useEffect(() => {
     if (isMobile && view !== "month") setView("month");
   }, [isMobile, view]);
 
-  // Navigation handlers
   const goPrev = () =>
     setAnchorDate(
       isMobile || view === "month"
         ? addMonths(anchorDate, -1)
         : addDays(anchorDate, -7)
     );
-    // ENTITY FILTER NAVIGATION
-  const showEntityCalendar = (entityKey) => {
-    if (!entityKey) return;
-    navigate(`/myworkshops?entity=${entityKey}`, { replace: true });
-  };
-
-  const showAllEntities = () => {
-    navigate("/myworkshops", { replace: true });
-  };
 
   const goNext = () =>
     setAnchorDate(
@@ -263,50 +203,49 @@ function MyWorkshopsScreen() {
         ? addMonths(anchorDate, 1)
         : addDays(anchorDate, 7)
     );
+
   const goToday = () => setAnchorDate(startOfWeekSunday(new Date()));
 
-  // Friendly label (header)
-  const rangeLabel = useMemo(() => {
-    const monthMode = isMobile || view === "month";
-    if (monthMode)
-      return `${anchorDate.toLocaleDateString("he-IL", {
-        month: "long",
-      })} ${anchorDate.getFullYear()}`;
-    const end = addDays(anchorDate, 6);
-    const fmt = (d) =>
-      d.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" });
-    return `${fmt(anchorDate)} — ${fmt(end)}`;
-  }, [view, isMobile, anchorDate]);
+  const showEntityCalendar = (entityKey) => {
+    if (!entityKey) return;
+    navigate(`/myworkshops?entity=${entityKey}`, { replace: true });
+  };
 
-  /* ---------------- workshopsByEntity (user + family) ---------------- */
+  const showAllEntities = () => navigate("/myworkshops", { replace: true });
+
+  /* ---------------- workshopsByEntity ---------------- */
   const workshopsByEntity = useMemo(() => {
     if (!userEntity?.entityKey && !userEntity?._id) return {};
-    const list = Array.isArray(displayedWorkshops) ? displayedWorkshops : [];
-    const map = Object.create(null);
+
+    const list = displayedWorkshops || [];
+    const map = {};
 
     const uid = sid(userEntity.entityKey || userEntity._id || user?._id);
     map[uid] = {
       name: userEntity.fullName || userEntity.name || "אני",
       relation: "",
-      entityKey: userEntity.entityKey || null,
-      workshops: list.filter((w) => Boolean(userWorkshopMap?.[sid(w._id)])),
+      entityKey: userEntity.entityKey,
+      workshops: list.filter((w) => Boolean(userWorkshopMap[sid(w._id)])),
     };
 
     const members = familyMembers.length
       ? familyMembers
       : allEntities.filter((e) => e.isFamily);
+
     members.forEach((m) => {
       const mid = sid(m.entityKey || m._id);
+      const arr = (familyWorkshopMap || {})[sid(mid)] || [];
       const ws = list.filter((w) => {
-        const arr = (familyWorkshopMap?.[sid(w._id)] || []).map(sid);
-        if (arr.includes(uid)) return false;
-        return arr.includes(mid);
+        const fm = familyWorkshopMap?.[sid(w._id)]?.map(sid) || [];
+        if (fm.includes(uid)) return false;
+        return fm.includes(mid);
       });
+
       if (ws.length) {
         map[mid] = {
           name: m.name,
-          relation: m.relation || "",
-          entityKey: m.entityKey || null,
+          relation: m.relation,
+          entityKey: m.entityKey,
           workshops: ws,
         };
       }
@@ -316,42 +255,38 @@ function MyWorkshopsScreen() {
   }, [
     user,
     userEntity,
+    displayedWorkshops,
     familyMembers,
     allEntities,
-    displayedWorkshops,
     userWorkshopMap,
     familyWorkshopMap,
   ]);
 
-  // 🔥 MODE 1 FILTER APPLICATION:
-  // If ?entity=<entityKey> is set, keep ONLY that entity's bucket.
+  /* ---------------- FILTER by ?entity= ---------------- */
   const filteredWorkshopsByEntity = useMemo(() => {
     if (!selectedEntityKey) return workshopsByEntity;
 
-    const entries = Object.entries(workshopsByEntity || {}).filter(
+    const entries = Object.entries(workshopsByEntity).filter(
       ([, info]) =>
         info?.entityKey &&
         String(info.entityKey) === String(selectedEntityKey)
     );
-    if (!entries.length) return workshopsByEntity; // fallback: show full family
+
+    if (!entries.length) return workshopsByEntity;
 
     return Object.fromEntries(entries);
-  }, [workshopsByEntity, selectedEntityKey]);
+  }, [selectedEntityKey, workshopsByEntity]);
 
-  // For UI hint: get selected entity name (if any)
   const selectedEntityName = useMemo(() => {
     if (!selectedEntityKey) return null;
-    const allInfos = Object.values(workshopsByEntity || {});
-    const match = allInfos.find(
-      (info) =>
-        info?.entityKey &&
-        String(info.entityKey) === String(selectedEntityKey)
-    );
-    return match?.name || null;
+    return Object.values(workshopsByEntity).find(
+      (i) =>
+        i.entityKey && String(i.entityKey) === String(selectedEntityKey)
+    )?.name;
   }, [workshopsByEntity, selectedEntityKey]);
 
-  /* ---------------- entity color legend ---------------- */
-  const ENTITY_PALETTE = [
+  /* ---------------- legend colors ---------------- */
+  const PALETTE = [
     "#4f46e5",
     "#059669",
     "#dc2626",
@@ -361,47 +296,37 @@ function MyWorkshopsScreen() {
     "#16a34a",
     "#ea580c",
   ];
+
   const legendColorMap = useMemo(() => {
     const ids = Object.keys(filteredWorkshopsByEntity);
-    const map = Object.create(null);
-    ids.forEach((id, idx) => (map[id] = ENTITY_PALETTE[idx % ENTITY_PALETTE.length]));
-    return map;
+    const m = {};
+    ids.forEach((id, i) => (m[id] = PALETTE[i % PALETTE.length]));
+    return m;
   }, [filteredWorkshopsByEntity]);
 
-  /* ---------------- visible window (week vs month grid) ---------------- */
+  /* ---------------- visible range ---------------- */
   const { visibleStart, visibleEnd } = useMemo(() => {
-    const monthMode = isMobile || view === "month";
-    if (monthMode) {
+    if (isMobile || view === "month") {
       const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
       const last = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
-      const gridStart = startOfWeek(first, 0);
-      const gridEnd = endOfDay(addDays(startOfWeek(last, 0), 6));
-      return { visibleStart: gridStart, visibleEnd: gridEnd };
+      const start = startOfWeek(first, 0);
+      const end = endOfDay(addDays(startOfWeek(last, 0), 6));
+      return { visibleStart: start, visibleEnd: end };
     }
+
     const start = startOfWeek(anchorDate, 0);
     return { visibleStart: start, visibleEnd: endOfDay(addDays(start, 6)) };
-  }, [anchorDate, view, isMobile]);
+  }, [anchorDate, isMobile, view]);
 
-  /* ---------------- build events for calendars ----------------
-   * Each event:
-   *  - id: string
-   *  - title: string
-   *  - start, end: Date
-   *  - color: hex string per entity
-   *  - mapsUrl: optional, opens Google Maps
-   *  - entityName: label (user/family member name)
-   *  - meta: { mine, fam, workshopId, entityId }
-   */
+  /* ---------------- events ---------------- */
   const events = useMemo(() => {
     const out = [];
 
-    for (const [entityId, info] of Object.entries(
-      filteredWorkshopsByEntity
-    )) {
-      const colorHex = legendColorMap[entityId] || "#4f46e5";
-      const entityName = info.name || "—";
+    for (const [entityId, info] of Object.entries(filteredWorkshopsByEntity)) {
+      const colorHex = legendColorMap[entityId];
+      const entityName = info.name;
 
-      (info.workshops || []).forEach((w) => {
+      for (const w of info.workshops) {
         const hourFloat = parseHourToFloatFlexible(w);
         const dayIndices = normalizeDays(w);
         const hasRecurrence =
@@ -410,24 +335,23 @@ function MyWorkshopsScreen() {
         const locationLine = [w.studio, w.address, w.city]
           .filter(Boolean)
           .join(" · ");
+
         const mapsQuery = [w.studio, w.address, w.city]
           .filter(Boolean)
           .join(", ");
+
         const mapsUrl = mapsQuery
           ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
               mapsQuery
             )}`
           : null;
 
-        const title = w.title || "Workshop";
-        const mine = !!userWorkshopMap[w._id];
-        const fam = (familyWorkshopMap[w._id] || []).length > 0;
         const defaultMinutes =
           typeof w.durationMinutes === "number" ? w.durationMinutes : 90;
 
         if (hasRecurrence && hourFloat != null) {
-          // Generate occurrences across the visible date window
           const hhmm = toHhmm(hourFloat);
+
           for (
             let d = new Date(visibleStart);
             d <= visibleEnd;
@@ -436,39 +360,36 @@ function MyWorkshopsScreen() {
             const dow = d.getDay();
             if (!dayIndices.includes(dow)) continue;
 
-            // Respect workshop active window
-            const startInclusive = w?.startDate ? atStartOfDay(w.startDate) : null;
-            const endExclusive = w?.endDate ? atStartOfDay(w.endDate) : null;
+            const startInclusive = w.startDate ? atStartOfDay(w.startDate) : null;
+            const endExclusive = w.endDate ? atStartOfDay(w.endDate) : null;
             const dayStart = atStartOfDay(d);
+
             if (startInclusive && dayStart < startInclusive) continue;
             if (endExclusive && dayStart >= endExclusive) continue;
 
-            const [hh, mm] = hhmm.split(":").map((n) => parseInt(n, 10));
+            const [hh, mm] = hhmm.split(":").map(Number);
             const start = new Date(d);
-            start.setHours(hh || 0, mm || 0, 0, 0);
+            start.setHours(hh, mm || 0, 0, 0);
+
             const end = new Date(start);
             end.setMinutes(end.getMinutes() + defaultMinutes);
 
             out.push({
-              id: `${sid(w._id)}:${dayStart
-                .toISOString()
-                .slice(0, 10)}:${entityId}`,
-              title,
+              id: `${sid(w._id)}:${dayStart.toISOString().slice(0, 10)}:${entityId}`,
+              title: w.title,
               start,
               end,
               location: locationLine,
               color: colorHex,
               mapsUrl,
               entityName,
-              meta: { mine, fam, workshopId: w._id, entityId },
+              meta: { workshopId: w._id, entityId },
             });
           }
         } else {
-          // Single occurrence (or missing recurrence info)
           let start = w.startDate ? new Date(w.startDate) : null;
           let end = w.endDate ? new Date(w.endDate) : null;
 
-          // If date is provided separately, combine with parsed hour
           if ((!start || isNaN(start)) && w.date && hourFloat != null) {
             start = new Date(`${w.date}T${toHhmm(hourFloat)}:00`);
           } else if (
@@ -479,63 +400,68 @@ function MyWorkshopsScreen() {
           ) {
             start = new Date(`${w.startDate}T${toHhmm(hourFloat)}:00`);
           }
-          if (!end && start) {
+
+          if (start && !end) {
             end = new Date(start);
             end.setMinutes(end.getMinutes() + defaultMinutes);
           }
 
-          if (
-            start instanceof Date &&
-            !isNaN(start) &&
-            end instanceof Date &&
-            !isNaN(end) &&
-            end > start &&
-            end >= visibleStart &&
-            start <= visibleEnd
-          ) {
+          if (start && end && end >= visibleStart && start <= visibleEnd) {
             out.push({
               id: `${sid(w._id)}:${entityId}`,
-              title,
+              title: w.title,
               start,
               end,
               location: locationLine,
               color: colorHex,
               mapsUrl,
               entityName,
-              meta: { mine, fam, workshopId: w._id, entityId },
+              meta: { workshopId: w._id, entityId },
             });
           }
         }
-      });
+      }
     }
 
-    // De-duplicate per day + entity + workshop + startMs
     const seen = new Set();
     const deduped = [];
+
     for (const ev of out) {
       const d = new Date(ev.start);
       const day = d.toISOString().slice(0, 10);
-      const key = `${ev.meta?.workshopId}|${day}|${ev.meta?.entityId}|${d.getTime()}`;
+      const key = `${ev.meta.workshopId}|${day}|${ev.meta.entityId}|${d.getTime()}`;
+
       if (!seen.has(key)) {
         seen.add(key);
         deduped.push(ev);
       }
     }
-    return deduped;
-  }, [
-    filteredWorkshopsByEntity,
-    legendColorMap,
-    userWorkshopMap,
-    familyWorkshopMap,
-    visibleStart,
-    visibleEnd,
-  ]);
 
-  const monthMode = isMobile || view === "month";
+    return deduped;
+  }, [filteredWorkshopsByEntity, legendColorMap, visibleStart, visibleEnd]);
+
+  /* ---------------- label ---------------- */
+  const rangeLabel = useMemo(() => {
+    const month = isMobile || view === "month";
+    if (month) {
+      return `${anchorDate.toLocaleDateString("he-IL", {
+        month: "long",
+      })} ${anchorDate.getFullYear()}`;
+    }
+    const end = addDays(anchorDate, 6);
+    return `${anchorDate.toLocaleDateString("he-IL", {
+      day: "2-digit",
+      month: "2-digit",
+    })} — ${end.toLocaleDateString("he-IL", {
+      day: "2-digit",
+      month: "2-digit",
+    })}`;
+  }, [anchorDate, view, isMobile]);
+
   const bg =
     "linear-gradient(180deg, rgba(241,245,255,0.6), rgba(255,255,255,0.75))";
 
-  /* -------------------------------- Render -------------------------------- */
+  /* ============================== RENDER ============================== */
   return (
     <div
       dir="rtl"
@@ -546,11 +472,11 @@ function MyWorkshopsScreen() {
         paddingTop: "min(2.2vh, 14px)",
       }}
     >
-      {/* Header: view switch (desktop), title, navigation */}
-      <div className="w-full" style={{ paddingBottom: "1.2vh" }}>
+      {/* HEADER */}
+      <div className="w-full pb-3">
         <div className="max-w-[1800px] mx-auto">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            {/* View switch: we show buttons, but on mobile we force month view (see useEffect) */}
+            {/* View Switch */}
             <div
               className={`flex items-center gap-2 text-sm ${
                 isMobile ? "invisible" : ""
@@ -559,17 +485,18 @@ function MyWorkshopsScreen() {
               <button
                 onClick={() => setView("week")}
                 className={`px-2 py-1 rounded-lg border ${
-                  !monthMode
+                  view === "week"
                     ? "bg-indigo-600 text-white"
                     : "bg-white text-indigo-700 border-indigo-200"
                 } text-xs`}
               >
                 תצוגת שבוע
               </button>
+
               <button
                 onClick={() => setView("month")}
                 className={`px-2 py-1 rounded-lg border ${
-                  monthMode
+                  view === "month"
                     ? "bg-indigo-600 text-white"
                     : "bg-white text-indigo-700 border-indigo-200"
                 } text-xs`}
@@ -578,6 +505,7 @@ function MyWorkshopsScreen() {
               </button>
             </div>
 
+            {/* TITLE */}
             <div>
               <h1 className="text-2xl md:text-3xl font-extrabold text-indigo-700/90 flex items-center gap-1.5">
                 <CalendarDays size={22} className="text-indigo-600" />
@@ -596,10 +524,14 @@ function MyWorkshopsScreen() {
                     </span>
                   </span>
                   <button
-                    type="button"
                     onClick={showAllEntities}
-
-                    className="text-xs text-indigo-600 hover:text-indigo-800 underline decoration-dotted"
+                    className="
+                      px-2 py-1 rounded-lg text-xs font-medium
+                      bg-indigo-50 text-indigo-700
+                      border border-indigo-200
+                      hover:bg-indigo-100
+                      transition
+                    "
                   >
                     הצג את כל המשפחה
                   </button>
@@ -607,44 +539,50 @@ function MyWorkshopsScreen() {
               )}
             </div>
 
-            {/* Navigation (previous / today / next) */}
+            {/* NAV */}
             <div className="flex items-center gap-2 text-sm">
               <button
                 onClick={goPrev}
                 className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
               >
-                <ChevronRight size={14} />{" "}
-                {monthMode ? "חודש קודם" : "שבוע קודם"}
+                <ChevronRight size={14} />
+                {isMobile || view === "month" ? "חודש קודם" : "שבוע קודם"}
               </button>
+
               <button
                 onClick={goToday}
                 className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
               >
                 היום
               </button>
+
               <button
                 onClick={goNext}
                 className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
               >
-                {monthMode ? "חודש הבא" : "שבוע הבא"}{" "}
+                {isMobile || view === "month" ? "חודש הבא" : "שבוע הבא"}
                 <ChevronLeft size={14} />
               </button>
             </div>
           </div>
 
-          {/* Mini entity cards (legend + quick glance of workshops per entity) */}
+          {/* ENTITY CARDS */}
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {Object.entries(filteredWorkshopsByEntity).map(
               ([entityId, info]) => {
                 const color = legendColorMap[entityId];
                 const count = info.workshops?.length || 0;
                 if (!count) return null;
+
                 return (
                   <div
                     key={entityId}
-                    className="rounded-2xl border border-indigo-100/70 bg-white/80 shadow-sm p-3"
-                      onClick={() => showEntityCalendar(info.entityKey)}
-
+                    className="
+                      rounded-2xl border border-indigo-100/70 bg-white/80 shadow-sm p-3
+                      transition-all duration-200
+                      hover:shadow-md hover:scale-[1.015]
+                      hover:border-indigo-300
+                    "
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
@@ -662,28 +600,41 @@ function MyWorkshopsScreen() {
                     </div>
 
                     <div className="mt-2 space-y-1 max-h-28 overflow-auto pr-1">
-                      {(info.workshops || [])
-                        .slice(0, 6)
-                        .map((w) => (
-                          <div
-                            key={sid(w._id)}
-                            className="text-[12px] flex items-center gap-2"
-                          >
-                            <span
-                              className="inline-block w-1.5 h-1.5 rounded-full"
-                              style={{ background: color }}
-                            />
-                            <span className="truncate">
-                              {w.title || "סדנה"}
-                            </span>
-                          </div>
-                        ))}
+                      {info.workshops.slice(0, 6).map((w) => (
+                        <div
+                          key={sid(w._id)}
+                          className="text-[12px] flex items-center gap-2"
+                        >
+                          <span
+                            className="inline-block w-1.5 h-1.5 rounded-full"
+                            style={{ background: color }}
+                          />
+                          <span className="truncate">{w.title}</span>
+                        </div>
+                      ))}
+
                       {count > 6 && (
                         <div className="text-[11px] text-indigo-700">
                           +{count - 6} נוספות…
                         </div>
                       )}
                     </div>
+
+                    {/* BUTTON ONLY — no card click */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showEntityCalendar(info.entityKey);
+                      }}
+                      className="
+                        mt-3 w-full px-2 py-1 rounded-lg text-[12px]
+                        bg-indigo-600 text-white 
+                        hover:bg-indigo-700 active:scale-[0.98]
+                        transition font-medium
+                      "
+                    >
+                      הראה לוח אימונים
+                    </button>
                   </div>
                 );
               }
@@ -694,13 +645,10 @@ function MyWorkshopsScreen() {
         </div>
       </div>
 
-      {/* Calendars */}
-      <div
-        className="w-full"
-        style={{ minHeight: "70vh", paddingBottom: 8 }}
-      >
+      {/* CALENDAR AREA */}
+      <div className="w-full" style={{ minHeight: "70vh", paddingBottom: 8 }}>
         <div className="max-w-[1800px] mx-auto">
-          {/* MOBILE — iOS-style monthly agenda */}
+          {/* MOBILE */}
           <div className="block md:hidden">
             <MobileiOSCalendar
               events={events}
@@ -711,7 +659,7 @@ function MyWorkshopsScreen() {
             />
           </div>
 
-          {/* DESKTOP — Google-style week/month grid */}
+          {/* DESKTOP */}
           <div className="hidden md:block">
             <CalendarGStyle
               events={events}
@@ -727,7 +675,7 @@ function MyWorkshopsScreen() {
               maxHour={22}
               weekdaysOnly
               eventRenderer={(ev) => {
-                const color = ev.color || "#4f46e5";
+                const color = ev.color;
                 const s = new Date(ev.start);
                 const start = `${String(s.getHours()).padStart(
                   2,
@@ -750,6 +698,7 @@ function MyWorkshopsScreen() {
                         {start}
                       </div>
                     </div>
+
                     {ev.mapsUrl && (
                       <a
                         href={ev.mapsUrl}
