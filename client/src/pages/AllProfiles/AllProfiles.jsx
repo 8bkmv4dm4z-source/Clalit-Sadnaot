@@ -4,7 +4,7 @@
  * ------------------------------------------------------
  * ✅ Source of truth: ProfileContext (profiles/search/update/workshops)
  * ✅ No-search: show first 100 only
- * ✅ Search: context.searchProfiles() only (debounced 350ms)
+ * ✅ Search: context.searchProfiles() only (debounced 300ms)
  * ✅ 3-dot dropdown fixed (no auto-close on open)
  * ✅ Optimistic inline edit -> soft revalidate via context
  *
@@ -41,6 +41,39 @@ const calcAge = (dateStr) => {
 };
 
 const isFamilyEntity = (row) => isFamilyEntityHelper(row);
+
+/**
+ * Normalize local search string (similar to backend normalizeSearchQuery)
+ */
+const normalizeLocalQuery = (value) => {
+  let s = String(value ?? "");
+  s = s.trim().toLowerCase();
+  if (/[^\d-]/.test(s)) s = s.replace(/[\u00A0\s-]+/g, "");
+  return s.replace(/[^\w@.\u0590-\u05FF\s]/g, "");
+};
+
+/**
+ * Local search match:
+ * ✅ ONLY entity fields: name, email, phone, city, idNumber
+ * ❌ NOT relation, NOT parentName, NOT any parent* fields
+ *
+ * This guarantees:
+ * - Parent appears only if parent matches
+ * - Family appears only if family matches
+ * - If both match, both are in results
+ */
+const rowMatchesQuery = (row, normalizedQuery) => {
+  if (!normalizedQuery) return true;
+
+  const fields = ["name", "email", "phone", "city", "idNumber"];
+
+  return fields.some((field) => {
+    const val = row[field];
+    if (!val) return false;
+    const valueNorm = normalizeLocalQuery(val);
+    return valueNorm.includes(normalizedQuery);
+  });
+};
 
 /**
  * Build a stable identity key for any entity row.
@@ -240,7 +273,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
   // Final list used by UI:
   // - no search -> first 100 from context
-  // - with search -> server search results
+  // - with search -> server search results (post-filtered by local match rule)
   const effectiveProfiles = useMemo(() => {
     const q = search.trim();
     if (!q) {
@@ -251,9 +284,11 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     return profiles;
   }, [allRows, profiles, search]);
 
-  // Search (server → fallback local)
+  // Search (server → local filter)
   useEffect(() => {
     const q = search.trim();
+    const normalized = normalizeLocalQuery(q);
+
     if (!q) {
       // When clearing search, also clear search-specific list
       setProfiles([]);
@@ -265,11 +300,17 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
     const t = setTimeout(async () => {
       try {
+        // Remote search (may be noisy)
         const result = await searchProfiles(q);
         const list = Array.isArray(result)
           ? result.map((r) => withEntityFlags(r))
           : [];
-        setProfiles(list);
+
+        // Local filter to enforce your exact rule:
+        // ✅ match only by own: name/email/phone/city/idNumber
+        const filtered = list.filter((row) => rowMatchesQuery(row, normalized));
+
+        setProfiles(filtered);
       } catch (e) {
         console.error("searchProfiles error:", e);
         setProfiles([]);
@@ -280,8 +321,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
     return () => clearTimeout(t);
   }, [search, searchProfiles]);
-
-  const startEdit = async (row) => {
+    const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);
     setEditingId(rowKey);
     setEditBuffer({ ...row });
@@ -440,7 +480,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     const confirmMessage = isFamily
       ? `האם למחוק את ${displayName}? פעולה זו תסיר אותו מכל הסדנאות.`
-      : `האם למחוק את המשתמש "${displayName}" וכל בני המשפחה המקושרים?`;
+      : `האם למחוק את המשתמש \"${displayName}\" וכל בני המשפחה המקושרים?`;
     if (!window.confirm(confirmMessage)) return;
 
     setDeletingRowId(rowKey);
@@ -774,7 +814,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
             </tbody>
           </table>
         </div>
-
         {/* ===== Mobile Cards ===== */}
         <div className="md:hidden space-y-3">
           {isFetching && effectiveProfiles.length === 0 ? (
@@ -1077,3 +1116,4 @@ function Field({ label, value, isEditing, input }) {
     </div>
   );
 }
+
