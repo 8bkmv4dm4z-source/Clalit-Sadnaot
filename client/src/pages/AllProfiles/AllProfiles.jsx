@@ -25,7 +25,7 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import {
   getEntityIdentifiers,
   isFamilyEntity as isFamilyEntityHelper,
-  withEntityFlags,collectEntitiesFromUserDoc,
+  withEntityFlags,
 } from "../../utils/entityTypes";
 
 /* ---------------- helpers ---------------- */
