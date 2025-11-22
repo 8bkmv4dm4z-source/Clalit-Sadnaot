@@ -218,7 +218,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
   // Local view-model
   const [search, setSearch] = useState("");
-  const [profiles, setProfiles] = useState([]);
+  const [profiles, setProfiles] = useState([]); // search results only
   const [entityLoadingId, setEntityLoadingId] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
   const [busyRowKey, setBusyRowKey] = useState(null); // for disabling buttons during bulk remove
@@ -231,39 +231,55 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [modalTitle, setModalTitle] = useState("");
   const [userWorkshops, setUserWorkshops] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
- //Use flat entities from server + proper flags
-// FIX: Use flat entities from server + proper flags
-const allRows = useMemo(
-  () => (contextProfiles || []).map((row) => withEntityFlags(row)),
-  [contextProfiles]
-);
 
+  // Flat entities from ProfileContext + basic flags
+  const allRows = useMemo(
+    () => (contextProfiles || []).map((row) => withEntityFlags(row)),
+    [contextProfiles]
+  );
 
-// FIX: Search → runs on entity.name (not parent only)
-useEffect(() => {
-  const q = search.trim();
-  if (!q) return;
-
-  setIsFetching(true);
-
-  const t = setTimeout(async () => {
-    try {
-      const result = await searchProfiles(q);
-      const list = Array.isArray(result)
-        ? result.map((r) => withEntityFlags(r))
-        : [];
-      setProfiles(list);
-    } catch (e) {
-      console.error("searchProfiles error:", e);
-      setProfiles([]);
-    } finally {
-      setIsFetching(false);
+  // Final list used by UI:
+  // - no search -> first 100 from context
+  // - with search -> server search results
+  const effectiveProfiles = useMemo(() => {
+    const q = search.trim();
+    if (!q) {
+      // No search → show first 100 flat rows from context
+      return allRows.slice(0, 100);
     }
-  }, 300);
+    // Search active → use search results
+    return profiles;
+  }, [allRows, profiles, search]);
 
-  return () => clearTimeout(t);
-}, [search, searchProfiles]);
+  // Search (server → fallback local)
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      // When clearing search, also clear search-specific list
+      setProfiles([]);
+      setIsFetching(false);
+      return;
+    }
 
+    setIsFetching(true);
+
+    const t = setTimeout(async () => {
+      try {
+        const result = await searchProfiles(q);
+        const list = Array.isArray(result)
+          ? result.map((r) => withEntityFlags(r))
+          : [];
+        setProfiles(list);
+      } catch (e) {
+        console.error("searchProfiles error:", e);
+        setProfiles([]);
+      } finally {
+        setIsFetching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(t);
+  }, [search, searchProfiles]);
 
   const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);
@@ -293,6 +309,7 @@ useEffect(() => {
 
   const optimisticPatchEverywhere = (patcher) => {
     setProfiles((prev) => prev.map(patcher));
+    // contextProfiles are refreshed via fetchProfiles after successful update
   };
 
   const saveEdit = async () => {
@@ -545,20 +562,20 @@ useEffect(() => {
             </thead>
 
             <tbody>
-              {isFetching && profiles.length === 0 ? (
+              {isFetching && effectiveProfiles.length === 0 ? (
                 <>
                   <SkeletonRow />
                   <SkeletonRow />
                   <SkeletonRow />
                 </>
-              ) : profiles.length === 0 ? (
+              ) : effectiveProfiles.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center text-gray-500 py-6">
                     לא נמצאו תוצאות מתאימות
                   </td>
                 </tr>
               ) : (
-                profiles.map((r, idx) => {
+                effectiveProfiles.map((r, idx) => {
                   const normalizedRow = withEntityFlags(r);
                   const rowKey = buildEntityKey(normalizedRow);
                   const alreadySelected = existingKeySet.has(String(rowKey));
@@ -760,7 +777,7 @@ useEffect(() => {
 
         {/* ===== Mobile Cards ===== */}
         <div className="md:hidden space-y-3">
-          {isFetching && profiles.length === 0 ? (
+          {isFetching && effectiveProfiles.length === 0 ? (
             <div className="rounded-xl border bg-white border-gray-100 shadow-sm p-4">
               <div className="h-4 w-28 bg-gray-200 animate-pulse rounded mb-3" />
               <div className="grid grid-cols-2 gap-3">
@@ -770,12 +787,12 @@ useEffect(() => {
                 <div className="h-4 bg-gray-200 animate-pulse rounded" />
               </div>
             </div>
-          ) : profiles.length === 0 ? (
+          ) : effectiveProfiles.length === 0 ? (
             <div className="text-center text-gray-500 py-6 font-medium">
               לא נמצאו תוצאות מתאימות
             </div>
           ) : (
-            profiles.map((r) => {
+            effectiveProfiles.map((r) => {
               const normalizedRow = withEntityFlags(r);
               const rowKey = buildEntityKey(normalizedRow);
               const alreadySelected = existingKeySet.has(String(rowKey));
