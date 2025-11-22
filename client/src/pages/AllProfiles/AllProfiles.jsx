@@ -25,7 +25,7 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import {
   getEntityIdentifiers,
   isFamilyEntity as isFamilyEntityHelper,
-  withEntityFlags,
+  withEntityFlags,collectEntitiesFromUserDoc,
 } from "../../utils/entityTypes";
 
 /* ---------------- helpers ---------------- */
@@ -233,10 +233,13 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [modalLoading, setModalLoading] = useState(false);
  //Use flat entities from server + proper flags
 // FIX: Use flat entities from server + proper flags
-const allRows = useMemo(
-  () => (contextProfiles || []).map((r) => withEntityFlags(r)),
-  [contextProfiles]
-);
+const allRows = useMemo(() => {
+  const flat = [];
+  for (const userDoc of contextProfiles || []) {
+    collectEntitiesFromUserDoc(userDoc, flat);
+  }
+  return flat.map((e) => withEntityFlags(e));
+}, [contextProfiles]);
 
 
 // FIX: Default view (no search) → 100 entities flat (users + family)
