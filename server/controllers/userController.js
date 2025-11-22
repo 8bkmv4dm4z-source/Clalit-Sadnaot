@@ -195,152 +195,130 @@ const SEARCH_KEYWORD = [
 /* ============================================================
    MAIN: searchUsers
    ============================================================ */
+/* ============================================================
+   MAIN: searchUsers  (CLEAN VERSION — obeys your rules)
+   ============================================================ */
 exports.searchUsers = async (req, res) => {
   try {
     const raw = (req.query.q || "").trim();
     if (!raw) return res.json([]);
 
     const requester = req.user;
+
+    // NORMALIZED QUERY
     const q = normalizeSearchQuery(raw);
     const limit = Math.max(1, Math.min(parseInt(req.query.limit || "60", 10) || 60, 200));
     const escaped = escapeRegex(q);
     const wildcardToken = `*${q}*`;
 
+    // ONLY THESE FIELDS MAY MATCH (your rule)
+    const allowedFields = [
+      "name",
+      "email",
+      "phone",
+      "city",
+      "idNumber",
+      "familyMembers.name",
+      "familyMembers.email",
+      "familyMembers.phone",
+      "familyMembers.city",
+      "familyMembers.idNumber",
+    ];
+
     // ============================================================
-    // ADMIN MODE — Full-Index Global Search
+    // ADMIN MODE — global search
     // ============================================================
     if (requester && requester.role === "admin") {
-      const start = Date.now();
-      console.groupCollapsed("🔎 [searchUsers] ADMIN entry");
-      console.log("🔹 Raw:", raw, "| Normalized:", q, "| Limit:", limit);
-      console.groupEnd();
-
-      // ---------- Atlas Compound Search ----------
-      const pipeline = [
-        {
-          $search: {
-            index: "UsersIndex",
-            compound: {
-              should: [
-                { text: { query: q, path: SEARCH_ANALYZED } }, // exact-ish text
-                { wildcard: { path: SEARCH_KEYWORD, query: wildcardToken, allowAnalyzedField: true } }, // substring
-                { text: { query: q, path: SEARCH_ANALYZED, fuzzy: { maxEdits: 1 } } }, // fuzzy
-                { regex: { path: SEARCH_KEYWORD, query: escaped, allowAnalyzedField: true } }, // literal regex
-              ],
-              minimumShouldMatch: 1,
-            },
-          },
-        },
-        { $limit: Math.max(limit, 40) },
-        {
-          $project: {
-            entityKey: 1,
-            name: 1, email: 1, phone: 1, idNumber: 1, city: 1,
-            role: 1, canCharge: 1, birthDate: 1,
-            familyMembers: {
-              entityKey: 1, name: 1, email: 1, phone: 1,
-              idNumber: 1, city: 1, relation: 1, birthDate: 1,
-            },
-            score: { $meta: "searchScore" },
-            highlights: { $meta: "searchHighlights" },
-          },
-        },
-      ];
-
       let docs = [];
-      let clauseUsed = null;
 
       try {
-        docs = await User.aggregate(pipeline).exec();
-        clauseUsed = "Atlas compound";
+        docs = await User.aggregate([
+          {
+            $search: {
+              index: "UsersIndex",
+              compound: {
+                should: [
+                  { text: { query: q, path: allowedFields } },
+                  { wildcard: { path: allowedFields, query: wildcardToken } },
+                  { text: { query: q, path: allowedFields, fuzzy: { maxEdits: 1 } } },
+                  { regex: { path: allowedFields, query: escaped } },
+                ],
+                minimumShouldMatch: 1,
+              },
+            },
+          },
+          { $limit: Math.max(limit, 40) },
+          {
+            $project: {
+              entityKey: 1,
+              name: 1, email: 1, phone: 1, idNumber: 1, city: 1, birthDate: 1,
+              canCharge: 1,
+              familyMembers: {
+                entityKey: 1, name: 1, email: 1, phone: 1,
+                idNumber: 1, city: 1, birthDate: 1, relation: 1
+              },
+            }
+          }
+        ]).exec();
       } catch (err) {
-        console.error("⚠️ Atlas $search error:", err.codeName || err.message);
-        clauseUsed = "Atlas error → fallback regex";
-      }
-
-      // ---------- Fallback (Regex) ----------
-      if (!docs.length && q) {
-        const rx = new RegExp(escapeRegex(q), "i");
-        console.log("⚙️ [fallback] Running two-phase regex fallback for:", q);
-
-        // Phase A: user fields
-        const usersFound = await User.find({
+        // fallback
+        const rx = new RegExp(escaped, "i");
+        docs = await User.find({
           $or: [
             { name: rx }, { email: rx }, { phone: rx }, { idNumber: rx }, { city: rx },
-          ],
-        }).limit(Math.max(limit, 40)).lean();
-
-        // Phase B: family fields
-        const familyFound = await User.find({
-          $or: [
             { "familyMembers.name": rx },
             { "familyMembers.email": rx },
             { "familyMembers.phone": rx },
             { "familyMembers.idNumber": rx },
             { "familyMembers.city": rx },
-            { "familyMembers.relation": rx },
-          ],
-        }).limit(Math.max(limit, 40)).lean();
-
-        console.log(`⚙️ [fallback] usersFound=${usersFound.length}, familyFound=${familyFound.length}`);
-        if (usersFound.length) {
-          clauseUsed = "fallback regex (user fields)";
-          docs = usersFound;
-        } else if (familyFound.length) {
-          clauseUsed = "fallback regex (family fields)";
-          docs = familyFound;
-        } else {
-          clauseUsed = "fallback regex (no hits)";
-          docs = [];
-        }
+          ]
+        })
+        .limit(limit)
+        .lean();
       }
 
-      // ---------- Diagnostics ----------
-      const took = Date.now() - start;
-      const sample = docs[0];
-      console.groupCollapsed(`🧩 [searchUsers] ADMIN stage (${clauseUsed}, ${took} ms)`);
-      console.log("docs:", docs.length);
-      if (sample) {
-        console.log("sample:", {
-          _id: sample._id,
-          name: sample.name,
-          familyCount: sample.familyMembers?.length || 0,
-          highlight: sample.highlights?.slice(0, 3)?.map(h => ({
-            path: h.path,
-            type: h.type || "text",
-            snippet: h.texts?.map(t => t.value).join(""),
-          })),
+      const flat = [];
+      for (const doc of docs) collectEntitiesFromUserDoc(doc, flat);
+
+      // FINAL FILTER enforcing your rule
+      const normalized = q;
+      const clientMatch = (entity) => {
+        const fields = ["name", "email", "phone", "city", "idNumber"];
+        return fields.some((f) => {
+          if (!entity[f]) return false;
+          return normalizeSearchQuery(entity[f]).includes(normalized);
         });
-      }
-      console.groupEnd();
+      };
 
-      const flatEntities = [];
-      for (const doc of docs) collectEntitiesFromUserDoc(doc, flatEntities);
-      return res.json(flatEntities);
+      return res.json(flat.filter(clientMatch));
     }
 
     // ============================================================
-    // REGULAR USER — Own Family Only
+    // REGULAR USER — search only inside own family
     // ============================================================
-    const me = await User.findById(req.user._id).select(
-      "name email phone city birthDate idNumber canCharge familyMembers"
-    );
-    if (!me) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    const me = await User.findById(requester._id).lean();
+    if (!me) return res.status(404).json({ message: "User not found" });
 
-    const entities = collectEntitiesFromUserDoc(me, []);
-    const filtered = entities.filter((entity) => entityMatchesQuery(entity, q));
+    const flat = [];
+    collectEntitiesFromUserDoc(me, flat);
 
-    console.groupCollapsed("🔎 [searchUsers] REGULAR");
-    console.log("user:", req.user._id, "query:", q, "results:", filtered.length);
-    console.groupEnd();
+    const normalized = q;
+    const match = (entity) => {
+      const fields = ["name", "email", "phone", "city", "idNumber"];
+      return fields.some((f) => {
+        if (!entity[f]) return false;
+        return normalizeSearchQuery(entity[f]).includes(normalized);
+      });
+    };
 
-    return res.json(filtered);
+    return res.json(flat.filter(match));
 
   } catch (err) {
-    console.error("❌ [searchUsers] Error:", err);
-    res.status(500).json({ message: "Server error performing hybrid search", error: err.message });
+    console.error("❌ searchUsers error:", err);
+    res.status(500).json({
+      message: "Server error performing hybrid search",
+      error: err.message
+    });
   }
 };
 
