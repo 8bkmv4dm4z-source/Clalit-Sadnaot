@@ -600,6 +600,34 @@ export default function WorkshopCard({
           </div>
         </div>
       )}
+
+      {/* ===================== DESCRIPTION MODAL ===================== */}
+      {showDescriptionModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex justify-center items-center z-50"
+          onClick={() => setShowDescriptionModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-indigo-800 mb-4 border-b border-indigo-100 pb-2">
+              תיאור הסדנה "{title}"
+            </h2>
+
+            <div className="max-h-[60vh] overflow-y-auto pr-1.5">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{description}</p>
+            </div>
+
+            <button
+              onClick={() => setShowDescriptionModal(false)}
+              className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
+            >
+              סגור
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
