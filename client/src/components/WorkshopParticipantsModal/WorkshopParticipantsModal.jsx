@@ -215,9 +215,23 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     [contextWorkshop, resolvedWorkshop]
   );
 
-  /** ALWAYS use hashedId for server routes */
-  const activeWorkshopId = useMemo(() => {
-    return activeWorkshop?.hashedId || activeWorkshop?._id || workshopId || "";
+  /**
+   * ALWAYS use the normalized workshop entity key for server routes.
+   * The button "ייצא לקובץ אקסל" relies on the existing entity-key based
+   * export endpoint, so prefer the entityKey/workshopKey before falling
+   * back to hashed IDs.
+   */
+  const activeWorkshopKey = useMemo(() => {
+    const { entityKey } = getEntityIdentifiers(activeWorkshop);
+
+    return (
+      entityKey ||
+      activeWorkshop?.workshopKey ||
+      activeWorkshop?.hashedId ||
+      activeWorkshop?._id ||
+      workshopId ||
+      ""
+    );
   }, [activeWorkshop, workshopId]);
 
   const participantsTotal = useMemo(() => {
@@ -268,12 +282,12 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   /** Load both lists */
   const fetchAll = useCallback(
     async () => {
-      if (!activeWorkshopId) return;
+      if (!activeWorkshopKey) return;
       setLoading(true);
       try {
         const [resP, resW] = await Promise.all([
-          apiFetch(`/api/workshops/${activeWorkshopId}/participants`),
-          apiFetch(`/api/workshops/${activeWorkshopId}/waitlist`),
+          apiFetch(`/api/workshops/${activeWorkshopKey}/participants`),
+          apiFetch(`/api/workshops/${activeWorkshopKey}/waitlist`),
         ]);
         const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
         if (!resP.ok)
@@ -306,7 +320,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         setLoading(false);
       }
     },
-    [activeWorkshopId, normalizeEntity]
+    [activeWorkshopKey, normalizeEntity]
   );
 
   useEffect(() => {
@@ -325,9 +339,9 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
       let result;
 
       if (fromWaitlist) {
-        result = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+        result = await unregisterFromWaitlist(activeWorkshopKey, entityKey);
       } else {
-        result = await unregisterEntityFromWorkshop(activeWorkshopId, entityKey);
+        result = await unregisterEntityFromWorkshop(activeWorkshopKey, entityKey);
       }
 
       if (!result?.success) {
@@ -354,13 +368,13 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
         return;
       }
 
-      const unres = await unregisterFromWaitlist(activeWorkshopId, entityKey);
+      const unres = await unregisterFromWaitlist(activeWorkshopKey, entityKey);
       if (!unres?.success) {
         throw new Error(unres?.message || "שגיאה בהסרת משתמש מהרשמת המתנה");
       }
 
       const regRes = await registerEntityToWorkshop(
-        activeWorkshopId,
+        activeWorkshopKey,
         entityKey
       );
       if (!regRes?.success) {
@@ -380,7 +394,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     const type = view === "participants" ? "current" : "waitlist";
     try {
       const res = await apiFetch(
-        `/api/workshops/${activeWorkshopId}/export?type=${type}`,
+        `/api/workshops/${activeWorkshopKey}/export?type=${type}`,
         {
           method: "POST",
         }
@@ -534,7 +548,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
               onClick={handleExport}
               className="px-3 py-1 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700"
             >
-              📤 יצוא
+              📤 ייצא לקובץ אקסל
             </button>
             <button
               onClick={() => setShowProfiles((s) => !s)}
@@ -581,7 +595,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
                   if (!entityKey) throw new Error("Missing entityKey");
 
                   const res = await registerEntityToWorkshop(
-                    activeWorkshopId,
+                    activeWorkshopKey,
                     entityKey
                   );
                   if (!res?.success) {

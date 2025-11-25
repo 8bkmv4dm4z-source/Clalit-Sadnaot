@@ -1495,14 +1495,17 @@ exports.exportWorkshopExcel = async (req, res) => {
     };
 
     // Fetch workshop + relations
-    const workshop = await loadWorkshopByIdentifier(workshopId)
+    const workshopDoc = await loadWorkshopByIdentifier(resolvedId)
       .populate("participants", "name email phone city birthDate idNumber canCharge")
       .populate("familyRegistrations.parentUser", "name email phone city canCharge")
       .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .lean();
 
-    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
+    if (!workshopDoc)
+      return res.status(404).json({ message: "Workshop not found" });
+
+    const workshop = ensureHashedWorkshop(workshopDoc);
 
     // Defaults
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
