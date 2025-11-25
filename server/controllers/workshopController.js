@@ -1495,10 +1495,23 @@ exports.exportWorkshopExcel = async (req, res) => {
     };
 
     // Fetch workshop + relations
-    const workshopDoc = await loadWorkshopByIdentifier(resolvedId)
-      .populate("participants", "name email phone city birthDate idNumber canCharge")
-      .populate("familyRegistrations.parentUser", "name email phone city canCharge")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
+    const baseWorkshop = await loadWorkshopByIdentifier(resolvedId);
+    if (!baseWorkshop)
+      return res.status(404).json({ message: "Workshop not found" });
+
+    const workshopDoc = await Workshop.findById(baseWorkshop._id)
+      .populate(
+        "participants",
+        "name email phone city birthDate idNumber canCharge"
+      )
+      .populate(
+        "familyRegistrations.parentUser",
+        "name email phone city canCharge"
+      )
+      .populate(
+        "familyRegistrations.familyMemberId",
+        "name relation idNumber phone birthDate"
+      )
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .lean();
 

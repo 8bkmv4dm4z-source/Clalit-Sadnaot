@@ -160,6 +160,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
     registerEntityToWorkshop,
     unregisterEntityFromWorkshop,
     unregisterFromWaitlist,
+    exportWorkshop,
     workshops,
     selectedWorkshop: selectedWorkshopFromContext,
     setSelectedWorkshop,
@@ -390,22 +391,20 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   };
 
   /** Export */
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     const type = view === "participants" ? "current" : "waitlist";
+
     try {
-      const res = await apiFetch(
-        `/api/workshops/${activeWorkshopKey}/export?type=${type}`,
-        {
-          method: "POST",
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'שגיאה ביצוא דו"ח');
+      const result = await exportWorkshop(activeWorkshopKey, type);
+      if (!result?.success) {
+        throw new Error(result?.message || 'שגיאה ביצוא דו"ח');
+      }
+
       alert('📤 דו"ח נשלח למייל שלך!');
     } catch (e) {
       alert("❌ " + e.message);
     }
-  };
+  }, [exportWorkshop, activeWorkshopKey, view]);
 
   /** Render waitlist item */
   const renderWaitlistItem = (wl) => {
