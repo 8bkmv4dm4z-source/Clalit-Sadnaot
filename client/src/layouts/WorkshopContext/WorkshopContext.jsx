@@ -738,6 +738,35 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
+  const exportWorkshop = async (workshopId, type = "current") => {
+    dbgCtx("exportWorkshop:start", { workshopId, type });
+
+    if (!workshopId) {
+      console.error("❌ exportWorkshop called WITHOUT workshopId");
+      return { success: false, message: "Missing workshop identifier" };
+    }
+
+    try {
+      const res = await apiFetch(
+        `/api/workshops/${workshopId}/export?type=${type}`,
+        {
+          method: "POST",
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.message || "Failed to export workshop");
+
+      dbgCtx("exportWorkshop:success", { workshopId, type });
+      return { success: true, data };
+    } catch (err) {
+      console.error("❌ exportWorkshop error:", err);
+      dbgCtx("exportWorkshop:error", { message: err.message });
+      return { success: false, message: err.message };
+    }
+  };
+
   /* ============================================================
      🏙️ Utilities
      ============================================================ */
@@ -817,6 +846,8 @@ export const WorkshopProvider = ({ children }) => {
 
         fetchAvailableCities,
         validateAddress,
+
+        exportWorkshop,
 
         // Admin mutations
         createWorkshop,
