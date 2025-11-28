@@ -910,12 +910,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   </div>
 
                   <div
-                    className="px-4 pb-3 grid gap-3 text-sm"
-                    style={{
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(150px, 1fr))",
-                      alignItems: "start",
-                    }}
+                    className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm"
                   >
                     <Field
                       label="אימייל"
@@ -1111,7 +1106,9 @@ function Field({ label, value, isEditing, input }) {
       {isEditing ? (
         input
       ) : (
-        <div className="text-gray-800 leading-tight">{value}</div>
+        <div className="text-gray-800 leading-tight break-words">
+          {value}
+        </div>
       )}
     </div>
   );
