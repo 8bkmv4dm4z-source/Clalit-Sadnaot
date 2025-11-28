@@ -17,6 +17,7 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { isAdmin, logout, user } = useAuth();
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
@@ -26,6 +27,20 @@ export default function Header() {
     const onScroll = () => setIsScrolled(window.scrollY > 4);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // 🔹 Close mobile menu on navigation & resize
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) setMenuOpen(false);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const isActive = (to) => location.pathname === to;
@@ -39,7 +54,7 @@ export default function Header() {
     profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
 
   const linkBase =
-    "rtl inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 whitespace-nowrap";
+    "rtl inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 whitespace-nowrap justify-center w-full md:w-auto";
   const linkActive = "bg-white/90 text-blue-800 shadow-sm";
   const linkIdle = "text-white/90 hover:bg-white/20 hover:text-white";
 
@@ -52,82 +67,120 @@ export default function Header() {
       } text-white`}
       dir="rtl"
     >
-      <nav className="mx-auto flex flex-wrap justify-center items-center gap-3 px-4 sm:px-6 py-3 overflow-x-auto no-scrollbar">
-        {/* 🏠 Brand */}
-        <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
-          כללית סדנאות
-        </h1>
+      <nav className="mx-auto max-w-6xl px-4 sm:px-6 py-3">
+        <div className="flex items-center justify-between gap-3">
+          {/* 🏠 Brand */}
+          <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
+            כללית סדנאות
+          </h1>
+
+          <div className="flex items-center gap-3">
+            <span className="hidden sm:inline text-sm text-white/90 font-medium truncate max-w-[180px]">
+              {currentUser.name}
+            </span>
+            <button
+              onClick={() => setMenuOpen((p) => !p)}
+              className="md:hidden p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
+              aria-label="פתח/סגור תפריט"
+              aria-expanded={menuOpen}
+            >
+              <span
+                className={`block h-0.5 w-6 bg-white transition-transform duration-200 ${
+                  menuOpen ? "translate-y-1.5 rotate-45" : ""
+                }`}
+              />
+              <span
+                className={`block h-0.5 w-6 bg-white my-1 transition-opacity duration-200 ${
+                  menuOpen ? "opacity-0" : "opacity-80"
+                }`}
+              />
+              <span
+                className={`block h-0.5 w-6 bg-white transition-transform duration-200 ${
+                  menuOpen ? "-translate-y-1.5 -rotate-45" : ""
+                }`}
+              />
+            </button>
+          </div>
+        </div>
 
         {/* 🔗 Navigation Links */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center">
-          {/* All Workshops */}
-          <button
-            onClick={() => {
-              setViewMode("all");
-              if (!location.pathname.startsWith("/workshops"))
-                navigate("/workshops");
-            }}
-            className={`${linkBase} ${
-              isActive("/workshops") && viewMode === "all"
-                ? linkActive
-                : linkIdle
-            }`}
-          >
-            <span>כל הסדנאות</span>
-          </button>
+        <div
+          className={`${
+            menuOpen ? "grid" : "hidden"
+          } md:grid md:grid-cols-[1fr_auto] gap-3 mt-3 md:mt-4 items-center`}
+        >
+          <div className="flex flex-col md:flex-row md:items-center gap-2 sm:gap-3 flex-wrap md:justify-center">
+            {/* All Workshops */}
+            <button
+              onClick={() => {
+                setViewMode("all");
+                if (!location.pathname.startsWith("/workshops"))
+                  navigate("/workshops");
+              }}
+              className={`${linkBase} ${
+                isActive("/workshops") && viewMode === "all"
+                  ? linkActive
+                  : linkIdle
+              }`}
+            >
+              <span>כל הסדנאות</span>
+            </button>
 
-          {/* My Workshops (Calendar view) */}
-          <NavLink
-            to="/myworkshops"
-            className={`${linkBase} ${
-              isActive("/myworkshops") ? linkActive : linkIdle
-            }`}
-          >
-            <CalendarDays size={16} />
-            <span>הסדנאות שלי</span>
-          </NavLink>
+            {/* My Workshops (Calendar view) */}
+            <NavLink
+              to="/myworkshops"
+              className={`${linkBase} ${
+                isActive("/myworkshops") ? linkActive : linkIdle
+              }`}
+            >
+              <CalendarDays size={16} />
+              <span>הסדנאות שלי</span>
+            </NavLink>
 
-          {/* Profile */}
-          <NavLink
-            to="/profile"
-            className={`${linkBase} ${
-              isActive("/profile") ? linkActive : linkIdle
-            }`}
-          >
-            <span>הפרופיל שלי</span>
-          </NavLink>
+            {/* Profile */}
+            <NavLink
+              to="/profile"
+              className={`${linkBase} ${
+                isActive("/profile") ? linkActive : linkIdle
+              }`}
+            >
+              <span>הפרופיל שלי</span>
+            </NavLink>
 
-          {/* Admin Tools */}
-          {isAdmin && (
-            <>
-              <NavLink
-                to="/profiles"
-                className={`${linkBase} ${
-                  isActive("/profiles") ? linkActive : linkIdle
-                }`}
-              >
-                <span>ניהול משתמשים</span>
-              </NavLink>
+            {/* Admin Tools */}
+            {isAdmin && (
+              <>
+                <NavLink
+                  to="/profiles"
+                  className={`${linkBase} ${
+                    isActive("/profiles") ? linkActive : linkIdle
+                  }`}
+                >
+                  <span>ניהול משתמשים</span>
+                </NavLink>
 
-              <NavLink
-                to="/editworkshop"
-                onClick={() => localStorage.removeItem("editingWorkshopId")}
-                className={`${linkBase} ${
-                  isActive("/editworkshop") ? linkActive : linkIdle
-                }`}
-              >
-                <span>➕ צור סדנה חדשה</span>
-              </NavLink>
-            </>
-          )}
+                <NavLink
+                  to="/editworkshop"
+                  onClick={() => localStorage.removeItem("editingWorkshopId")}
+                  className={`${linkBase} ${
+                    isActive("/editworkshop") ? linkActive : linkIdle
+                  }`}
+                >
+                  <span>➕ צור סדנה חדשה</span>
+                </NavLink>
+              </>
+            )}
+          </div>
 
           {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="btn btn-outline px-4 py-2 ml-1 rounded-xl bg-white/20 hover:bg-white/30 text-white flex-shrink-0 whitespace-nowrap"
-          >
-            <span>התנתקות</span>
-          </button>
+          <div className="flex gap-2 justify-end md:justify-start">
+            <button
+              onClick={handleLogout}
+              className="btn btn-outline px-4 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white whitespace-nowrap w-full md:w-auto"
+            >
+              <span>התנתקות</span>
+            </button>
+          </div>
         </div>
       </nav>
     </header>

@@ -22,6 +22,7 @@ export default function Workshops() {
   const [searchQuery, setSearchQuery] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
+  const [viewport, setViewport] = useState("desktop");
 
   // 🔹 Context state
   const {
@@ -58,6 +59,21 @@ export default function Workshops() {
     fetchRegisteredWorkshops();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    const computeViewport = () => {
+      const width = window.innerWidth || 0;
+      if (width < 640) return "mobile";
+      if (width < 1024) return "tablet";
+      return "desktop";
+    };
+
+    const handleResize = () => setViewport(computeViewport());
+    handleResize();
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -115,6 +131,12 @@ export default function Workshops() {
         .some((f) => f.toString().toLowerCase().includes(q));
     });
   }, [displayedWorkshops, searchBy, searchQuery]);
+
+  const isMobile = viewport === "mobile";
+  const isTablet = viewport === "tablet";
+  const gridClass = `grid ${
+    isMobile ? "gap-4" : isTablet ? "gap-6" : "gap-6 sm:gap-8"
+  } grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 max-w-6xl mx-auto`;
 
   /* ============================================================
      👨‍👩 Group by user/family for "mine" view
@@ -281,7 +303,7 @@ export default function Workshops() {
                 {info.name} {info.relation ? `(${info.relation})` : ""}
               </h3>
 
-              <div className="grid gap-6 sm:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 max-w-6xl mx-auto">
+              <div className={gridClass}>
                 {info.workshops.map((w) => (
                   <WorkshopCard
                     key={w._id}
@@ -303,7 +325,7 @@ export default function Workshops() {
           </p>
         )
       ) : (
-        <div className="grid gap-6 sm:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 max-w-6xl mx-auto mt-10">
+        <div className={`${gridClass} mt-10`}>
           {filteredWorkshops.map((w) => (
             <WorkshopCard
               key={w._id}

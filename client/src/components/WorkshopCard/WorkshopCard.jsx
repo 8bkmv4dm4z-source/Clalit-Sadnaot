@@ -72,6 +72,7 @@ export default function WorkshopCard({
   const [feedback, setFeedback] = useState(null);
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [viewport, setViewport] = useState("desktop");
 
   const adminMenuRef = useRef(null);
 
@@ -83,6 +84,21 @@ export default function WorkshopCard({
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  useEffect(() => {
+    const computeViewport = () => {
+      const width = window.innerWidth || 0;
+      if (width < 640) return "mobile";
+      if (width < 1024) return "tablet";
+      return "desktop";
+    };
+
+    const handleResize = () => setViewport(computeViewport());
+    handleResize();
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   // -------- Workshop props --------
@@ -139,12 +155,22 @@ export default function WorkshopCard({
       : null;
 
   const participantIdSet = useMemo(() => {
-  return new Set(
-    participantsArr
-      .map((p) => str(p?.entityKey || p))   // <— FIX
-      .filter(Boolean)
-  );
-}, [participantsArr]);
+    return new Set(
+      participantsArr
+        .map((p) => str(p?.entityKey || p)) // <— FIX
+        .filter(Boolean)
+    );
+  }, [participantsArr]);
+
+  const isMobile = viewport === "mobile";
+  const isTablet = viewport === "tablet";
+  const infoRowLayout = isMobile
+    ? "flex flex-col gap-1 items-start text-[13px]"
+    : "flex items-center justify-between";
+  const infoValueClamp = isMobile
+    ? "w-full leading-snug"
+    : "truncate max-w-[65%]";
+  const cardPadding = isMobile ? "p-3" : "p-3 sm:p-4";
 
 
   // -------- Normalize waitlist --------
@@ -314,10 +340,12 @@ export default function WorkshopCard({
     <>
       {/* ===================== CARD ===================== */}
       <div
-        className="
+        className={`
         relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden
         bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white
-        hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all"
+        hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all
+        ${isMobile ? "text-[13px]" : isTablet ? "text-[14px]" : "text-sm"}
+        `}
       >
         {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
@@ -332,7 +360,11 @@ export default function WorkshopCard({
         )}
 
         {/* Image */}
-        <div className="relative h-44 w-full overflow-hidden">
+        <div
+          className={`relative w-full overflow-hidden ${
+            isMobile ? "h-36" : "h-40 sm:h-44"
+          }`}
+        >
           {image ? (
             <img
               src={image}
@@ -354,10 +386,18 @@ export default function WorkshopCard({
         </div>
 
         {/* CONTENT */}
-        <div className="p-4 flex flex-col gap-3 text-right">
+        <div className={`${cardPadding} flex flex-col gap-2.5 sm:gap-3 text-right`}>
           {/* Title + Admin */}
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-indigo-800 truncate flex-1">
+          <div
+            className={`flex gap-2 ${
+              isMobile ? "flex-col items-start" : "items-center"
+            }`}
+          >
+            <h3
+              className={`font-bold text-indigo-800 truncate flex-1 ${
+                isMobile ? "text-base leading-tight" : "text-sm sm:text-base"
+              }`}
+            >
               {highlight(title, searchQuery)}
             </h3>
 
@@ -370,13 +410,14 @@ export default function WorkshopCard({
                 onManageParticipants={onManageParticipants}
                 onEditWorkshop={onEditWorkshop}
                 onDeleteWorkshop={onDeleteWorkshop}
+                className={isMobile ? "self-end" : ""}
               />
             )}
           </div>
 
           {/* Type */}
           {type && (
-            <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-100 rounded-full px-3 py-1 w-max ml-auto shadow-sm">
+            <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 bg-indigo-100 rounded-full px-2.5 sm:px-3 py-1 w-max ml-auto shadow-sm">
               {highlight(type, searchQuery)}
             </div>
           )}
@@ -384,12 +425,16 @@ export default function WorkshopCard({
           {/* INFO ROWS */}
           <div className="flex flex-col gap-2 mt-1 text-sm">
             {/* Address */}
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
+            <div
+              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+            >
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 <MapPin size={16} /> כתובת
               </span>
 
-              <span className="flex items-center gap-2 text-gray-800 truncate max-w-[65%] text-right">
+              <span
+                className={`flex items-center text-gray-800 ${infoValueClamp} gap-2 text-right`}
+              >
                 {highlight(
                   city && address
                     ? `${city}, ${address}`
@@ -414,35 +459,45 @@ export default function WorkshopCard({
             </div>
 
             {/* Coach */}
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
+            <div
+              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+            >
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 <Dumbbell size={16} /> מאמן
               </span>
-              <span className="text-gray-800 truncate max-w-[65%]">
+              <span className={`text-gray-800 ${infoValueClamp}`}>
                 {highlight(coach || "—", searchQuery)}
               </span>
             </div>
 
             {/* Studio */}
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
+            <div
+              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+            >
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 <Building2 size={16} /> סטודיו
               </span>
-              <span className="text-gray-800 truncate max-w-[65%]">
+              <span className={`text-gray-800 ${infoValueClamp}`}>
                 {highlight(studio || "—", searchQuery)}
               </span>
             </div>
 
             {/* Days + Hour */}
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2">
+            <div
+              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+            >
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 <Calendar size={16} /> ימים ושעה
               </span>
-              <span className="text-gray-800 truncate max-w-[65%] inline-flex items-center gap-1">
-                {highlight(daysStr, searchQuery)}
-                <span className="text-gray-400">|</span>
+              <span
+                className={`text-gray-800 inline-flex items-center gap-1 ${infoValueClamp}`}
+              >
+                <span className="flex items-center gap-1">
+                  {highlight(daysStr, searchQuery)}
+                  <span className="text-gray-400">|</span>
+                </span>
                 <Clock size={14} className="text-gray-500 shrink-0" />
-                {highlight(hour || "—", searchQuery)}
+                <span className="truncate">{highlight(hour || "—", searchQuery)}</span>
               </span>
             </div>
 
@@ -450,14 +505,22 @@ export default function WorkshopCard({
             <button
               type="button"
               onClick={() => setShowWaitlist((p) => !p)}
-              className="flex items-center justify-between bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2 hover:bg-indigo-50 transition text-right"
+              className={`bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2 hover:bg-indigo-50 transition text-right ${
+                isMobile
+                  ? "flex flex-col gap-1.5 items-start"
+                  : "flex items-center justify-between"
+              }`}
             >
               <span className="flex items-center gap-1.5 font-bold text-indigo-900">
                 {showWaitlist ? <Hourglass size={16} /> : <Users size={16} />}
                 {showWaitlist ? "רשימת המתנה" : "משתתפים"}
               </span>
 
-              <span className="inline-flex items-center gap-2 font-semibold text-gray-800">
+              <span
+                className={`inline-flex items-center gap-2 font-semibold text-gray-800 ${
+                  isMobile ? "self-end" : ""
+                }`}
+              >
                 {showWaitlist ? (
                   <>
                     <Hourglass size={16} className="text-amber-600" />
@@ -641,6 +704,7 @@ function AdminMenu({
   onManageParticipants,
   onEditWorkshop,
   onDeleteWorkshop,
+  className = "",
 }) {
   const handlers = {
     edit: onEditWorkshop,
@@ -673,7 +737,7 @@ function AdminMenu({
   }, []);
 
   return (
-    <div className="relative" ref={adminMenuRef}>
+    <div className={`relative ${className}`} ref={adminMenuRef}>
       <button
         onClick={() => setAdminOpen((s) => !s)}
         className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
