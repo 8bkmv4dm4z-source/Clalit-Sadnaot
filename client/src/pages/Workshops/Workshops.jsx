@@ -12,6 +12,7 @@ import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../components/WorkshopCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
+import { AnimatePresence, motion } from "framer-motion";
 
 export default function Workshops() {
   const navigate = useNavigate();
@@ -227,7 +228,13 @@ export default function Workshops() {
 
       {/* 🔍 Smart Search Bar */}
       {viewMode === "all" && (
-        <div className="max-w-6xl mx-auto bg-white/90 backdrop-blur-md border border-indigo-100 shadow-lg rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row justify-center items-center gap-4 mb-8">
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: -10, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="max-w-6xl mx-auto bg-white/90 backdrop-blur-md border border-indigo-100 shadow-lg rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row justify-center items-center gap-4 mb-8"
+        >
           <select
             value={searchBy}
             onChange={(e) => setSearchBy(e.target.value)}
@@ -270,7 +277,7 @@ export default function Workshops() {
               🔍
             </span>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* 📣 Feedback */}
@@ -325,20 +332,31 @@ export default function Workshops() {
           </p>
         )
       ) : (
-        <div className={`${gridClass} mt-10`}>
-          {filteredWorkshops.map((w) => (
-            <WorkshopCard
-              key={w._id}
-              _id={w._id}
-              isLoggedIn={isLoggedIn}
-              isAdmin={isAdmin}
-              searchQuery={searchQuery}
-              onManageParticipants={() => handleManageParticipants(w._id)}
-              onEditWorkshop={() => handleEditWorkshop(w._id)}
-              onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-            />
-          ))}
-        </div>
+        <motion.div layout className={`${gridClass} mt-10`}>
+          <AnimatePresence mode="popLayout">
+            {filteredWorkshops.map((w) => (
+              <motion.div
+                key={w._id}
+                layout
+                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -12, scale: 0.98 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="h-full"
+              >
+                <WorkshopCard
+                  _id={w._id}
+                  isLoggedIn={isLoggedIn}
+                  isAdmin={isAdmin}
+                  searchQuery={searchQuery}
+                  onManageParticipants={() => handleManageParticipants(w._id)}
+                  onEditWorkshop={() => handleEditWorkshop(w._id)}
+                  onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </motion.div>
       )}
 
       {/* 🪟 Participants Modal */}
