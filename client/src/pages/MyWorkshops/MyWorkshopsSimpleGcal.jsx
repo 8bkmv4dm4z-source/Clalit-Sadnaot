@@ -332,6 +332,15 @@ function MyWorkshopsScreen() {
         const hasRecurrence =
           Array.isArray(dayIndices) && dayIndices.length > 0;
 
+        const startBoundary =
+          w?.startDate && !Number.isNaN(new Date(w.startDate))
+            ? atStartOfDay(new Date(w.startDate))
+            : null;
+        const endBoundary =
+          w?.endDate && !Number.isNaN(new Date(w.endDate))
+            ? endOfDay(new Date(w.endDate))
+            : null;
+
         const locationLine = [w.studio, w.address, w.city]
           .filter(Boolean)
           .join(" · ");
@@ -360,18 +369,9 @@ function MyWorkshopsScreen() {
             const dow = d.getDay();
             if (!dayIndices.includes(dow)) continue;
 
-            const startInclusive = w.startDate
-  ? atStartOfDay(new Date(w.startDate))
-  : null;
-
-const endExclusive = w.endDate
-  ? atStartOfDay(new Date(w.endDate))
-  : null;
-
             const dayStart = atStartOfDay(d);
-
-            if (startInclusive && dayStart < startInclusive) continue;
-            if (endExclusive && dayStart >= endExclusive) continue;
+            if (startBoundary && dayStart < startBoundary) continue;
+            if (endBoundary && dayStart > endBoundary) continue;
 
             const [hh, mm] = hhmm.split(":").map(Number);
             const start = new Date(d);
