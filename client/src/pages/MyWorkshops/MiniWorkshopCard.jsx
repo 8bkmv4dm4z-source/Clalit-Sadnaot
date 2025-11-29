@@ -19,7 +19,7 @@ export default function MiniWorkshopCard({ title, hour, color, city, address }) 
   return (
     <div
       className="rounded-xl border border-white/50 p-2 flex items-start justify-between shadow-sm hover:shadow-md transition-transform hover:scale-[1.02]"
-style={{ background: `linear-gradient(to right, ${color}A0, ${color}D0)` }}
+style={{ background: `linear-gradient(to left, ${color}A0, ${color}D0)` }}
     >
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-semibold text-gray-800 whitespace-normal break-words leading-snug">
