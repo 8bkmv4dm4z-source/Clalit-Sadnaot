@@ -360,8 +360,14 @@ function MyWorkshopsScreen() {
             const dow = d.getDay();
             if (!dayIndices.includes(dow)) continue;
 
-            const startInclusive = w.startDate ? atStartOfDay(w.startDate) : null;
-            const endExclusive = w.endDate ? atStartOfDay(w.endDate) : null;
+            const startInclusive = w.startDate
+  ? atStartOfDay(new Date(w.startDate))
+  : null;
+
+const endExclusive = w.endDate
+  ? atStartOfDay(new Date(w.endDate))
+  : null;
+
             const dayStart = atStartOfDay(d);
 
             if (startInclusive && dayStart < startInclusive) continue;
@@ -681,6 +687,7 @@ function MyWorkshopsScreen() {
                   2,
                   "0"
                 )}:${String(s.getMinutes()).padStart(2, "0")}`;
+                
                 return (
                   <div
                     className="rounded-xl shadow-sm p-2 flex items-center justify-between select-none text-white"
