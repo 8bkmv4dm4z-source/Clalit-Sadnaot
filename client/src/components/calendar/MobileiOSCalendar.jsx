@@ -384,7 +384,7 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
 
                     // soft gradient chip with glass overlay
                     const base = ev.color || "#4f46e5";
-                    const gradient = `linear-gradient(135deg, ${base} 0%, rgba(255,255,255,0.08) 100%)`;
+const gradient = `linear-gradient(135deg, ${base} 0%, ${base}CC 100%)`;
 
                     return (
                       <div
