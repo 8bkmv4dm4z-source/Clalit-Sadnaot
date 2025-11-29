@@ -128,14 +128,13 @@ export const WorkshopProvider = ({ children }) => {
       });
 
       // Accept all backend formats safely
-      const data =
-        Array.isArray(raw?.data)
-          ? raw.data
-          : Array.isArray(raw?.workshops)
-          ? raw.workshops
-          : Array.isArray(raw)
-          ? raw
-          : [];
+      // Accept multiple backend shapes:
+      // - { data: [...] }
+      // - { workshops: [...] }
+      // - { events: [...] }      ← legacy calendar feed
+      // - raw array
+      const possibleArrays = [raw?.data, raw?.workshops, raw?.events, raw];
+      const data = possibleArrays.find(Array.isArray) || [];
 
       if (!res.ok) {
         throw new Error(raw?.message || "Failed to load workshops");
