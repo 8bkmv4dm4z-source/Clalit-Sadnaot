@@ -686,6 +686,7 @@ function MyWorkshopsScreen() {
                     className="rounded-xl shadow-sm p-2 flex items-center justify-between select-none text-white"
                     style={{
                       background: color,
+                       backgroundImage: "none",
                       border: `1px solid ${color}`,
                     }}
                     title={`${ev.title} • ${start}`}
