@@ -312,13 +312,13 @@ const navigate = useNavigate();
       .action(ek)
       .then((res) => {
         if (!res?.success) {
-          setFeedback(`❌ ${res?.message || "הפעולה נכשלה"}`);
+          setFeedback(` ${res?.message || "הפעולה נכשלה"}`);
         } else {
-          setFeedback(`✅ עודכן בהצלחה`);
+          setFeedback(` ! הרשמה בוצעה בהצלחה`);
         }
       })
       .catch((err) => {
-        setFeedback(`❌ ${err?.message || "שגיאה בביצוע פעולה"}`);
+        setFeedback(` ${err?.message || "הרשמה נכשלה"}`);
       })
       .finally(() => {
         setLoading(false);
@@ -512,6 +512,7 @@ const navigate = useNavigate();
            <button
   type="button"
   onClick={(e) => {
+    if (!isLoggedin) return;
     e.stopPropagation();
     setShowWaitlist((p) => !p);
   }}
@@ -553,6 +554,8 @@ const navigate = useNavigate();
           {description && (
            <button
   onClick={(e) => {
+      if (!isLoggedIn) return;
+
     e.stopPropagation();
     setShowDescriptionModal(true);
   }}
@@ -567,6 +570,8 @@ const navigate = useNavigate();
           {isLoggedIn && (
            <button
   onClick={(e) => {
+      if (!isLoggedIn) return;
+
     e.stopPropagation();
     runEntityAction(userKey);
   }}
@@ -582,6 +587,8 @@ const navigate = useNavigate();
           {user?.familyMembers?.length > 0 && (
             <button
   onClick={(e) => {
+      if (!isLoggedIn) return;
+
     e.stopPropagation();
     setShowFamilyModal(true);
   }}
@@ -667,6 +674,8 @@ const navigate = useNavigate();
                     
 <button
   onClick={(e) => {
+      if (!isLoggedIn) return;
+
     e.stopPropagation();
     runEntityAction(member);
   }}
@@ -683,6 +692,8 @@ const navigate = useNavigate();
 
             <button
 onClick={(e) => {
+    if (!isLoggedIn) return;
+
   e.stopPropagation();
   setShowFamilyModal(false);
 }}
@@ -699,12 +710,16 @@ onClick={(e) => {
         <div
           className="fixed inset-0 bg-black/50 flex justify-center items-center z-50"
 onClick={(e) => {
+    if (!isLoggedIn) return;
+
   e.stopPropagation();
   setShowDescriptionModal(false);
 }}
         >
           <div
             className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
+              if (!isLoggedIn) return;
+
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-bold text-indigo-800 mb-4 border-b border-indigo-100 pb-2">
@@ -716,6 +731,8 @@ onClick={(e) => {
             </div>
 
             <button
+                if (!isLoggedIn) return;
+
               onClick={() => setShowDescriptionModal(false)}
               className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
             >
