@@ -1,3 +1,28 @@
+/**
+ * errorTranslator.js — Map backend error payloads into Hebrew, UX-friendly strings
+ * -------------------------------------------------------------------------------
+ * DATA FLOW
+ * • Source: API failures from `apiFetch` callers (Login, Register, profile pages) pass `{ status, payload }` to
+ *   `translateAuthError`/`translateNetworkError`.
+ * • Flow: The helpers extract raw server messages (string, object, array) → normalize keys → map them to Hebrew
+ *   phrases → return `{ message, details }`. Parents surface `message` in toast/UI and optionally display
+ *   `details` as bullet hints under fields.
+ * • Downstream: Returned text is read-only; UI owners decide where to render it. No mutation of the original error
+ *   object occurs, keeping network layer pure.
+ *
+ * API FLOW
+ * • Aligns with backend Celebrate/Joi validation: `extractValidationDetails` inspects `payload.details` and nested
+ *   structures emitted by the Express validator pipeline so the client can show actionable hints without exposing
+ *   raw server wording.
+ * • Authentication failures differentiate by action (login/register) using `AUTH_ERROR_MESSAGES`, ensuring each
+ *   form displays context-aware copy while sharing the generic fallback dictionary for unknown statuses.
+ *
+ * IMPLEMENTATION NOTES
+ * • Extraction utilities are resilient to untrusted shapes (strings, arrays, nested objects) to avoid runtime
+ *   crashes when the server returns unexpected structures.
+ * • The translator never throws; callers can safely destructure `{ message, details }` even if the payload is
+ *   undefined or a network error occurred before reaching the API.
+ */
 const AUTH_ERROR_MESSAGES = {
   login: {
     400: {
@@ -78,6 +103,14 @@ const VALIDATION_HINT_RULES = [
   { test: (msg) => msg.includes("city"), message: "נא להזין שם עיר תקין." },
 ];
 
+/**
+ * Normalize raw backend validation strings into user-facing Hebrew hints.
+ *
+ * @param {string} rawMessage - Message emitted by Joi/Celebrate (often in English, with field names).
+ * @returns {string} Localized message that aligns with frontend field expectations.
+ * @description Applies substring heuristics rather than strict equality so minor server wording changes still map to
+ * actionable hints. If no heuristic matches, returns a generic validation error.
+ */
 function toHebrewValidationMessage(rawMessage) {
   if (!rawMessage) return "";
   const normalized = String(rawMessage).replace(/["']/g, "").toLowerCase();
@@ -89,6 +122,14 @@ function toHebrewValidationMessage(rawMessage) {
   return "חלק מהשדות אינם תקינים. בדקו ונסו שוב.";
 }
 
+/**
+ * Extract a meaningful message string from unknown error payload shapes.
+ *
+ * @param {unknown} payload - Server error body (string | array | object) returned by fetch().json().
+ * @returns {string} Best-effort human-readable message or an empty string if none found.
+ * @description Recursively walks nested `errors`/`details` arrays to surface the deepest message so UI can display a
+ * single concise line. Avoids throwing on malformed payloads to keep the error boundary calm.
+ */
 export function extractServerMessage(payload) {
   if (!payload) return "";
   if (typeof payload === "string") return payload;
@@ -116,6 +157,15 @@ export function extractServerMessage(payload) {
   return "";
 }
 
+/**
+ * Collect detailed validation hints from complex Celebrate/Joi responses.
+ *
+ * @param {unknown} payload - Response body that may include nested details arrays.
+ * @returns {string[]} Deduplicated, localized validation messages suitable for bullet lists near form fields.
+ * @description The collector is intentionally tolerant of unknown keys; it recurses into `errors`, `details`, and
+ * `body.details` to gather anything resembling a validation message before mapping it through
+ * `toHebrewValidationMessage`.
+ */
 export function extractValidationDetails(payload) {
   const rawMessages = [];
 
@@ -147,6 +197,16 @@ export function extractValidationDetails(payload) {
   return unique.map(toHebrewValidationMessage);
 }
 
+/**
+ * Translate authentication-related API errors into Hebrew messages tailored to the action.
+ *
+ * @param {"login" | "register"} action - Auth flow issuing the request; determines dictionary lookup.
+ * @param {number} status - HTTP status code from the failed response.
+ * @param {unknown} payload - Parsed JSON body returned from the server.
+ * @returns {{ message: string, details: string[] }} Primary toast message plus optional validation hints.
+ * @description Prefers action-specific mappings, then HTTP status defaults, and finally a generic fallback so UI
+ * always has something to display. Extracted `details` help highlight field-level problems alongside the toast.
+ */
 export function translateAuthError(action, status, payload) {
   const dictionary = AUTH_ERROR_MESSAGES[action] || {};
   const serverMessage = extractServerMessage(payload);
@@ -174,6 +234,14 @@ export function translateAuthError(action, status, payload) {
   return { message, details };
 }
 
+/**
+ * Translate network-level failures (fetch exceptions) into consistent Hebrew UX copy.
+ *
+ * @param {Error & { message?: string, name?: string }} error - Error thrown by fetch or network stack.
+ * @returns {{ message: string, details: string[] }} Network warning and empty details list.
+ * @description Detects failed fetch calls (e.g., offline, DNS) and returns a friendly retry suggestion. Details are
+ * intentionally empty because network issues are not field-specific.
+ */
 export function translateNetworkError(error) {
   if (error?.name === "TypeError" && error.message?.includes("fetch")) {
     return { message: NETWORK_MESSAGE, details: [] };
