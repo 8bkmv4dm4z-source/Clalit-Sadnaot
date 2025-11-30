@@ -512,7 +512,7 @@ const navigate = useNavigate();
            <button
   type="button"
   onClick={(e) => {
-    if (!isLoggedin) return;
+if (!isLoggedIn) return;
     e.stopPropagation();
     setShowWaitlist((p) => !p);
   }}
@@ -718,7 +718,6 @@ onClick={(e) => {
         >
           <div
             className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
-              if (!isLoggedIn) return;
 
             onClick={(e) => e.stopPropagation()}
           >
@@ -731,7 +730,6 @@ onClick={(e) => {
             </div>
 
             <button
-                if (!isLoggedIn) return;
 
               onClick={() => setShowDescriptionModal(false)}
               className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
