@@ -23,6 +23,28 @@ const {
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
 const { normalizeEntity } = require("../services/entities/normalize");
 
+/**
+ * API + frontend consumer matrix (keep aligned with client WorkshopContext):
+ * - GET /api/workshops (getAllWorkshops)
+ *   • Consumed by WorkshopContext.fetchAllWorkshops → MyWorkshops + Workshops calendars.
+ * - GET /api/workshops/registered (getRegisteredWorkshops)
+ *   • Used by WorkshopContext.fetchRegisteredWorkshops for registration badges.
+ * - POST /api/workshops/:id/register-entity (registerEntityToWorkshop)
+ *   • Triggered from WorkshopContext.registerEntityToWorkshop via WorkshopCard/calendar actions.
+ * - DELETE /api/workshops/:id/unregister-entity (unregisterEntityFromWorkshop)
+ *   • Triggered from WorkshopContext.unregisterEntityFromWorkshop for toggling participation.
+ * - POST /api/workshops/:id/waitlist-entity (addEntityToWaitlist)
+ *   • Called from WorkshopContext.registerToWaitlist when a user opts into the waitlist.
+ * - DELETE /api/workshops/:id/waitlist-entity (removeEntityFromWaitlist)
+ *   • Called from WorkshopContext.unregisterFromWaitlist when removing from waitlist.
+ * - GET /api/workshops/meta/cities (getAvailableCities)
+ *   • Fills filter dropdowns in Workshops search.
+ * - POST /api/workshops (createWorkshop) + PUT/DELETE /api/workshops/:id
+ *   • Admin-only actions surfaced in Workshop management tools (e.g., admin modals).
+ * - POST /api/workshops/:id/export (exportWorkshopExcel)
+ *   • Invoked from admin export UI; ensure responses avoid sensitive logging on failure.
+ */
+
 const FORBIDDEN_IDENTITY_FIELDS = [
   "entityType",
   "parentId",
@@ -386,7 +408,7 @@ exports.getAllWorkshops = async (req, res) => {
     await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
 
-    let workshops = await Workshop.find({})
+    const workshops = await Workshop.find({})
       .populate(
   "participants",
   "entityKey name email phone city birthDate idNumber"
@@ -406,36 +428,8 @@ exports.getAllWorkshops = async (req, res) => {
 .populate(
   "waitingList.familyMemberId",
   "entityKey name relation phone city birthDate idNumber"
-);
-
-
-    // 🧹 Clean stale entities + reload each document cleanly
-    for (let i = 0; i < workshops.length; i++) {
-      await removeStaleParticipants(workshops[i]);
-
-      workshops[i] = await Workshop.findById(workshops[i]._id)
-        .populate(
-  "participants",
-  "entityKey name email phone city birthDate idNumber"
 )
-.populate(
-  "familyRegistrations.familyMemberId",
-  "entityKey name relation phone city birthDate idNumber"
-)
-.populate(
-  "familyRegistrations.parentUser",
-  "entityKey name email phone city birthDate idNumber"
-)
-.populate(
-  "waitingList.parentUser",
-  "entityKey name email phone city birthDate idNumber"
-)
-.populate(
-  "waitingList.familyMemberId",
-  "entityKey name relation phone city birthDate idNumber"
-);
-
-    }
+      .lean(false);
 
     const result = workshops.map((w) => {
       const decorated = w.toObject();
@@ -513,12 +507,6 @@ exports.getWorkshopById = async (req, res) => {
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
     }
-
-    /* -------------------------------------------------
-       2️⃣ Clean stale participants
-       (may modify the workshop document)
-       ------------------------------------------------- */
-    await removeStaleParticipants(workshopDoc);
 
     /* -------------------------------------------------
        3️⃣ Reload clean document (ALWAYS re-fetch)
@@ -776,9 +764,8 @@ exports.updateWorkshop = async (req, res) => {
       available: !!ws?.available,
     };
 
-    console.log("✅ Workshop updated:", {
-      title: ws.title,
-      city: ws.city,
+    console.info("✅ Workshop updated", {
+      id: String(ws._id),
       startDate: ws.startDate,
       endDate: ws.endDate,
     });
@@ -919,10 +906,8 @@ exports.createWorkshop = async (req, res) => {
       available: !!ws.available,
     };
 
-    console.log("✅ Workshop created:", {
-      title: ws.title,
-      city: ws.city,
-      days: ws.days,
+    console.info("✅ Workshop created", {
+      id: String(ws._id),
       startDate: ws.startDate,
       endDate: ws.endDate,
     });
@@ -1744,8 +1729,8 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     async function sendReportEmail() {
       if (isDev) {
-        fs.appendFileSync(logFile, `${new Date().toISOString()},${admin.email},Excel Export\n`);
-        console.log(`⚙️ [DEV] Logged export email for ${admin.email}`);
+        fs.appendFileSync(logFile, `${new Date().toISOString()},admin_export,Excel Export\n`);
+        console.info("⚙️ [DEV] Logged export email dispatch");
         return true;
       }
 
@@ -1763,7 +1748,7 @@ exports.exportWorkshopExcel = async (req, res) => {
               },
             ],
           });
-          console.log(`📬 Resend sent Excel report to ${admin.email}`);
+          console.info("📬 Resend sent Excel report to admin");
           return true;
         }
       } catch (err) {
@@ -1786,7 +1771,7 @@ exports.exportWorkshopExcel = async (req, res) => {
               },
             ],
           });
-          console.log(`📧 Gmail fallback sent Excel report to ${admin.email}`);
+          console.info("📧 Gmail fallback sent Excel report to admin");
           return true;
         } catch (err) {
           console.error("❌ Gmail failed:", err.message);
@@ -1815,7 +1800,6 @@ exports.getWaitlist = async (req, res) => {
 
     // 1️⃣ Resolve hashedId/ObjectId
     const workshopDoc = await loadWorkshopByIdentifier(id);
-    await removeStaleParticipants(workshopDoc);
 
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
@@ -2154,47 +2138,5 @@ exports.searchWorkshops = async (req, res) => {
 };
 
 
-
-
-async function removeStaleParticipants(workshop) {
-  if (!workshop) return workshop;
-  if (!Array.isArray(workshop.participants)) return workshop;
-
-  // Normalize ALL ids to ObjectId-like strings
-  const normalizedIds = workshop.participants
-    .map(p => (typeof p === "object" && p?._id ? String(p._id) : String(p)))
-    .filter(Boolean);
-
-  // Only keep ObjectId looking strings (24 hex chars)
-  const objectIds = normalizedIds.filter(id =>
-    /^[0-9a-fA-F]{24}$/.test(id)
-  );
-
-  // If nothing looks like real ObjectId → DON'T DELETE ANYTHING
-  if (objectIds.length === 0) {
-    console.warn("⚠️ removeStaleParticipants skipped — no valid ObjectIds found");
-    return workshop;
-  }
-
-  const validUserIds = (
-    await User.find({ _id: { $in: objectIds } }, { _id: 1 })
-  ).map(u => String(u._id));
-
-  const before = workshop.participants.length;
-
-  workshop.participants = workshop.participants.filter(id => {
-    const norm = typeof id === "object" && id?._id ? String(id._id) : String(id);
-    return validUserIds.includes(norm);
-  });
-
-  if (before !== workshop.participants.length) {
-    workshop.participantsCount =
-      (workshop.participants?.length || 0) +
-      (workshop.familyRegistrations?.length || 0);
-    await workshop.save();
-  }
-
-  return workshop;
-}
 
 

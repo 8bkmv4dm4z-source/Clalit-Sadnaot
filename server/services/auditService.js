@@ -3,6 +3,8 @@
 // may have bypassed validation (e.g., JSON fragments in name fields).
 
 const User = require("../models/User");
+const Workshop = require("../models/Workshop");
+const { runWorkshopAudit } = require("./workshopAuditService");
 
 const SUSPICIOUS_NAME_REGEX = /[{}<>\[\]$]/;
 const LEADING_TRAILING_WHITESPACE = /^\s|\s$/;
@@ -10,10 +12,14 @@ const DOUBLE_SPACE = /\s{2,}/;
 
 const MIN_AUDIT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between manual calls
 let auditTimer = null;
-let auditInFlight = false;
-let lastAuditResult = null;
-let lastAuditError = null;
-let lastRunAt = 0;
+let userAuditInFlight = false;
+let lastUserAuditResult = null;
+let lastUserAuditError = null;
+let lastUserRunAt = 0;
+let workshopAuditInFlight = false;
+let lastWorkshopAudit = null;
+let lastWorkshopRunAt = 0;
+let lastAuditSuite = null;
 
 function normalizeDisplay(value = "") {
   const trimmed = String(value).trim().replace(/\s{2,}/g, " ");
@@ -157,17 +163,116 @@ async function normalizeIntegrityHashes(limit = 200) {
   return normalized;
 }
 
-async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) {
-  if (auditInFlight) {
-    return lastAuditResult;
+async function auditWorkshopAvailability(limit = 150) {
+  const now = new Date();
+
+  const staleAvailability = await Workshop.find({
+    available: true,
+    endDate: { $lt: now },
+  })
+    .select("title startDate endDate available hashedId city")
+    .limit(limit)
+    .lean();
+
+  const missingSchedule = await Workshop.find({
+    $or: [{ startDate: { $exists: false } }, { sessionsCount: { $exists: false } }],
+  })
+    .select("title available hashedId city")
+    .limit(limit)
+    .lean();
+
+  const missingHashedId = await Workshop.find({ hashedId: { $in: [null, ""] } })
+    .select("title startDate city available")
+    .limit(limit)
+    .lean();
+
+  return {
+    counts: {
+      staleAvailable: staleAvailability.length,
+      missingSchedule: missingSchedule.length,
+      missingHashedId: missingHashedId.length,
+    },
+    buckets: {
+      staleAvailable: summarizeBucket(staleAvailability),
+      missingSchedule: summarizeBucket(missingSchedule),
+      missingHashedId: summarizeBucket(missingHashedId),
+    },
+  };
+}
+
+async function runWorkshopIntegrityAudit({ reason = "manual", force = false } = {}) {
+  if (workshopAuditInFlight) {
+    return lastWorkshopAudit;
   }
 
   const now = Date.now();
-  if (!force && now - lastRunAt < MIN_AUDIT_INTERVAL_MS && lastAuditResult) {
-    return lastAuditResult;
+  if (!force && lastWorkshopAudit && now - lastWorkshopRunAt < MIN_AUDIT_INTERVAL_MS) {
+    return lastWorkshopAudit;
   }
 
-  auditInFlight = true;
+  workshopAuditInFlight = true;
+  try {
+    const [integrityFixes, availability] = await Promise.all([
+      runWorkshopAudit(),
+      auditWorkshopAvailability(),
+    ]);
+
+    const result = {
+      checkedAt: new Date(now).toISOString(),
+      reason,
+      integrity: integrityFixes,
+      availability,
+    };
+
+    lastWorkshopAudit = result;
+    lastWorkshopRunAt = now;
+
+    if (
+      availability?.counts?.staleAvailable ||
+      availability?.counts?.missingSchedule ||
+      availability?.counts?.missingHashedId
+    ) {
+      console.warn("[AUDIT] workshop anomalies detected", availability.counts);
+    }
+
+    return result;
+  } catch (err) {
+    console.error("[AUDIT] workshop integrity failed", err.message || err);
+    throw err;
+  } finally {
+    workshopAuditInFlight = false;
+  }
+}
+
+async function runAuditSuite(options = {}) {
+  const { reason = "manual", force = false } = options;
+
+  const [userAudit, workshopAudit] = await Promise.all([
+    runUserIntegrityAudit({ reason, force }),
+    runWorkshopIntegrityAudit({ reason, force }),
+  ]);
+
+  lastAuditSuite = {
+    checkedAt: new Date().toISOString(),
+    reason,
+    userAudit,
+    workshopAudit,
+  };
+
+  return lastAuditSuite;
+}
+
+async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) {
+  if (userAuditInFlight) {
+    return lastUserAuditResult;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastUserRunAt < MIN_AUDIT_INTERVAL_MS && lastUserAuditResult) {
+    return lastUserAuditResult;
+  }
+
+  userAuditInFlight = true;
   try {
     const [totalUsers, suspiciousNames, missingContacts, invalidRoles] = await Promise.all([
       User.estimatedDocumentCount(),
@@ -207,9 +312,9 @@ async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) 
       },
     };
 
-    lastAuditResult = result;
-    lastAuditError = null;
-    lastRunAt = now;
+    lastUserAuditResult = result;
+    lastUserAuditError = null;
+    lastUserRunAt = now;
 
     if (
       summary.suspiciousNameCount ||
@@ -224,19 +329,24 @@ async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) 
 
     return result;
   } catch (err) {
-    lastAuditError = err;
+    lastUserAuditError = err;
     console.error("[AUDIT] failed", err.message || err);
     throw err;
   } finally {
-    auditInFlight = false;
+    userAuditInFlight = false;
   }
 }
 
 function getAuditSnapshot() {
   return {
-    lastAuditResult,
-    lastAuditError: lastAuditError ? lastAuditError.message || String(lastAuditError) : null,
-    lastRunAt,
+    userAudit: lastUserAuditResult,
+    workshopAudit: lastWorkshopAudit,
+    suite: lastAuditSuite,
+    lastUserAuditError: lastUserAuditError
+      ? lastUserAuditError.message || String(lastUserAuditError)
+      : null,
+    lastUserRunAt,
+    lastWorkshopRunAt,
   };
 }
 
@@ -249,17 +359,24 @@ function startAuditScheduler({ intervalMs } = {}) {
       ? intervalMs
       : Number(process.env.AUDIT_INTERVAL_MS || 30 * 60 * 1000);
 
-  auditTimer = setInterval(() => {
-    runUserIntegrityAudit({ reason: "scheduled", force: true }).catch(() => {
-      /* handled inside runUserIntegrityAudit */
+  const runScheduledAudit = () => {
+    runAuditSuite({ reason: "scheduled", force: true }).catch((err) => {
+      console.error("[AUDIT] scheduled run failed", err.message || err);
     });
-  }, computedInterval).unref();
+  };
+
+  auditTimer = setInterval(runScheduledAudit, computedInterval).unref();
+
+  // Fire one audit immediately on startup so stale data is cleaned proactively
+  runScheduledAudit();
 
   console.log(`[AUDIT] scheduler started, interval=${computedInterval}ms`);
 }
 
 module.exports = {
   runUserIntegrityAudit,
+  runWorkshopIntegrityAudit,
+  runAuditSuite,
   getAuditSnapshot,
   startAuditScheduler,
 };

@@ -7,6 +7,24 @@
  * normalizes, derives user/family registration maps, exposes state
  * & mutations to the app.
  *
+ * API surface + consumer map (keep in sync with server/routes/workshops.js):
+ * - GET /api/workshops → fetchAllWorkshops()
+ *   • Consumers: AppShell bootstrapping the calendar feed for MyWorkshops,
+ *     Workshops, and any component using useWorkshops().displayedWorkshops.
+ * - GET /api/workshops/registered → fetchRegisteredWorkshops()
+ *   • Consumers: Workshops + MyWorkshops highlighting current registrations.
+ * - POST /api/workshops/:id/register-entity → registerEntityToWorkshop()
+ *   • Callers: WorkshopCard, calendar grids that allow self/family sign-ups.
+ * - DELETE /api/workshops/:id/unregister-entity → unregisterEntityFromWorkshop()
+ *   • Callers: the same UI surfaces used for registration toggles.
+ * - POST /api/workshops/:id/waitlist-entity → registerToWaitlist()
+ *   • Callers: WorkshopCard waitlist CTA, mobile/desktop calendars.
+ * - DELETE /api/workshops/:id/waitlist-entity → unregisterFromWaitlist()
+ *   • Callers: waitlist removal in the same contexts as above.
+ *
+ * This block intentionally documents both routes and who triggers them so we can
+ * trace API consumers without spelunking through components.
+ *
  * Invariants:
  * - Workshop IDs are strings.
  * - participant/familyMember IDs normalized to strings.

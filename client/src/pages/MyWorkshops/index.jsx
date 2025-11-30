@@ -1,1 +1,1 @@
-export { default } from './MyWorkshops';
+export { default } from './MyWorkshopsSimpleGcal';

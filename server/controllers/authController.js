@@ -444,7 +444,6 @@ exports.sendOtp = async (req, res) => {
       text: `Your verification code is ${otp}. It expires in 5 minutes.`,
       html: `<p>Your verification code is <b>${otp}</b>. It expires in 5 minutes.</p>`,
     });
-    console.log("✅ OTP email sent to:", email, " | Code:", otp);
     safeAuthLog(`sendOtp dispatched=${sent ? "yes" : "no"}`);
 
     if (!sent)

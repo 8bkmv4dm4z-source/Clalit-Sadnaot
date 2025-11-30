@@ -4,6 +4,19 @@
  * MODE 1 FILTER (Option B):
  *   /myworkshops                → multi-entity family calendar
  *   /myworkshops?entity=<key>   → ONLY that entity's workshops
+ *
+ * API + data flow map (frontend → WorkshopContext → backend):
+ * - GET /api/workshops (WorkshopContext.fetchAllWorkshops) populates `displayedWorkshops`,
+ *   which feeds both calendar renderers below. The fetch is triggered by AppShell on
+ *   layout mount, so this screen never calls the API directly.
+ * - GET /api/workshops/registered (WorkshopContext.fetchRegisteredWorkshops) seeds the
+ *   `userWorkshopMap` and `familyWorkshopMap` used to highlight registrations in the
+ *   rendered grids; invoked when the authenticated user loads the Workshops/MyWorkshops
+ *   flows.
+ * - POST/DELETE /api/workshops/:id/register-entity and /:id/unregister-entity are invoked
+ *   by the shared WorkshopContext mutation helpers when children (CalendarGStyle or
+ *   MobileiOSCalendar) request a registration toggle. Keeping the endpoints mapped here
+ *   makes it easier to trace “which UI triggers which backend”.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
