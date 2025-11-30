@@ -554,7 +554,6 @@ if (!isLoggedIn) return;
           {description && (
            <button
   onClick={(e) => {
-      if (!isLoggedIn) return;
 
     e.stopPropagation();
     setShowDescriptionModal(true);
