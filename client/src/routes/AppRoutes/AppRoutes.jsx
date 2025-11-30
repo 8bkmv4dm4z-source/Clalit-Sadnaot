@@ -1,8 +1,36 @@
 /**
- * AppRoutes.jsx — Updated with MyWorkshops Route
- * ----------------------------------------------
- * - Keeps Workshops (grid view) and MyWorkshops (calendar view) separate.
- * - Both share the same AppShell layout and WorkshopContext.
+ * Central routing map for the client UI.
+ *
+ * DATA FLOW
+ * ---------
+ * • Source: Authentication status is pulled from the AuthLayout context (useAuth). That context
+ *   in turn reads tokens/user info from local storage and API validation (see
+ *   layouts/AuthLayout/AuthLayout.jsx for lifecycle details).
+ * • Path when logged in: isLoggedIn/isAdmin/loading flags determine which <Route> tree renders.
+ *   The router mounts AppShell which provides WorkshopContext/ProfileContext etc.; those
+ *   contexts fetch data (workshops, profiles) and pass it downward as props to page components
+ *   like <Workshops /> and <Profile />.
+ * • Path when logged out: PublicLayout renders without protected contexts; pages call APIs that
+ *   do not require auth (e.g., login/register) and manage their own local state.
+ * • Transformations: No data mutation here; the router only decides which components mount.
+ *   Any navigation calls bubble up via <Navigate> which updates the URL and thus reruns this
+ *   component.
+ *
+ * API FLOW
+ * --------
+ * • This file does not make API calls. It indirectly controls them by choosing which page
+ *   components render. For example, selecting <Workshops /> triggers fetches to /api/workshops
+ *   inside that page; selecting <Profile /> triggers /api/users/me.
+ * • Auth requirements: Protected routes sit behind the isLoggedIn branch; admin-only routes are
+ *   gated by isAdmin. Public routes skip auth middleware.
+ *
+ * COMPONENT LOGIC
+ * ---------------
+ * • Purpose: Map URL paths to page components while honoring authentication/authorization state.
+ * • State: Derived booleans isLoggedIn/isAdmin/loading from context; no local state.
+ * • Effects: None; conditional rendering is synchronous based on context values.
+ * • Visual states: Loading placeholder → authenticated routes → public routes. Fallback routes
+ *   redirect to /workshops to keep users within expected pages.
  */
 
 import React from "react";
