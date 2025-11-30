@@ -1,5 +1,47 @@
 // src/layouts/AuthLayout/AuthLayout.jsx
 /**
+ * DATA FLOW (authentication lifecycle)
+ * ------------------------------------
+ * • Source: Credentials originate from login/register/OTP forms in pages/Login and pages/Register
+ *   and are passed into AuthContext callbacks (loginWithPassword, completeLogin, registerUser,
+ *   verifyOtp). The context stores access tokens in localStorage and keeps user + role metadata in
+ *   React state.
+ * • Path: Each auth action delegates to apiFetch -> backend /api/auth/* endpoints. Successful
+ *   responses are normalized (flattenUserEntities) and stored via setUser/setIsLoggedIn/setIsAdmin
+ *   before bubbling updates through context consumers (AppRoutes uses useAuth to gate routes).
+ * • Transformations: normalizeUserPayload flattens entity structure; refreshAccessToken rewrites
+ *   Authorization headers; authFetch retries once on 401. Logout clears state and localStorage and
+ *   navigates to /workshops.
+ * • Downstream: Context values propagate to any component calling useAuth (e.g., AppShell,
+ *   Profile page). Callbacks bubble events upward through window events and an EventBus so other
+ *   parts (WorkshopContext) can refetch when auth changes.
+ *
+ * API FLOW
+ * --------
+ * • Endpoints: /api/auth/login, /api/auth/verify, /api/auth/register, /api/auth/logout,
+ *   /api/auth/refresh, /api/auth/request-password-reset, /api/auth/reset-password.
+ * • Methods/Bodies: login/register send JSON credentials; verifyOtp posts { email, otp };
+ *   refresh uses POST with cookies for refresh token; logout POST clears server session.
+ * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL and includes credentials;
+ *   authFetch injects Authorization: Bearer <token> and retries after hitting refresh endpoint.
+ * • Responses: Expected JSON containing accessToken, user payload, and message; errors are
+ *   translated via translateAuthError/translateNetworkError for user-friendly UI.
+ *
+ * COMPONENT LOGIC
+ * ---------------
+ * • Purpose: Provide AuthContext with stateful login/logout helpers and mount children under
+ *   <AuthProvider> so routing can check authentication. It also emits browser events signalling
+ *   auth-ready/login/logout for other modules.
+ * • State: isLoggedIn, isAdmin, user, filters/searchQuery (used by Workshops filter), loading,
+ *   accessToken. These states coordinate API requests, control which routes display, and persist
+ *   tokens between reloads.
+ * • Effects: useEffect on mount to verify existing access token and fetch /api/auth/me; also uses
+ *   refs to avoid duplicate verification. Navigation side-effects occur after login/logout.
+ * • Props: Accepts children to render; does not receive external props.
+ * • Visual states: Upstream components show loading placeholders while AuthProvider resolves
+ *   loading=true → false.
+ */
+/**
  * AuthLayout.jsx — Authentication provider
  * -----------------------------------------
  * ✅ Centralized login/logout/OTP/token refresh logic

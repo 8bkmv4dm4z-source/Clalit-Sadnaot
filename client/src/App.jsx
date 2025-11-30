@@ -1,39 +1,44 @@
 /**
- * App.jsx
- * Path: src/App.jsx
- * Role: Application module.
+ * High-level application shell.
  *
- * Component: App
- * Summary:
- * - Provides the main responsibilities of this module.
- * - Comments are written in English only.
- * - Logic is unchanged; documentation and structure notes were added.
- * Sections:
- * - Imports
- * - State & Context
- * - Derived data (memoized computations)
- * - Event handlers (navigation, form, filters)
- * - Render (JSX structure)
- * Data flow:
- * - Props -> local hooks -> derived values -> UI.
- * - Context (if used) is read-only here unless setter functions are invoked.
- * Props:
- * (No explicit props or destructured props detected.)
+ * DATA FLOW (frontend entrypoint)
+ * ───────────────────────────────
+ * • Source: The React tree is hydrated from index.jsx; no props are injected here because the
+ *   top-level <App /> is rendered directly by ReactDOM.
+ * • Path: <App /> simply renders <AppRoutes />, which configures routing and decides which
+ *   page components mount based on the current location.
+ * • Transformations: No local state or derived data are created; <AppRoutes /> is responsible
+ *   for reading authentication state, contexts, and fetching data.
+ * • Downstream: All UI and network requests originate from components nested within
+ *   <AppRoutes />. Any callbacks or context providers defined deeper in the tree propagate
+ *   updates upward via React context or router navigation, not through props here.
+ *
+ * API FLOW
+ * ────────
+ * • This file does not issue API calls. API calls begin in routed pages (e.g., Login, Workshops)
+ *   after <AppRoutes /> selects them based on the URL.
+ *
+ * COMPONENT LOGIC
+ * ───────────────
+ * • Purpose: Serve as a minimal host so routing logic remains isolated in routes/AppRoutes.
+ * • State: None. Any auth or data state is owned by context providers in AppRoutes.
+ * • Effects: None. All lifecycle logic is delegated to children.
+ * • Props: None received; therefore there is no downward prop propagation or upward callbacks
+ *   to document within this component.
+ * • Visual states: Single stable state rendering the router; no conditional branches.
  */
-
-// קובץ ראשי של אפליקציית React.
-// כאן אנו שומרים את הסטייט הראשי של התחברות המשתמש
-// ומשתמשים ב־AppRoutes לצורך ניהול ניווט בהתאם להרשאות.
-import React, { useState } from "react";
+import React from "react";
 import AppRoutes from "./routes/AppRoutes";
 
-// --- State, context & derived data below ---
-
 function App() {
-  // --- Render ---
-  return (
-    <AppRoutes />
-  );
+  /**
+   * Render the routing system.
+   *
+   * Rationale: Centralizing the router keeps index.jsx simple and lets AppRoutes provide any
+   * context providers or layouts needed before defining <Routes>. Keeping logic minimal here
+   * avoids unnecessary re-renders or state duplication at the app root.
+   */
+  return <AppRoutes />;
 }
 
 export default App;

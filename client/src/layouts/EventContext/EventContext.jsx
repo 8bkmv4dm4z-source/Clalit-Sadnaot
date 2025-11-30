@@ -8,6 +8,20 @@ import React, {
   useState,
 } from "react";
 
+/**
+ * EventContext centralizes toast/notification management so any page can raise UI feedback without prop-drilling.
+ *
+ * DATA FLOW
+ * - Source: components call `publish({ title, message, type, ttl, meta })` after API calls succeed or fail.
+ * - Path: publish → buildEvent (adds id/timestamps/defaults) → setEvents (state) → events.map renders toast list →
+ *   dismiss callbacks remove items. timersRef tracks TTL-driven auto-dismiss to prevent memory leaks.
+ * - Upstream interactions: callbacks like `dismiss` bubble up through context so buttons in the rendered toast cards
+ *   can remove themselves without needing parent awareness.
+ *
+ * API FLOW
+ * - No network calls. This purely coordinates client-side messaging; however it often mirrors API lifecycle events
+ *   (e.g., called after POST /api/workshops returns) so the UI communicates backend outcomes.
+ */
 const EventContext = createContext({
   publish: () => "",
   dismiss: () => {},
@@ -15,6 +29,10 @@ const EventContext = createContext({
 
 const DEFAULT_TTL = 6000;
 
+/**
+ * Normalize an event payload and attach stable identifiers for rendering and TTL tracking.
+ * Keeping this isolated avoids duplicating defaulting logic in publish.
+ */
 function buildEvent(payload) {
   return {
     id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -27,10 +45,24 @@ function buildEvent(payload) {
   };
 }
 
+/**
+ * Provider component that exposes publish/dismiss and renders toast UI.
+ *
+ * STATE
+ * - events: array of message objects; drives UI rendering.
+ * - timersRef: Map<eventId, timeoutId> to cancel scheduled removals when user manually dismisses.
+ *
+ * EFFECTS
+ * - useEffect cleanup clears all timers when provider unmounts to avoid setState on unmounted component.
+ */
 export function EventProvider({ children }) {
   const [events, setEvents] = useState([]);
   const timersRef = useRef(new Map());
 
+  /**
+   * Remove an event from state and stop any pending TTL timer.
+   * This is invoked by the toast close button and by TTL expiry.
+   */
   const dismiss = useCallback((id) => {
     setEvents((prev) => prev.filter((event) => event.id !== id));
     const timer = timersRef.current.get(id);
@@ -40,6 +72,14 @@ export function EventProvider({ children }) {
     }
   }, []);
 
+  /**
+   * Publish a new toast message.
+   *
+   * - Guards against empty payloads so downstream UI never renders blank cards.
+   * - Persists the event into state so the list renderer below can map it to DOM nodes.
+   * - Starts an auto-dismiss timer when ttl is set, capturing the timer id in timersRef for cleanup.
+   * - Returns the generated event id so callers can link follow-up actions (e.g., update existing toast).
+   */
   const publish = useCallback(
     (payload) => {
       if (!payload || (!payload.title && !payload.message)) {
@@ -67,6 +107,7 @@ export function EventProvider({ children }) {
     };
   }, []);
 
+  // Memoize the context value so consumer re-renders only happen when the API surface changes, not on each toast.
   const value = useMemo(
     () => ({
       publish,
@@ -75,6 +116,7 @@ export function EventProvider({ children }) {
     [publish, dismiss]
   );
 
+  // Styling palette describing how toast badges should appear per severity level.
   const badgeStyles = {
     success: "bg-emerald-500/90 text-white",
     error: "bg-rose-500/90 text-white",
