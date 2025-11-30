@@ -8,15 +8,8 @@ const {
   deleteUser,
   updateEntity, // ⬅️ זה השם הנכון!
 } = require("../controllers/userController");
-
-
-
 // 🎛 Validation middleware
 const { validateProfile } = require("../middleware/validation");
-console.log({
-  authenticateType: typeof authenticate,
-  validateProfileType: typeof validateProfile,
-});
 /**
  * ✅ GET /api/profile
  * מחזיר את פרופיל המשתמש המחובר לפי ה־token
@@ -34,8 +27,6 @@ router.put("/edit", authenticate, validateProfile, async (req, res) => {
     if (!req.user?._id) {
       return res.status(401).json({ message: "Unauthorized - no user in token" });
     }
-
-    console.log("✏️ [Profile/Edit] Authenticated user:", req.user._id);
 
     req.body.userId = req.user._id.toString(); // ⬅️ נשתמש במבנה של updateEntity
     req.body.updates = req.body; // ⬅️ כי updateEntity מצפה ל-updates
