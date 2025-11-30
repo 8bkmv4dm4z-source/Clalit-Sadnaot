@@ -261,6 +261,7 @@ const formatRegistration = ({ workshop }) => {
     image: w.image,
     available: w.available,
     maxParticipants: w.maxParticipants,
+    waitingListMax: w.waitingListMax,
     sessionsCount: w.sessionsCount,
 
     participants,
@@ -993,7 +994,7 @@ const workshop = await Workshop.findById(workshopDoc._id)
     name: f.name || "",
     relation: f.relation || "",
     email: f.email || parent.email || "",
-    phone: f.phone || parent.phone || "",   // ✅ כאן יש את הפלאפון הנכון מה־DB
+    phone: f.phone || parent.phone || "",   
     city: f.city || parent.city || "",
     idNumber: f.idNumber || "",
     birthDate: f.birthDate || null,
