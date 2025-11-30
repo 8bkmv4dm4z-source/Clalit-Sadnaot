@@ -512,7 +512,6 @@ const navigate = useNavigate();
            <button
   type="button"
   onClick={(e) => {
-if (!isLoggedIn) return;
     e.stopPropagation();
     setShowWaitlist((p) => !p);
   }}
