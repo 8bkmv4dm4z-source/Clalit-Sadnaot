@@ -4,6 +4,7 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
+import { useNavigate } from "react-router-dom";
 
 import {
   MapPin,
@@ -44,6 +45,7 @@ export default function WorkshopCard({
   isAdmin: isAdminProp,
 }) {
   const { user, isLoggedIn, isAdmin } = useAuth();
+const navigate = useNavigate();
 
   const {
     workshops,
@@ -339,14 +341,19 @@ export default function WorkshopCard({
   return (
     <>
       {/* ===================== CARD ===================== */}
-      <div
-        className={`
+     <div
+  onClick={() => {
+    if (!isLoggedIn) navigate("/Register");
+  }}
+  className={`
         relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden
         bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white
         hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all
+        cursor-pointer
         ${isMobile ? "text-[13px]" : isTablet ? "text-[14px]" : "text-sm"}
         `}
-      >
+>
+
         {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
           <div className="absolute top-3 left-3 z-10">
@@ -502,9 +509,13 @@ export default function WorkshopCard({
             </div>
 
             {/* Participants / Waitlist toggle */}
-            <button
-              type="button"
-              onClick={() => setShowWaitlist((p) => !p)}
+           <button
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation();
+    setShowWaitlist((p) => !p);
+  }}
+
               className={`bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2 hover:bg-indigo-50 transition text-right ${
                 isMobile
                   ? "flex flex-col gap-1.5 items-start"
@@ -540,18 +551,26 @@ export default function WorkshopCard({
 
           {/* Description CTA */}
           {description && (
-            <button
-              onClick={() => setShowDescriptionModal(true)}
+           <button
+  onClick={(e) => {
+    e.stopPropagation();
+    setShowDescriptionModal(true);
+  }}
+
               className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
             >
               <Info size={16} /> קרא עוד על הסדנה
             </button>
           )}
-
+        
           {/* --------------------- SELF BUTTON --------------------- */}
           {isLoggedIn && (
-            <button
-              onClick={() => runEntityAction(userKey)}
+           <button
+  onClick={(e) => {
+    e.stopPropagation();
+    runEntityAction(userKey);
+  }}
+
               disabled={loading || !selfButton?.action}
               className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${selfButton.color}`}
             >
@@ -562,7 +581,11 @@ export default function WorkshopCard({
           {/* FAMILY BUTTON */}
           {user?.familyMembers?.length > 0 && (
             <button
-              onClick={() => setShowFamilyModal(true)}
+  onClick={(e) => {
+    e.stopPropagation();
+    setShowFamilyModal(true);
+  }}
+
               className="w-full py-2 font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-xl"
             >
               👨‍👩‍👧 רישום בני משפחה
@@ -642,7 +665,11 @@ export default function WorkshopCard({
                     {/* BUTTON */}
                     {btn?.label && (
                       <button
-                        onClick={() => runEntityAction(member)}
+<button
+  onClick={(e) => {
+    e.stopPropagation();
+    runEntityAction(member);
+  }}
                         disabled={loading || !btn?.action}
                         className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${btn.color} disabled:opacity-60`}
                       >
@@ -655,7 +682,10 @@ export default function WorkshopCard({
             </div>
 
             <button
-              onClick={() => setShowFamilyModal(false)}
+onClick={(e) => {
+  e.stopPropagation();
+  setShowFamilyModal(false);
+}}
               className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
             >
               סגור
@@ -668,7 +698,10 @@ export default function WorkshopCard({
       {showDescriptionModal && (
         <div
           className="fixed inset-0 bg-black/50 flex justify-center items-center z-50"
-          onClick={() => setShowDescriptionModal(false)}
+onClick={(e) => {
+  e.stopPropagation();
+  setShowDescriptionModal(false);
+}}
         >
           <div
             className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
@@ -738,8 +771,12 @@ function AdminMenu({
 
   return (
     <div className={`relative ${className}`} ref={adminMenuRef}>
-      <button
-        onClick={() => setAdminOpen((s) => !s)}
+     <button
+  onClick={(e) => {
+    e.stopPropagation();
+    setAdminOpen((s) => !s);
+  }}
+
         className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
         title="אפשרויות ניהול"
       >
