@@ -150,31 +150,23 @@ function extractDaysFromDescription(description) {
   return Array.from(hits);
 }
 
-function formatHour(hourNum, minutes, meridiem) {
-  let hours = hourNum;
-  if (meridiem) {
-    const lower = meridiem.toLowerCase();
-    if (lower === "pm" && hours < 12) hours += 12;
-    if (lower === "am" && hours === 12) hours = 0;
-  }
-
-  const paddedHours = String(Math.max(0, Math.min(23, hours))).padStart(2, "0");
-  const paddedMinutes = String(Math.max(0, Math.min(59, minutes ?? 0))).padStart(2, "0");
+function formatHour(hourNum, minutes = 0) {
+  const paddedHours = String(Math.max(0, Math.min(23, Math.floor(hourNum)))).padStart(2, "0");
+  const paddedMinutes = String(Math.max(0, Math.min(59, Math.floor(minutes)))).padStart(2, "0");
   return `${paddedHours}:${paddedMinutes}`;
 }
 
-function extractHourFromDescription(description) {
-  if (!description) return "";
-  const text = String(description);
-  const match = text.match(/(?:at|בשעה)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+function extractHourFromText(text) {
+  if (!text) return "";
+  const match = String(text).match(/(?:at|בשעה)?\s*([01]?\d|2[0-3])(?::(\d{2}))?/i);
   if (!match) return "";
 
   const hourNum = Number(match[1]);
-  if (!Number.isFinite(hourNum) || hourNum > 24) return "";
-
   const minutes = match[2] ? Number(match[2]) : 0;
-  const meridiem = match[3];
-  return formatHour(hourNum, minutes, meridiem);
+  if (!Number.isFinite(hourNum) || hourNum < 0 || hourNum > 23) return "";
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) return "";
+
+  return formatHour(hourNum, minutes);
 }
 
 function coerceNumber(value) {
@@ -278,7 +270,7 @@ async function run() {
       coerceDate(row.startDate) || coerceDate(defaultStartDate) || new Date().toISOString();
     const days = parseDays(row.days, descriptionDays.length ? descriptionDays : defaultDays);
     const sessionsCount = coerceNumber(row.sessionsCount) || 1;
-    const hour = row.hour ? String(row.hour).trim() : extractHourFromDescription(row.description);
+    const hour = extractHourFromText(row.hour) || extractHourFromText(row.description);
 
     const payload = {
       title: deriveTitle({ row, index: i + 1, days, hour }),
