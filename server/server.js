@@ -28,6 +28,7 @@ const mongoose = require("mongoose");
 const { errors: celebrateErrors, CelebrateError } = require("celebrate");
 const jwt = require("jsonwebtoken");
 const { startAuditScheduler } = require("./services/auditService");
+const { runAllHashAudits } = require("./audit/hashAudit");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -326,6 +327,12 @@ const HOST = process.env.HOST || "0.0.0.0";
     });
 
     startAuditScheduler();
+
+    if (process.env.HASH_AUDIT === "true") {
+      runAllHashAudits().catch((err) =>
+        console.error("[AUDIT][HASH] failed to complete:", err?.message || err)
+      );
+    }
 
     const server = app.listen(PORT, HOST, () => {
       const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
