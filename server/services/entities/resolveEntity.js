@@ -1,15 +1,6 @@
 const mongoose = require("mongoose");
 const User = require("../../models/User");
-const { decodeId } = require("../../utils/hashId");
-const { encodeId } = require("../../utils/hashId");
-
-const resolveOpaqueId = (value) => {
-  if (!value) return null;
-  if (mongoose.isValidObjectId(value)) return value;
-  const decoded = decodeId(String(value));
-  if (decoded && mongoose.isValidObjectId(decoded)) return decoded;
-  return null;
-};
+const { hashId } = require("../../utils/hashId");
 
 /**
  * resolveEntityByKey
@@ -26,45 +17,33 @@ async function resolveEntityByKey(entityKey) {
   if (!entityKey) return null;
 
   const normalizedKey = String(entityKey);
-  const resolvedObjectId = resolveOpaqueId(normalizedKey);
 
   // 1) direct user
-  let userDoc = await User.findOne({
-    $or: [
-      { entityKey: normalizedKey },
-      ...(resolvedObjectId ? [{ _id: resolvedObjectId }] : []),
-    ],
-  });
+  let userDoc = await User.findOne({ entityKey: normalizedKey });
   if (userDoc) {
     if (!userDoc.entityKey && userDoc._id) {
-      userDoc.entityKey = encodeId(userDoc._id.toString());
+      const hashed = hashId("user", userDoc._id.toString());
+      userDoc.entityKey = hashed;
     }
     return { type: "user", userDoc };
   }
 
   // 2) family member
-  const familyMatchQuery = {
-    $or: [{ "familyMembers.entityKey": normalizedKey }],
-  };
-  if (resolvedObjectId) {
-    familyMatchQuery.$or.push({ "familyMembers._id": resolvedObjectId });
-  }
-
-  userDoc = await User.findOne(familyMatchQuery);
+  userDoc = await User.findOne({ "familyMembers.entityKey": normalizedKey });
   if (!userDoc) return null;
 
   const memberDoc = (userDoc.familyMembers || []).find(
-    (m) =>
-      String(m.entityKey) === normalizedKey ||
-      (resolvedObjectId && String(m._id) === String(resolvedObjectId))
+    (m) => String(m.entityKey) === normalizedKey
   );
   if (!memberDoc) return null;
 
   if (!userDoc.entityKey && userDoc._id) {
-    userDoc.entityKey = encodeId(userDoc._id.toString());
+    const hashed = hashId("user", userDoc._id.toString());
+    userDoc.entityKey = hashed;
   }
   if (!memberDoc.entityKey && memberDoc._id) {
-    memberDoc.entityKey = encodeId(memberDoc._id.toString());
+    const hashed = hashId("family", memberDoc._id.toString());
+    memberDoc.entityKey = hashed;
   }
 
   return { type: "familyMember", userDoc, memberDoc };

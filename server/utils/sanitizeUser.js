@@ -1,5 +1,5 @@
 const User = require("../models/User");
-const { encodeId } = require("./hashId");
+const { hashId } = require("./hashId");
 
 /**
  * Normalize a Mongoose document or plain object into a plain object.
@@ -47,12 +47,9 @@ const normalizeEntityShape = (entity = {}) => {
   if (normalized.entityKey !== undefined)
     normalized.entityKey = toStringOrNull(normalized.entityKey);
 
-  const hashedKey =
-    normalized.entityKey ||
-    (normalized._id ? encodeId(String(normalized._id)) : null);
+  const hashedKey = normalized.entityKey;
   if (hashedKey) {
     normalized.entityKey = hashedKey;
-    // Prevent leaking raw ObjectId in client payloads
     normalized._id = hashedKey;
   }
   if (normalized.parentKey !== undefined)
@@ -91,10 +88,8 @@ const ALLOWED_FAMILY_FIELDS = [
   "parentName",
   "parentEmail",
   "parentPhone",
-  "birthDate",
-  "idNumber",
-  "canCharge",
 ];
+const ALLOWED_FAMILY_FIELDS_ADMIN = [...ALLOWED_FAMILY_FIELDS, "birthDate", "idNumber", "canCharge"];
 
 const pickAllowed = (source = {}, allowed = []) => {
   const out = {};
@@ -116,6 +111,9 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
   if (!user) return null;
   const clean = stripSensitiveFields(user);
 
+  clean.entityKey =
+    clean.entityKey || (clean._id ? hashId("user", String(clean._id)) : undefined);
+
   const requesterIsAdmin = requester?.role === "admin";
   const isAdminRole = clean.role === "admin";
 
@@ -130,14 +128,22 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
 
     base.familyMembers = Array.isArray(clean.familyMembers)
       ? clean.familyMembers.map((member) => {
-          const merged = normalizeEntityShape({
+          const mergedSource = {
             parentKey: normalizedUser.entityKey,
             parentName: normalizedUser.name,
             parentEmail: normalizedUser.email,
             parentPhone: normalizedUser.phone,
             parentCity: normalizedUser.city,
             ...member,
-          });
+          };
+
+          mergedSource.entityKey =
+            mergedSource.entityKey ||
+            (mergedSource._id
+              ? hashId("family", String(mergedSource._id))
+              : undefined);
+
+          const merged = normalizeEntityShape(mergedSource);
 
           // Ensure inherited contact fields are present even if missing in member doc
           merged.email = merged.email ?? normalizedUser.email ?? "";
@@ -162,6 +168,9 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
     pickAllowed(clean, ALLOWED_USER_FIELDS),
     { isFamily: false }
   );
+  const allowedFamilyFields = requesterIsAdmin
+    ? ALLOWED_FAMILY_FIELDS_ADMIN
+    : ALLOWED_FAMILY_FIELDS;
   const safeFamilyMembers = Array.isArray(clean.familyMembers)
     ? clean.familyMembers.map((member) =>
         withEntityFlags(
@@ -172,8 +181,11 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
               parentEmail: safeUser.email,
               parentPhone: safeUser.phone,
               ...member,
+              entityKey:
+                member.entityKey ||
+                (member._id ? hashId("family", String(member._id)) : undefined),
             },
-            ALLOWED_FAMILY_FIELDS
+            allowedFamilyFields
           ),
           { isFamily: true, parent: safeUser }
         )

@@ -1,4 +1,4 @@
-const { encodeId } = require("../../utils/hashId");
+const { hashId } = require("../../utils/hashId");
 
 const toPlain = (doc) =>
   doc && typeof doc.toObject === "function" ? doc.toObject({ getters: false }) : doc || {};
@@ -9,7 +9,9 @@ const hydrateParentFields = (parentDoc = {}) => {
   const parent = toPlain(parentDoc);
   const entityKey =
     parent.entityKey ||
-    (parent._id ? encodeId(parent._id.toString ? parent._id.toString() : String(parent._id)) : null);
+    (parent._id
+      ? hashId("user", parent._id.toString ? parent._id.toString() : String(parent._id))
+      : null);
   return {
     _id: parent._id || null,
     entityKey,
@@ -42,10 +44,14 @@ const hydrateFamilyMember = (memberDoc = {}, parentDoc = {}) => {
 
   merged.entityKey =
     member.entityKey ||
-    (member._id ? encodeId(member._id.toString ? member._id.toString() : String(member._id)) : null);
+    (member._id
+      ? hashId("family", member._id.toString ? member._id.toString() : String(member._id))
+      : null);
   merged.parentKey =
     parent.entityKey ||
-    (parent._id ? encodeId(parent._id.toString ? parent._id.toString() : String(parent._id)) : null);
+    (parent._id
+      ? hashId("user", parent._id.toString ? parent._id.toString() : String(parent._id))
+      : null);
   merged.parentName = parent.name;
   merged.parentEmail = parent.email;
   merged.parentPhone = parent.phone;

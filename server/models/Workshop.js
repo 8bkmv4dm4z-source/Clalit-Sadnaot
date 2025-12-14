@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const nodeCrypto = require("node:crypto");
-const { encodeId } = require("../utils/hashId");
+const { hashId } = require("../utils/hashId");
 
 /* ============================================================
    🧱 Workshop Schema — Optimized for High-Performance Search
@@ -107,7 +107,7 @@ WorkshopSchema.pre("validate", function (next) {
 });
 
 WorkshopSchema.pre("save", function (next) {
-  if (!this.hashedId && this._id) this.hashedId = encodeId(this._id);
+  if (!this.hashedId && this._id) this.hashedId = hashId("workshop", this._id.toString());
   next();
 });
 
