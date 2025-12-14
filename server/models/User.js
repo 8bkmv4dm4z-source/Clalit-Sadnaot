@@ -3,23 +3,25 @@ const bcrypt = require("bcryptjs");
 const nodeCrypto = require("node:crypto");
 
 // ✅ HASHED ID UTILS (WORKSHOPS + USERS + FAMILY SHARE SAME SYSTEM)
-const { encodeId } = require("../utils/hashId");
+const { hashId } = require("../utils/hashId");
 
 /**
  * FamilyMemberSchema
  * ------------------------------------------------------------
  * Embedded sub-document for family members.
  * Each member gets an automatic ObjectId and a HASHED entityKey
- * derived from _id so it can be REVERSIBLY matched by controllers.
+ * derived from _id so it can be matched by controllers without
+ * exposing raw ObjectId values.
  */
 const FamilyMemberSchema = new mongoose.Schema(
   {
     entityKey: {
       type: String,
       default: function () {
-        // MUST be reversible so resolveEntityByKey() can decode back to _id
-        if (this._id) return encodeId(this._id.toString());
-        return nodeCrypto.randomUUID(); // fallback (rare)
+        if (this._id) {
+          return hashId("family", this._id.toString());
+        }
+        return undefined;
       },
       index: true,
     },
@@ -44,8 +46,16 @@ const UserSchema = new mongoose.Schema(
     entityKey: {
       type: String,
       default: function () {
-        return encodeId(this._id.toString());
+        if (this._id) {
+          return hashId("user", this._id.toString());
+        }
+        return undefined;
       },
+      index: true,
+      unique: true,
+    },
+    hashedId: {
+      type: String,
       index: true,
       unique: true,
     },
@@ -137,19 +147,26 @@ const hashValue = (value, salt = ROLE_HASH_SECRET) => {
 
 /**
  * Ensures entityKey exists for both user and family members.
- * For family: entityKey = encodeId(_id)
+ * For family: entityKey = hashId(_id)
  */
 const ensureEntityKeys = (userDoc) => {
   // user entityKey
   if (!userDoc.entityKey && userDoc._id) {
-    userDoc.entityKey = encodeId(userDoc._id.toString());
+    const hashed = hashId("user", userDoc._id.toString());
+    userDoc.entityKey = hashed;
+    userDoc.hashedId = hashed;
+  }
+
+  if (!userDoc.hashedId && userDoc._id) {
+    userDoc.hashedId = hashId("user", userDoc._id.toString());
   }
 
   // family members
   if (Array.isArray(userDoc.familyMembers)) {
     userDoc.familyMembers.forEach((member) => {
       if (!member.entityKey && member._id) {
-        member.entityKey = encodeId(member._id.toString());
+        const hashed = hashId("family", member._id.toString());
+        member.entityKey = hashed;
       }
     });
   }
@@ -172,6 +189,22 @@ UserSchema.methods.refreshIntegrityHashes = function () {
 
 UserSchema.pre("validate", function (next) {
   ensureEntityKeys(this);
+  next();
+});
+
+UserSchema.pre("save", function (next) {
+  if (!this.hashedId && this._id) {
+    this.hashedId = hashId("user", this._id.toString());
+    if (!this.entityKey) this.entityKey = this.hashedId;
+  }
+  if (Array.isArray(this.familyMembers)) {
+    this.familyMembers.forEach((member) => {
+      if (member._id && !member.entityKey) {
+        const hashed = hashId("family", member._id.toString());
+        member.entityKey = hashed;
+      }
+    });
+  }
   next();
 });
 
@@ -216,7 +249,6 @@ UserSchema.index({ city: 1 });
 UserSchema.index({ role: 1 });
 
 // Family
-UserSchema.index({ "familyMembers.entityKey": 1 });
 UserSchema.index({ "familyMembers.name": 1 });
 UserSchema.index({ "familyMembers.phone": 1 });
 UserSchema.index({ "familyMembers.email": 1 });
