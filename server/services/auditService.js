@@ -138,30 +138,7 @@ async function queryIntegrityHashMismatches(limit = 150) {
     .filter(Boolean);
 }
 
-async function normalizeIntegrityHashes(limit = 200) {
-  const users = await User.find({
-    $or: [
-      { roleIntegrityHash: { $in: [null, ""] } },
-      { idNumberHash: { $in: [null, ""] } },
-    ],
-  })
-    .select("role idNumber roleIntegrityHash idNumberHash")
-    .limit(limit);
 
-  const normalized = [];
-
-  for (const user of users) {
-    try {
-      user.refreshIntegrityHashes();
-      await user.save({ validateBeforeSave: false });
-      normalized.push({ id: user._id, role: user.role, normalized: true });
-    } catch (err) {
-      normalized.push({ id: user._id, role: user.role, error: err.message });
-    }
-  }
-
-  return normalized;
-}
 
 async function auditWorkshopAvailability(limit = 150) {
   const now = new Date();
@@ -281,21 +258,23 @@ async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) 
       queryInvalidRoles(),
     ]);
 
-    const [missingIntegrityHashes, integrityHashMismatches, normalizedIntegrityHashes] =
-      await Promise.all([
-        queryMissingIntegrityHashes(),
-        queryIntegrityHashMismatches(),
-        normalizeIntegrityHashes(),
-      ]);
+    const [
+  missingIntegrityHashes,
+  integrityHashMismatches,
+] = await Promise.all([
+  queryMissingIntegrityHashes(),
+  queryIntegrityHashMismatches(),
+]);
+
 
     const summary = {
-      suspiciousNameCount: suspiciousNames.length,
-      missingContactCount: missingContacts.length,
-      invalidRoleCount: invalidRoles.length,
-      missingIntegrityCount: missingIntegrityHashes.length,
-      integrityMismatchCount: integrityHashMismatches.length,
-      integrityNormalizedCount: normalizedIntegrityHashes.filter((n) => n.normalized).length,
-    };
+  suspiciousNameCount: suspiciousNames.length,
+  missingContactCount: missingContacts.length,
+  invalidRoleCount: invalidRoles.length,
+  missingIntegrityCount: missingIntegrityHashes.length,
+  integrityMismatchCount: integrityHashMismatches.length,
+};
+
 
     const result = {
       checkedAt: new Date(now).toISOString(),
@@ -308,7 +287,6 @@ async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) 
         invalidRoles: summarizeBucket(invalidRoles),
         missingIntegrityHashes: summarizeBucket(missingIntegrityHashes),
         integrityHashMismatches: summarizeBucket(integrityHashMismatches),
-        normalizedIntegrityHashes: summarizeBucket(normalizedIntegrityHashes),
       },
     };
 

@@ -6,6 +6,15 @@ if (!process.env.PUBLIC_ID_SECRET) {
 
 const SECRET = process.env.PUBLIC_ID_SECRET;
 
+// 🔐 Rotation detection (non-secret, safe to log)
+const SECRET_FINGERPRINT = crypto
+  .createHash("sha256")
+  .update(SECRET)
+  .digest("hex")
+  .slice(0, 10);
+
+console.log(`[HASH] PUBLIC_ID_SECRET fingerprint=${SECRET_FINGERPRINT}`);
+
 function hashId(type, id) {
   if (!type || !id) {
     throw new Error("hashId requires type and id");
