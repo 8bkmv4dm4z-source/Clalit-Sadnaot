@@ -6,6 +6,9 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
 import { useNavigate } from "react-router-dom";
 
+// 1. Import the Image Helper
+import { getWorkshopImage } from "../constants/workshopImages";
+
 import {
   MapPin,
   Users,
@@ -45,7 +48,7 @@ export default function WorkshopCard({
   isAdmin: isAdminProp,
 }) {
   const { user, isLoggedIn, isAdmin } = useAuth();
-const navigate = useNavigate();
+  const navigate = useNavigate();
 
   const {
     workshops,
@@ -128,6 +131,9 @@ const navigate = useNavigate();
     userFamilyRegistrations = [],
   } = workshop;
 
+  // 2. Resolve Image URL (Preset ID or Custom URL)
+  const imageUrl = getWorkshopImage(image);
+
   const userKey = str(user?.entityKey);
 
   const participantsArr = Array.isArray(participants) ? participants : [];
@@ -159,7 +165,7 @@ const navigate = useNavigate();
   const participantIdSet = useMemo(() => {
     return new Set(
       participantsArr
-        .map((p) => str(p?.entityKey || p)) // <— FIX
+        .map((p) => str(p?.entityKey || p))
         .filter(Boolean)
     );
   }, [participantsArr]);
@@ -191,9 +197,7 @@ const navigate = useNavigate();
     });
   }, [waitingList]);
 
-  // -------- FIXED: true self waitlist logic --------
-  // For self entries from backend/formatRegistration:
-  // parentKey === userKey, entityKey === userKey, familyMemberKey === null
+  // -------- true self waitlist logic --------
   const selfOnWaitlist = useMemo(
     () =>
       !!userKey &&
@@ -206,7 +210,7 @@ const navigate = useNavigate();
   const isWorkshopFull =
     maxParticipants > 0 && participantsCount >= maxParticipants;
 
-  // -------- FIXED: self registered logic (per-entity only) --------
+  // -------- self registered logic (per-entity only) --------
   const isSelfRegistered = useMemo(() => {
     if (!userKey || !wid) return false;
 
@@ -214,7 +218,6 @@ const navigate = useNavigate();
     if (userWorkshopMap?.[wid] === true) return true;
     if (workshop?.isUserRegistered) return true;
 
-    // participants array is normalized to entityKey strings from backend
     return participantIdSet.has(userKey);
   }, [
     userKey,
@@ -225,7 +228,7 @@ const navigate = useNavigate();
     participantIdSet,
   ]);
 
-  // -------- FIXED: family registered set (entityKey-based) --------
+  // -------- family registered set (entityKey-based) --------
   const familyRegisteredIdSet = useMemo(() => {
     const src =
       familyWorkshopMap?.[wid] ??
@@ -237,7 +240,7 @@ const navigate = useNavigate();
     return new Set(src.map(normalizeId).filter(Boolean));
   }, [familyWorkshopMap, wid, userFamilyRegistrations]);
 
-  // -------- FIXED: button logic (per entity) --------
+  // -------- button logic (per entity) --------
   const getEntityButton = (entity) => {
     const entityKey =
       typeof entity === "object" ? str(entity?.entityKey) : userKey;
@@ -303,7 +306,6 @@ const navigate = useNavigate();
     const btn = getEntityButton(entity);
     if (!btn?.action || loading) return;
 
-    // argument is unused by the action, but kept for clarity
     const ek = typeof entity === "object" ? str(entity?.entityKey) : userKey;
 
     setLoading(true);
@@ -341,18 +343,18 @@ const navigate = useNavigate();
   return (
     <>
       {/* ===================== CARD ===================== */}
-     <div
-  onClick={() => {
-    if (!isLoggedIn) navigate("/Register");
-  }}
-  className={`
+      <div
+        onClick={() => {
+          if (!isLoggedIn) navigate("/Register");
+        }}
+        className={`
         relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden
         bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white
         hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all
         cursor-pointer
         ${isMobile ? "text-[13px]" : isTablet ? "text-[14px]" : "text-sm"}
         `}
->
+      >
 
         {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
@@ -372,14 +374,17 @@ const navigate = useNavigate();
             isMobile ? "h-36" : "h-40 sm:h-44"
           }`}
         >
-          {image ? (
+          {/* 3. Use imageUrl here. The helper ensures a valid URL, so we can render it directly. */}
+          {imageUrl ? (
             <img
-              src={image}
+              src={imageUrl}
               alt={title}
               className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
               loading="lazy"
             />
           ) : (
+            // This fallback is technically unreachable now if the helper always returns a default, 
+            // but kept for strict logic preservation just in case.
             <div className="flex items-center justify-center h-full bg-gray-100 text-gray-400">
               אין תמונה
             </div>
@@ -456,7 +461,7 @@ const navigate = useNavigate();
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title="פתח מפות"
+                    title="פתח במפות"
                     className="text-indigo-500 hover:text-indigo-700 shrink-0"
                   >
                     🌍
@@ -509,13 +514,12 @@ const navigate = useNavigate();
             </div>
 
             {/* Participants / Waitlist toggle */}
-           <button
-  type="button"
-  onClick={(e) => {
-    e.stopPropagation();
-    setShowWaitlist((p) => !p);
-  }}
-
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowWaitlist((p) => !p);
+              }}
               className={`bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2 hover:bg-indigo-50 transition text-right ${
                 isMobile
                   ? "flex flex-col gap-1.5 items-start"
@@ -551,13 +555,12 @@ const navigate = useNavigate();
 
           {/* Description CTA */}
           {description && (
-           <button
-  onClick={(e) => {
+            <button
+              onClick={(e) => {
 
-    e.stopPropagation();
-    setShowDescriptionModal(true);
-  }}
-
+                e.stopPropagation();
+                setShowDescriptionModal(true);
+              }}
               className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
             >
               <Info size={16} /> קרא עוד על הסדנה
@@ -566,14 +569,13 @@ const navigate = useNavigate();
         
           {/* --------------------- SELF BUTTON --------------------- */}
           {isLoggedIn && (
-           <button
-  onClick={(e) => {
-      if (!isLoggedIn) return;
+            <button
+              onClick={(e) => {
+                  if (!isLoggedIn) return;
 
-    e.stopPropagation();
-    runEntityAction(userKey);
-  }}
-
+                e.stopPropagation();
+                runEntityAction(userKey);
+              }}
               disabled={loading || !selfButton?.action}
               className={`w-full mt-1.5 py-2 font-semibold rounded-xl transition-all disabled:opacity-60 ${selfButton.color}`}
             >
@@ -584,13 +586,12 @@ const navigate = useNavigate();
           {/* FAMILY BUTTON */}
           {user?.familyMembers?.length > 0 && (
             <button
-  onClick={(e) => {
-      if (!isLoggedIn) return;
+              onClick={(e) => {
+                  if (!isLoggedIn) return;
 
-    e.stopPropagation();
-    setShowFamilyModal(true);
-  }}
-
+                e.stopPropagation();
+                setShowFamilyModal(true);
+              }}
               className="w-full py-2 font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-xl"
             >
               👨‍👩‍👧 רישום בני משפחה
@@ -669,14 +670,13 @@ const navigate = useNavigate();
 
                     {/* BUTTON */}
                     {btn?.label && (
-                    
-<button
-  onClick={(e) => {
-      if (!isLoggedIn) return;
+                      <button
+                        onClick={(e) => {
+                            if (!isLoggedIn) return;
 
-    e.stopPropagation();
-    runEntityAction(member);
-  }}
+                          e.stopPropagation();
+                          runEntityAction(member);
+                        }}
                         disabled={loading || !btn?.action}
                         className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${btn.color} disabled:opacity-60`}
                       >
@@ -689,12 +689,12 @@ const navigate = useNavigate();
             </div>
 
             <button
-onClick={(e) => {
-    if (!isLoggedIn) return;
+              onClick={(e) => {
+                  if (!isLoggedIn) return;
 
-  e.stopPropagation();
-  setShowFamilyModal(false);
-}}
+                e.stopPropagation();
+                setShowFamilyModal(false);
+              }}
               className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
             >
               סגור
@@ -707,16 +707,15 @@ onClick={(e) => {
       {showDescriptionModal && (
         <div
           className="fixed inset-0 bg-black/50 flex justify-center items-center z-50"
-onClick={(e) => {
-    if (!isLoggedIn) return;
+          onClick={(e) => {
+              if (!isLoggedIn) return;
 
-  e.stopPropagation();
-  setShowDescriptionModal(false);
-}}
+            e.stopPropagation();
+            setShowDescriptionModal(false);
+          }}
         >
           <div
             className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
-
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-bold text-indigo-800 mb-4 border-b border-indigo-100 pb-2">
@@ -728,7 +727,6 @@ onClick={(e) => {
             </div>
 
             <button
-
               onClick={() => setShowDescriptionModal(false)}
               className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
             >
@@ -784,12 +782,11 @@ function AdminMenu({
 
   return (
     <div className={`relative ${className}`} ref={adminMenuRef}>
-     <button
-  onClick={(e) => {
-    e.stopPropagation();
-    setAdminOpen((s) => !s);
-  }}
-
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setAdminOpen((s) => !s);
+        }}
         className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
         title="אפשרויות ניהול"
       >

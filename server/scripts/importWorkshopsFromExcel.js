@@ -1,313 +1,249 @@
 /**
- * importWorkshopsFromExcel.js
- * -----------------------------------------------------------------------------
- * Reads an Excel sheet and registers workshops through the admin API route.
- *
- * Required columns (header-insensitive, Hebrew aliases supported):
- * 1. id (מסד)
- * 2. type (סוג סדנה)
- * 3. description (תיאור)
- * 4. end date (ignored)
- * 5. amount of months (ignored)
- * 6. payment status (ignored)
- * 7. city (עיר)
- * 8. amount / כמות פעמים (sessionsCount)
- * 9. current participants amount (used as maxParticipants)
- *
- * Usage:
- *   ADMIN_TOKEN=... node server/scripts/importWorkshopsFromExcel.js \
- *     --file=./data/workshops.xlsx \
- *     --api=http://localhost:5000/api \
- *     --days=Sunday,Tuesday \
- *     --defaultStart=2025-01-01 \
- *     [--sheet=Sheet1] [--dry-run]
- *
- * Notes:
- * - The script calls POST /workshops (admin route) for each row.
- * - Missing startDate/days fall back to --defaultStart and --days.
- * - endDate is calculated by the server; this script does not send it.
- * - Unknown headers are ignored; strict validation happens server-side.
+ * 🛠️ Workshop Import Script (Fixed Title & Studio)
  */
 
+require("dotenv").config({ path: "../.env" });
+const mongoose = require("mongoose");
 const fs = require("fs");
-const ExcelJS = require("exceljs");
-const { safeFetch } = require("../utils/safeFetch");
-require("dotenv").config();
+const csv = require("csv-parser");
+const path = require("path");
 
-const VALID_DAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
+const CSV_FILENAME = "data.csv";
+const CSV_PATH = path.join(__dirname, CSV_FILENAME);
 
-const HEADER_ALIASES = {
-  id: ["id", "מסד", "workshopid", "identifier"],
-  type: ["type", "סוג", "סוגסדנה", "סוג סדנה"],
-  description: ["description", "desc", "תיאור", "אפיון"],
-  city: ["city", "עיר"],
-  sessionsCount: [
-    "amount",
-    "כמות",
-    "כמותפעמים",
-    "כמות פעמים",
-    "sessions",
-    "meetings",
-  ],
-  maxParticipants: [
-    "currentparticipants",
-    "current participants",
-    "current participants amount",
-    "maxparticipants",
-    "capacity",
-    "משתתפים",
-    "משתתפיםנוכחי",
-  ],
-  startDate: ["startdate", "תאריךתחלה", "התחלה", "start"],
-  days: ["days", "meetingdays", "weekday", "ימים", "ימי", "ימי מפגש"],
-  hour: ["hour", "time", "שעה"],
+let Workshop;
+try {
+  Workshop = require("../models/Workshop");
+} catch (e) {
+  console.error("❌ Error: Could not find '../models/Workshop.js'.");
+  process.exit(1);
+}
+
+// =========================================================
+// 1. CONFIGURATION & MAPS
+// =========================================================
+
+const HEBREW_DAYS_MAP = {
+  'ראשון': 'Sunday', 'שני': 'Monday', 'שלישי': 'Tuesday',
+  'רביעי': 'Wednesday', 'חמישי': 'Thursday', 'שישי': 'Friday', 'שבת': 'Saturday'
 };
 
-const DAY_KEYWORDS = [
-  { tokens: ["sunday", "sun", "ראשון"], value: "Sunday" },
-  { tokens: ["monday", "mon", "שני"], value: "Monday" },
-  { tokens: ["tuesday", "tue", "שלישי"], value: "Tuesday" },
-  { tokens: ["wednesday", "wed", "רביעי"], value: "Wednesday" },
-  { tokens: ["thursday", "thu", "חמישי"], value: "Thursday" },
-  { tokens: ["friday", "fri", "שישי"], value: "Friday" },
-  { tokens: ["saturday", "sat", "שבת"], value: "Saturday" },
-];
+// 🆕 NEW: Map for Title Generation (English -> Hebrew Shorthand)
+const ENG_TO_HEB_SHORT = {
+  'Sunday': 'א', 'Monday': 'ב', 'Tuesday': 'ג', 'Wednesday': 'ד',
+  'Thursday': 'ה', 'Friday': 'ו', 'Saturday': 'ש'
+};
 
-function parseArgs(argv = process.argv.slice(2)) {
-  return argv.reduce((acc, arg) => {
-    const [key, value] = arg.replace(/^--/, "").split("=");
-    acc[key] = value === undefined ? true : value;
-    return acc;
-  }, {});
-}
+const HEBREW_AGE_MAP = {
+  "children": "ילדים",
+  "youth": "נוער",
+  "seniors": "גיל הזהב",
+  "adults": "מבוגרים"
+};
 
-function normalizeHeader(header = "") {
-  return String(header)
-    .toLowerCase()
-    .replace(/[^a-z0-9\u0590-\u05fe]+/g, "");
-}
+const REVERSED_KEYWORDS = ['ןושאר', 'ינש', 'ישיליש', 'יעיבר', 'ישימח'];
 
-function resolveHeaderKey(rawHeader) {
-  const normalized = normalizeHeader(rawHeader);
-  for (const [target, aliases] of Object.entries(HEADER_ALIASES)) {
-    for (const alias of aliases) {
-      if (normalized === normalizeHeader(alias)) return target;
-    }
-  }
-  return null;
-}
-
-function buildHeaderMap(worksheet) {
-  const headerRow = worksheet.getRow(1);
-  const map = new Map();
-  headerRow.eachCell((cell, colNumber) => {
-    const key = resolveHeaderKey(cell.value);
-    if (key) map.set(colNumber, key);
-  });
-  return map;
-}
-
-function parseDays(value, fallbackDays) {
-  if (!value) return [...fallbackDays];
-  if (Array.isArray(value)) return value.map(String);
-
-  const parts = String(value)
-    .split(/[,\n]/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
-
-  const valid = parts.filter((d) => VALID_DAYS.includes(d));
-  return valid.length ? valid : [...fallbackDays];
-}
-
-function coerceDate(value) {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString();
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function extractDaysFromDescription(description) {
-  if (!description) return [];
-  const normalized = String(description).toLowerCase();
-  const hits = new Set();
-
-  DAY_KEYWORDS.forEach(({ tokens, value }) => {
-    tokens.forEach((token) => {
-      if (normalized.includes(token.toLowerCase())) hits.add(value);
-    });
-  });
-
-  return Array.from(hits);
-}
-
-function formatHour(hourNum, minutes = 0) {
-  const paddedHours = String(Math.max(0, Math.min(23, Math.floor(hourNum)))).padStart(2, "0");
-  const paddedMinutes = String(Math.max(0, Math.min(59, Math.floor(minutes)))).padStart(2, "0");
-  return `${paddedHours}:${paddedMinutes}`;
-}
-
-function extractHourFromText(text) {
+function fixHebrewDirection(text) {
   if (!text) return "";
-  const match = String(text).match(/(?:at|בשעה)?\s*([01]?\d|2[0-3])(?::(\d{2}))?/i);
-  if (!match) return "";
-
-  const hourNum = Number(match[1]);
-  const minutes = match[2] ? Number(match[2]) : 0;
-  if (!Number.isFinite(hourNum) || hourNum < 0 || hourNum > 23) return "";
-  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 59) return "";
-
-  return formatHour(hourNum, minutes);
+  let cleanText = text.toString().trim();
+  const isReversed = REVERSED_KEYWORDS.some(k => cleanText.includes(k));
+  return isReversed ? cleanText.split("").reverse().join("") : cleanText;
 }
 
-function coerceNumber(value) {
-  if (value === undefined || value === null) return null;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+function detectAgeGroupKey(text) {
+  const t = text.toLowerCase();
+  if (t.includes("ילדים") || t.includes("טף") || t.includes("גן")) return "children";
+  if (t.includes("נוער") || t.includes("נערים") || t.includes("נערות")) return "youth";
+  if (t.includes("גיל הזהב") || t.includes("בונה עצם") || t.includes("סניור")) return "seniors";
+  return "adults"; 
 }
 
-function deriveTitle({ row, index, days, hour }) {
-  if (days?.length) {
-    const base = days.join(" & ");
-    return hour ? `${base} ${hour}` : base;
-  }
-  if (row.description) return String(row.description).trim();
-  if (row.type) return String(row.type).trim();
-  if (row.id) return `Workshop ${row.id}`;
-  return `Imported Workshop ${index}`;
-}
-
-async function createWorkshop({ apiBase, token, payload, dryRun }) {
-  const url = `${apiBase.replace(/\/$/, "")}/workshops`;
-  if (dryRun) {
-    console.log("[dry-run] Would POST", url, payload);
-    return { ok: true, skipped: true };
-  }
-
-  const res = await safeFetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
+/**
+ * 🧠 INTELLIGENT PARSER
+ */
+function parseScheduleAndDetails(description, startDate) {
+  const normalizedText = fixHebrewDirection(description);
+  
+  // --- Days ---
+  let days = [];
+  Object.keys(HEBREW_DAYS_MAP).forEach(hebKey => {
+    if (normalizedText.includes(hebKey)) {
+      days.push(HEBREW_DAYS_MAP[hebKey]);
+    }
   });
 
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
+  if (days.length === 0 && startDate) {
+    const weekday = startDate.toLocaleDateString('en-US', { weekday: 'long' });
+    days.push(weekday);
+  }
+  days = [...new Set(days)];
 
-  if (!res.ok) {
-    throw new Error(data?.message || `API error (${res.status})`);
+  // --- Hour ---
+  let hour = "18:00"; 
+  const timeMatch = normalizedText.match(/(\d{1,2})[:\.](\d{2})/);
+  if (timeMatch) {
+    hour = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
   }
 
-  return data;
+  // --- Studio ---
+  // 🟢 FIX 1: Default studio is now "-" instead of "מרכז ספורט"
+  let studio = "-"; 
+  
+  if (normalizedText.includes("פארק")) studio = "פארק";
+  if (normalizedText.includes("סטודיו")) studio = "סטודיו";
+  if (normalizedText.includes("מכון פיזיו")) studio = "מכון פיזיו";
+  if (normalizedText.includes("סורוקה")) studio = "סורוקה";
+  if (normalizedText.includes("מתנס") || normalizedText.includes('מתנ"ס')) studio = "מתנ\"ס";
+  if (normalizedText.includes("נווה נוי")) studio = "נווה נוי";
+  if (normalizedText.includes("נווה זאב")) studio = "נווה זאב";
+
+  return { days, hour, cleanDescription: normalizedText, detectedStudio: studio };
 }
 
-async function loadRowsFromWorkbook({ file, sheet }) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(file);
-  const worksheet = typeof sheet === "string"
-    ? workbook.getWorksheet(sheet)
-    : workbook.getWorksheet(sheet || 1);
+function parseSmartDate(dateStr) {
+  if (!dateStr) return null;
+  const clean = dateStr.toString().replace(/['"]/g, '').trim();
+  const parts = clean.split(/[/\.-]/);
+  if (parts.length !== 3) return null;
 
-  if (!worksheet) throw new Error(`Worksheet not found: ${sheet || 1}`);
+  let day, month, year;
+  if (parts[0].length === 4) { 
+    year = parseInt(parts[0], 10); month = parseInt(parts[1], 10); day = parseInt(parts[2], 10);
+  } else { 
+    day = parseInt(parts[0], 10); month = parseInt(parts[1], 10); year = parseInt(parts[2], 10);
+  }
 
-  const headerMap = buildHeaderMap(worksheet);
-  const rows = [];
-
-  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    if (rowNumber === 1) return; // headers
-
-    const entry = {};
-    row.eachCell((cell, colNumber) => {
-      const key = headerMap.get(colNumber);
-      if (!key) return;
-      entry[key] = cell.value;
-    });
-    rows.push(entry);
-  });
-
-  return rows;
+  if (year < 100) year += 2000;
+  const isoString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T12:00:00.000Z`;
+  const dateObj = new Date(isoString);
+  return isNaN(dateObj.getTime()) ? null : dateObj;
 }
 
+// =========================================================
+// 3. MAIN RUNNER
+// =========================================================
 async function run() {
-  const args = parseArgs();
-  const file = args.file || args.f;
-  const apiBase = args.api || process.env.API_BASE_URL || "http://localhost:5000/api";
-  const token = args.token || process.env.ADMIN_TOKEN;
-  const dryRun = Boolean(args["dry-run"] || args.dryRun);
-  const defaultStartDate = args.defaultStart || process.env.DEFAULT_START_DATE;
-  const defaultDays = parseDays(
-    args.days || process.env.DEFAULT_WORKSHOP_DAYS || "Sunday",
-    VALID_DAYS
-  );
+  const args = process.argv.slice(2);
+  const IS_WRITE_MODE = args.includes("--write");
 
-  if (!file) throw new Error("--file is required (path to Excel workbook)");
-  if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-  if (!token) throw new Error("ADMIN_TOKEN (JWT) is required for the admin route");
+  console.log(`\n==================================================`);
+  console.log(`🚀 WORKSHOP IMPORT (Fixed Title & Studio)`);
+  console.log(`MODE: ${IS_WRITE_MODE ? '⚠️  WRITE TO DB' : '🛡️  DRY RUN'}`);
+  console.log(`==================================================\n`);
 
-  const rows = await loadRowsFromWorkbook({ file, sheet: args.sheet });
-  console.log(`📑 Loaded ${rows.length} data rows from ${file}`);
+  if (!fs.existsSync(CSV_PATH)) {
+    console.error(`❌ File missing: ${CSV_FILENAME}`);
+    process.exit(1);
+  }
 
-  let successCount = 0;
-  let skippedCount = 0;
-  let failureCount = 0;
+  try {
+    await mongoose.connect(process.env.MONGO_URI || process.env.DATABASE_URL);
+    console.log("✅ DB Connected");
+  } catch (err) {
+    console.error("❌ DB Error:", err.message);
+    process.exit(1);
+  }
 
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
-    const descriptionDays = extractDaysFromDescription(row.description);
+  const results = [];
+  fs.createReadStream(CSV_PATH, { encoding: 'utf8' }) 
+    .pipe(csv())
+    .on("data", (data) => results.push(data))
+    .on("end", async () => {
+      await processRows(results, IS_WRITE_MODE);
+    });
+}
 
-    const startDate =
-      coerceDate(row.startDate) || coerceDate(defaultStartDate) || new Date().toISOString();
-    const days = parseDays(row.days, descriptionDays.length ? descriptionDays : defaultDays);
-    const sessionsCount = coerceNumber(row.sessionsCount) || 1;
-    const hour = extractHourFromText(row.hour) || extractHourFromText(row.description);
+async function processRows(rows, isWriteMode) {
+  let count = { success: 0, skipped: 0, failed: 0 };
+  console.log(`📊 Processing ${rows.length} rows...\n`);
 
-    const payload = {
-      title: deriveTitle({ row, index: i + 1, days, hour }),
-      type: row.type || "",
-      description: row.description || "",
-      city: row.city || "",
-      sessionsCount,
-      startDate,
-      days,
-      hour,
-      maxParticipants: coerceNumber(row.maxParticipants) ?? undefined,
-      available: true,
-    };
+  for (const [index, row] of rows.entries()) {
+    const rowNum = index + 2;
 
-    if (!payload.city) {
-      console.warn(`⚠️ Row ${i + 2} skipped: missing city`);
-      skippedCount += 1;
+    const rawGroup = row['קבוצה']; 
+    const rawDesc = row['אפיון'];   
+    const rawDate = row['תאריך התחלה']; 
+    const rawCity = row['יישוב'];   
+    const rawCoach = row['מאמנת']; 
+    const rawCapacity = row['מס\' משתתפים']; 
+    const rawSessions = row['מספר אימונים']; 
+
+    if (!rawDate || !rawCity) {
+      if (rawGroup) count.skipped++;
       continue;
     }
 
-    try {
-      await createWorkshop({ apiBase, token, payload, dryRun });
-      successCount += 1;
-      console.log(`✅ Imported row ${i + 2}: ${payload.title}`);
-    } catch (err) {
-      failureCount += 1;
-      console.error(`❌ Failed row ${i + 2}: ${err.message}`);
+    const startDate = parseSmartDate(rawDate);
+    if (!startDate) {
+      count.failed++;
+      continue;
+    }
+
+    const { days, hour, cleanDescription, detectedStudio } = parseScheduleAndDetails(rawDesc, startDate);
+    
+    const cleanCity = fixHebrewDirection(rawCity).trim();
+    const cleanCoach = rawCoach ? fixHebrewDirection(rawCoach).trim() : "צוות המרכז";
+    const cleanType = rawGroup ? fixHebrewDirection(rawGroup).trim() : "כללי";
+    
+    // 🟢 FIX 2: Generate Hebrew Shorthand Days (e.g., "Monday, Thursday" -> "ב,ה")
+    const hebrewDaysString = days.map(d => ENG_TO_HEB_SHORT[d]).join(',');
+
+    // 🟢 FIX 3: New Title Format
+    // Format: "פונקציונלי, יום ב,ה בהנחיית ניר יטח"
+    const title = `${cleanType}, יום ${hebrewDaysString} בהנחיית ${cleanCoach}`;
+    
+    const ageKey = detectAgeGroupKey(cleanDescription); 
+    const ageGroupHebrew = HEBREW_AGE_MAP[ageKey] || "מבוגרים"; 
+
+    const workshopData = {
+      title: title,               // 🆕 New formatted title
+      type: cleanType,
+      description: cleanDescription, // ✅ Original description (אפיון) goes here
+      city: cleanCity,
+      address: cleanCity,
+      studio: detectedStudio,     // ✅ Will be "-" if no specific studio found
+      coach: cleanCoach,
+      startDate: startDate,
+      days: days, 
+      hour: hour, 
+      sessionsCount: parseInt(rawSessions, 10) || 12,
+      maxParticipants: parseInt(rawCapacity, 10) || 20, 
+      
+      ageGroup: ageGroupHebrew,
+      
+      waitingListMax: 10,
+      price: 0,
+      available: true,
+      image: "",
+      participants: [],
+      familyRegistrations: [],
+      waitingList: []
+    };
+
+    if (isWriteMode) {
+      try {
+        const doc = new Workshop(workshopData);
+        await doc.save();
+        process.stdout.write("✅ ");
+        count.success++;
+      } catch (err) {
+        process.stdout.write("❌ ");
+        console.error(`\n   Error Row ${rowNum}: ${err.message}`);
+        count.failed++;
+      }
+    } else {
+      // LOG
+      console.log(`[Row ${rowNum}] ${title} | Studio: ${detectedStudio}`);
+      count.success++;
     }
   }
 
-  console.log("\nSummary:");
-  console.log(`  ✅ Success: ${successCount}`);
-  console.log(`  ⚠️ Skipped: ${skippedCount}`);
-  console.log(`  ❌ Failed: ${failureCount}`);
+  console.log(`\n\n🏁 SUMMARY:`);
+  console.log(`✅ Success: ${count.success}`);
+  console.log(`⚠️ Skipped: ${count.skipped}`);
+  console.log(`❌ Failed:  ${count.failed}`);
+  console.log(`👋 Done.`);
+  process.exit(0);
 }
 
-run().catch((err) => {
-  console.error("❌ Import script failed:", err.message);
-  process.exit(1);
-});
+run();

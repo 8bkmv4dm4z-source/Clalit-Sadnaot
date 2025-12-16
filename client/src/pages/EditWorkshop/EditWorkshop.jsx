@@ -1,63 +1,22 @@
 /**
  * EditWorkshop.jsx — Multi-Sessions Admin Form (Create + Edit)
  * -----------------------------------------------------------------------------
- * This page provides a rich form for administrators to create or edit
- * workshop records.  It supports multiple sessions, recurring days,
- * inactive dates (holidays), soft address validation, live end-date
- * previews, capacity settings, waitlist options and more.  The form
- * works in both create (new workshop) and edit modes.
- *
- * Key Features:
- * - Compatible with the new workshop schema (days[], sessionsCount,
- *   inactiveDates[] and other fields) and gracefully handles legacy
- *   data (day, weeksDuration).
- * - Soft validation of address via the validateAddress helper from
- *   WorkshopContext; debounced to reduce server load.
- * - Fetches the list of available cities via fetchAvailableCities
- *   from WorkshopContext, falling back to free text entry.
- * - Automatically calculates and displays the expected end date based
- *   on the start date, chosen days and session count.
- * - Uses createWorkshop and updateWorkshop helpers from
- *   WorkshopContext for all mutations, ensuring that after a save the
- *   latest workshop data is refetched and the UI remains consistent.
- *
- * Data Flow:
- * - On mount, the component obtains helper functions and the current
- *   list of workshops from WorkshopContext.  It never calls apiFetch
- *   directly for workshop mutations, instead delegating to context
- *   methods which handle server interaction and state refresh.
- * - City lists and address validation are also sourced from context.
- * - After a successful save, navigation back to the workshops
- *   listing occurs to show the updated data.
+ * UPDATED: Includes Hybrid Image Selector (Presets + Custom Uploads).
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-// apiFetch is intentionally not imported here.  All server
-// communication should be performed via functions provided by
-// WorkshopContext (createWorkshop, updateWorkshop, fetchAvailableCities,
-// validateAddress).  This ensures the client never bypasses the
-// central context and always refreshes local state after mutations.
+
+// 1. Import the new Image Selector
+import ImageSelector from "../../components/ImageSelector";
 
 // === Day labels & mapping ===
 const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_HE_LETTER = { Sunday: "א", Monday: "ב", Tuesday: "ג", Wednesday: "ד", Thursday: "ה", Friday: "ו", Saturday: "ש" };
 const HE_TO_EN = {
-  "ראשון": "Sunday",
-  "שני": "Monday",
-  "שלישי": "Tuesday",
-  "רביעי": "Wednesday",
-  "חמישי": "Thursday",
-  "שישי": "Friday",
-  "שבת": "Saturday",
-  "א": "Sunday",
-  "ב": "Monday",
-  "ג": "Tuesday",
-  "ד": "Wednesday",
-  "ה": "Thursday",
-  "ו": "Friday",
-  "ש": "Saturday",
+  "ראשון": "Sunday", "שני": "Monday", "שלישי": "Tuesday", "רביעי": "Wednesday", "חמישי": "Thursday", "שישי": "Friday", "שבת": "Saturday",
+  "א": "Sunday", "ב": "Monday", "ג": "Tuesday", "ד": "Wednesday", "ה": "Thursday", "ו": "Friday", "ש": "Saturday",
 };
 const EN_TO_HE = { Sunday: "ראשון", Monday: "שני", Tuesday: "שלישי", Wednesday: "רביעי", Thursday: "חמישי", Friday: "שישי", Saturday: "שבת" };
 
@@ -96,10 +55,7 @@ export default function EditWorkshop() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  // Pull workshops and admin mutation helpers from context.  The
-  // client never mutates workshop state locally; instead it calls the
-  // provided create/update functions which talk to the server and
-  // trigger a refetch.
+
   const {
     workshops,
     createWorkshop,
@@ -124,27 +80,25 @@ export default function EditWorkshop() {
     available: true,
     description: "",
     price: "",
-    image: "",
+    
+    // 2. Default Image ID (Preset)
+    image: "functional_training", 
+    
     maxParticipants: 20,
     waitingListMax: 10,
     autoEnrollOnVacancy: false,
   });
 
-  const [preview, setPreview] = useState("");
   const [saving, setSaving] = useState(false);
   const [addingHoliday, setAddingHoliday] = useState("");
   const [cities, setCities] = useState(Array.isArray(location?.state?.cities) ? location.state.cities : []);
   const [freeCity, setFreeCity] = useState(false);
-  const [addrValid, setAddrValid] = useState({ status: "idle", message: "" }); // idle|checking|ok|warn|err
+  const [addrValid, setAddrValid] = useState({ status: "idle", message: "" });
 
   const isNew = !id;
   const existing = id ? workshops.find((w) => w?._id === id) : null;
 
-  // --- fetch cities if not provided via navigation state
-  // Always use the fetchAvailableCities helper from WorkshopContext to
-  // retrieve the list of known cities.  This ensures that the data
-  // comes from a single source and that any server-side validation
-  // rules are applied uniformly.
+  // === Load Cities ===
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -154,41 +108,24 @@ export default function EditWorkshop() {
         if (!cancelled && Array.isArray(list) && list.length) {
           setCities(list);
         }
-      } catch (e) {
-        // silent fallback
-      }
+      } catch (e) { /* silent */ }
     };
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line
 
   // === Reset for NEW ===
   useEffect(() => {
     if (isNew) {
       setForm({
-        title: "",
-        type: "",
-        ageGroup: "",
-        city: "",
-        address: "",
-        studio: "",
-        coach: "",
-        days: [],
-        hour: "",
-        sessionsCount: "",
-        startDate: "",
-        inactiveDates: [],
-        available: true,
-        description: "",
-        price: "",
-        image: "",
-        maxParticipants: 20,
-        waitingListMax: 10,
-        autoEnrollOnVacancy: false,
+        title: "", type: "", ageGroup: "", city: "", address: "", studio: "", coach: "",
+        days: [], hour: "", sessionsCount: "", startDate: "", inactiveDates: [],
+        available: true, description: "", price: "",
+        
+        image: "functional_training", // Default
+        
+        maxParticipants: 20, waitingListMax: 10, autoEnrollOnVacancy: false,
       });
-      setPreview("");
       setAddrValid({ status: "idle", message: "" });
       setFreeCity(false);
     }
@@ -209,12 +146,10 @@ export default function EditWorkshop() {
 
     const legacySessions = existing.sessionsCount || existing.weeksDuration || "";
     const inactive = Array.isArray(existing.inactiveDates)
-      ? existing.inactiveDates
-          .map((d) => {
-            const dt = new Date(d);
-            return isNaN(dt) ? null : dt.toISOString().slice(0, 10);
-          })
-          .filter(Boolean)
+      ? existing.inactiveDates.map((d) => {
+          const dt = new Date(d);
+          return isNaN(dt) ? null : dt.toISOString().slice(0, 10);
+        }).filter(Boolean)
       : [];
 
     setForm({
@@ -234,17 +169,21 @@ export default function EditWorkshop() {
       available: !!existing.available,
       description: existing.description || "",
       price: (existing.price ?? "") === "" ? "" : Number(existing.price),
-      image: existing.image || "",
+      
+      // Fallback to default if empty
+      image: existing.image || "functional_training", 
+      
       maxParticipants: typeof existing.maxParticipants === "number" ? existing.maxParticipants : 20,
       waitingListMax: typeof existing.waitingListMax === "number" ? existing.waitingListMax : 10,
       autoEnrollOnVacancy: !!existing.autoEnrollOnVacancy,
     });
-    setPreview(existing.image || "");
-    setFreeCity(!!existing.city && !cities.includes(existing.city)); // auto-toggle free mode if city not in list
+    setFreeCity(!!existing.city && !cities.includes(existing.city));
   }, [existing, cities]);
 
-  // === Controlled updates ===
-  const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: sanitize(value) }));
+  // === Updates ===
+  // Note: We don't sanitize image here because it might be a File object
+  const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: key === 'image' ? value : sanitize(value) }));
+  
   const toggleDay = (enDay) =>
     setForm((prev) => ({
       ...prev,
@@ -267,32 +206,22 @@ export default function EditWorkshop() {
       inactiveDates: prev.inactiveDates.filter((d) => d !== dateStr),
     }));
 
-  const handleImageFile = (file) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => setPreview(reader.result);
-    reader.readAsDataURL(file);
-  };
-
   // === Live endDate preview ===
   const endPreview = useMemo(() => {
     const end = computeEndDatePreview(form.startDate, form.days, Number(form.sessionsCount), form.inactiveDates);
     return end ? end.toLocaleDateString("he-IL") : "—";
   }, [form.startDate, form.days, form.sessionsCount, form.inactiveDates]);
 
-  // === Soft address validation (debounced) ===
+  // === Soft address validation ===
   useEffect(() => {
-    // If either city or address is empty, clear validation state and exit.
     if (!form.city || !form.address) {
       setAddrValid({ status: "idle", message: "" });
       return;
     }
-    // Debounce the validation to avoid spamming the server on every keystroke.
     let t = setTimeout(async () => {
       try {
         setAddrValid({ status: "checking", message: "" });
         const result = await validateWorkshopAddress(form.city, form.address);
-        // result may include { success, valid, message }; fall back sensibly
         if (result && result.success !== false) {
           const isValid = result.valid === undefined ? !!result.success : !!result.valid;
           setAddrValid({
@@ -337,12 +266,13 @@ export default function EditWorkshop() {
     return true;
   };
 
-  // === Save ===
+  // === Save Handler (Hybrid: JSON or FormData) ===
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
     try {
-      const payload = {
+      // 1. Prepare clean data object
+      const cleanData = {
         title: sanitize(form.title),
         type: sanitize(form.type),
         ageGroup: sanitize(form.ageGroup),
@@ -358,28 +288,51 @@ export default function EditWorkshop() {
         available: !!form.available,
         description: sanitize(form.description),
         price: form.price === "" ? 0 : Number(form.price),
-        image: preview || "",
         maxParticipants: Number(form.maxParticipants) || 0,
         waitingListMax: Number(form.waitingListMax) || 0,
         autoEnrollOnVacancy: !!form.autoEnrollOnVacancy,
+        
+        // This might be a File object OR a String ID
+        image: form.image 
       };
 
-      // Use context-provided helpers to save workshops.  These
-      // functions handle server requests and refetch the latest
-      // workshop list on success.  They return objects with
-      // success/data/message fields for error handling.
+      // 2. Check if we need Multipart (FileUpload) or JSON
+      const isFileUpload = cleanData.image instanceof File;
+      
       let result;
-      if (isNew) {
-        result = await createWorkshop(payload);
+      
+      if (isFileUpload) {
+        // --- MULTIPART MODE ---
+        const formData = new FormData();
+        Object.keys(cleanData).forEach(key => {
+          if (key === 'days' || key === 'inactiveDates') {
+             // Arrays usually need to be stringified for FormData to backend
+             formData.append(key, JSON.stringify(cleanData[key]));
+          } else {
+             formData.append(key, cleanData[key]);
+          }
+        });
+
+        if (isNew) {
+           result = await createWorkshop(formData); // Context must handle content-type detection usually
+        } else {
+           result = await updateWorkshop(form._id, formData);
+        }
+
       } else {
-        result = await updateWorkshop(form._id, payload);
+        // --- JSON MODE (Presets) ---
+        if (isNew) {
+          result = await createWorkshop(cleanData);
+        } else {
+          result = await updateWorkshop(form._id, cleanData);
+        }
       }
+
       if (!result || result.success === false) {
-        const msg = result?.message || "שמירה נכשלה, בדוק את הנתונים שהוזנו.";
-        throw new Error(msg);
+        throw new Error(result?.message || "שמירה נכשלה");
       }
-      // On success, navigate back to workshops listing
       navigate("/workshops");
+
     } catch (err) {
       console.error("❌ save error:", err);
       alert(err.message || "שגיאה בשמירה");
@@ -388,18 +341,11 @@ export default function EditWorkshop() {
     }
   };
 
-
   // === Render ===
-  const addrHint =
-    addrValid.status === "checking"
-      ? "בודק כתובת…"
-      : addrValid.status === "ok"
-      ? "✓ הכתובת נראית תקינה לעיר"
-      : addrValid.status === "warn"
-      ? "⚠︎ הכתובת לא אומתה לעיר — אפשר לשמור בכל זאת"
-      : addrValid.status === "err"
-      ? "⚠︎ שירות ולידציה לא זמין — אפשר לשמור בכל זאת"
-      : "";
+  const addrHint = addrValid.status === "checking" ? "בודק כתובת…" 
+    : addrValid.status === "ok" ? "✓ הכתובת נראית תקינה לעיר"
+    : addrValid.status === "warn" ? "⚠︎ הכתובת לא אומתה לעיר — אפשר לשמור בכל זאת"
+    : addrValid.status === "err" ? "⚠︎ שירות ולידציה לא זמין — אפשר לשמור בכל זאת" : "";
 
   return (
     <div dir="rtl" className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 py-10 px-4">
@@ -408,19 +354,12 @@ export default function EditWorkshop() {
           {isNew ? "🪄 יצירת סדנה חדשה" : "🎛️ עריכת סדנה"}
         </h2>
 
-        {/* === Image === */}
-        <div className="flex flex-col items-center mb-8">
-          {preview ? (
-            <img src={preview} alt="תמונה" className="w-full max-h-72 object-cover rounded-2xl shadow-md border border-indigo-100" />
-          ) : (
-            <div className="w-full h-56 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-400">
-              אין תמונה
-            </div>
-          )}
-          <label className="mt-4 inline-block cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-5 rounded-xl shadow transition">
-            החלף תמונה
-            <input type="file" accept="image/*" onChange={(e) => handleImageFile(e.target.files?.[0])} className="hidden" />
-          </label>
+        {/* === 3. New Hybrid Image Selector === */}
+        <div className="mb-8 border-b border-gray-100 pb-8">
+           <ImageSelector 
+             selectedValue={form.image} 
+             onChange={(val) => setField("image", val)} 
+           />
         </div>
 
         {/* === Base fields === */}
@@ -463,9 +402,7 @@ export default function EditWorkshop() {
                 >
                   <option value="">בחר עיר...</option>
                   {cities.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </label>
@@ -492,17 +429,11 @@ export default function EditWorkshop() {
                 placeholder="רחוב ומספר, שכונה (אופציונלי)"
               />
               {!!addrHint && (
-                <span
-                  className={`mt-1 text-xs ${
-                    addrValid.status === "ok"
-                      ? "text-green-700"
-                      : addrValid.status === "warn"
-                      ? "text-amber-600"
-                      : addrValid.status === "err"
-                      ? "text-red-600"
-                      : "text-gray-500"
-                  }`}
-                >
+                <span className={`mt-1 text-xs ${
+                  addrValid.status === "ok" ? "text-green-700"
+                  : addrValid.status === "warn" ? "text-amber-600"
+                  : addrValid.status === "err" ? "text-red-600" : "text-gray-500"
+                }`}>
                   {addrHint}
                 </span>
               )}
@@ -660,7 +591,7 @@ export default function EditWorkshop() {
               onChange={(e) => setField("autoEnrollOnVacancy", e.target.checked)}
               className="w-5 h-5 accent-indigo-600"
             />
-            קבלה אוטומטית מרשימת המתנה כשמתפנה מקום
+            קבלה אוטומטית מרשימת המתנה
           </label>
         </div>
 

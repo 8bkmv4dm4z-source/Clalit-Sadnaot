@@ -10,7 +10,8 @@ const SUSPICIOUS_NAME_REGEX = /[{}<>\[\]$]/;
 const LEADING_TRAILING_WHITESPACE = /^\s|\s$/;
 const DOUBLE_SPACE = /\s{2,}/;
 
-const MIN_AUDIT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between manual calls
+const MIN_AUDIT_INTERVAL_MS = 5 * 60 * 1000;
+
 let auditTimer = null;
 let userAuditInFlight = false;
 let lastUserAuditResult = null;
@@ -21,15 +22,20 @@ let lastWorkshopAudit = null;
 let lastWorkshopRunAt = 0;
 let lastAuditSuite = null;
 
+/* ============================================================
+   Helpers
+   ============================================================ */
 function normalizeDisplay(value = "") {
-  const trimmed = String(value).trim().replace(/\s{2,}/g, " ");
-  return trimmed;
+  return String(value).trim().replace(/\s{2,}/g, " ");
 }
 
 function summarizeBucket(list = [], limit = 50) {
   return list.slice(0, limit);
 }
 
+/* ============================================================
+   Existing queries (UNCHANGED)
+   ============================================================ */
 async function querySuspiciousNames() {
   const cursor = User.find({
     $or: [
@@ -59,14 +65,12 @@ async function querySuspiciousNames() {
 
 async function queryMissingContacts() {
   const cursor = User.find({
-    $or: [
-      { email: { $in: [null, ""] } },
-      { phone: { $in: [null, ""] } },
-    ],
+    $or: [{ email: { $in: [null, ""] } }, { phone: { $in: [null, ""] } }],
   })
     .select("name email phone city")
     .limit(150)
     .lean();
+
   const docs = await cursor;
   return docs.map((doc) => ({
     id: doc._id,
@@ -82,64 +86,73 @@ async function queryInvalidRoles() {
     .select("name email role")
     .limit(50)
     .lean();
-  const docs = await cursor;
-  return docs.map((doc) => ({ id: doc._id, email: doc.email, role: doc.role }));
-}
-
-async function queryMissingIntegrityHashes(limit = 150) {
-  const cursor = User.find({
-    $or: [
-      { roleIntegrityHash: { $in: [null, ""] } },
-      { idNumberHash: { $in: [null, ""] } },
-    ],
-  })
-    .select("name email role idNumber roleIntegrityHash idNumberHash")
-    .limit(limit)
-    .lean();
 
   const docs = await cursor;
   return docs.map((doc) => ({
     id: doc._id,
     email: doc.email,
     role: doc.role,
-    hasRoleHash: Boolean(doc.roleIntegrityHash),
-    hasIdNumberHash: Boolean(doc.idNumberHash),
   }));
 }
 
-async function queryIntegrityHashMismatches(limit = 150) {
-  const docs = await User.find({})
+/* ============================================================
+   FIXED: integrity hash mismatches (self-healing)
+   ============================================================ */
+async function queryIntegrityHashMismatches({ limit = 150, fix = false } = {}) {
+  const users = await User.find({})
     .select("email role idNumber roleIntegrityHash idNumberHash")
-    .limit(limit)
-    .lean();
+    .limit(limit);
 
-  return docs
-    .map((doc) => {
-      const roleExpected = User.computeRoleHash(doc._id, doc.role);
-      const idExpected = User.computeIdNumberHash(doc.idNumber);
+  const results = [];
 
-      const roleMismatch =
-        Boolean(doc.role && doc.roleIntegrityHash) && doc.roleIntegrityHash !== roleExpected;
-      const idMismatch =
-        Boolean(doc.idNumber && doc.idNumberHash) && doc.idNumberHash !== idExpected;
+  for (const user of users) {
+    let touched = false;
+    let roleIssue = null;
+    let idIssue = null;
 
-      if (!roleMismatch && !idMismatch) return null;
+    if (user.role) {
+      const expected = User.computeRoleHash(user._id, user.role);
+      if (!user.roleIntegrityHash || user.roleIntegrityHash !== expected) {
+        roleIssue = { expected, actual: user.roleIntegrityHash || null };
+        if (fix) {
+          user.roleIntegrityHash = expected;
+          touched = true;
+        }
+      }
+    }
 
-      return {
-        id: doc._id,
-        email: doc.email,
-        role: doc.role,
-        issues: {
-          role: roleMismatch ? { expected: roleExpected, actual: doc.roleIntegrityHash } : null,
-          idNumber: idMismatch ? { expected: idExpected, actual: doc.idNumberHash } : null,
-        },
-      };
-    })
-    .filter(Boolean);
+    if (user.idNumber) {
+      const expected = User.computeIdNumberHash(user.idNumber);
+      if (!user.idNumberHash || user.idNumberHash !== expected) {
+        idIssue = { expected, actual: user.idNumberHash || null };
+        if (fix) {
+          user.idNumberHash = expected;
+          touched = true;
+        }
+      }
+    }
+
+    if (!roleIssue && !idIssue) continue;
+
+    if (fix && touched) {
+      await user.save({ validateBeforeSave: false });
+    }
+
+    results.push({
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      issues: { role: roleIssue, idNumber: idIssue },
+      fixed: Boolean(fix && touched),
+    });
+  }
+
+  return results;
 }
 
-
-
+/* ============================================================
+   Workshop availability (UNCHANGED)
+   ============================================================ */
 async function auditWorkshopAvailability(limit = 150) {
   const now = new Date();
 
@@ -177,10 +190,11 @@ async function auditWorkshopAvailability(limit = 150) {
   };
 }
 
-async function runWorkshopIntegrityAudit({ reason = "manual", force = false } = {}) {
-  if (workshopAuditInFlight) {
-    return lastWorkshopAudit;
-  }
+/* ============================================================
+   FIXED: Workshop audit wiring
+   ============================================================ */
+async function runWorkshopIntegrityAudit({ reason = "manual", force = false, fix = false } = {}) {
+  if (workshopAuditInFlight) return lastWorkshopAudit;
 
   const now = Date.now();
   if (!force && lastWorkshopAudit && now - lastWorkshopRunAt < MIN_AUDIT_INTERVAL_MS) {
@@ -190,7 +204,7 @@ async function runWorkshopIntegrityAudit({ reason = "manual", force = false } = 
   workshopAuditInFlight = true;
   try {
     const [integrityFixes, availability] = await Promise.all([
-      runWorkshopAudit(),
+      runWorkshopAudit({ fix }),
       auditWorkshopAvailability(),
     ]);
 
@@ -204,29 +218,75 @@ async function runWorkshopIntegrityAudit({ reason = "manual", force = false } = 
     lastWorkshopAudit = result;
     lastWorkshopRunAt = now;
 
-    if (
-      availability?.counts?.staleAvailable ||
-      availability?.counts?.missingSchedule ||
-      availability?.counts?.missingHashedId
-    ) {
-      console.warn("[AUDIT] workshop anomalies detected", availability.counts);
-    }
-
     return result;
-  } catch (err) {
-    console.error("[AUDIT] workshop integrity failed", err.message || err);
-    throw err;
   } finally {
     workshopAuditInFlight = false;
   }
 }
 
-async function runAuditSuite(options = {}) {
-  const { reason = "manual", force = false } = options;
+/* ============================================================
+   FIXED: User audit wiring
+   ============================================================ */
+async function runUserIntegrityAudit({ reason = "manual", force = false, fix = false } = {}) {
+  if (userAuditInFlight) return lastUserAuditResult;
 
+  const now = Date.now();
+  if (!force && lastUserAuditResult && now - lastUserRunAt < MIN_AUDIT_INTERVAL_MS) {
+    return lastUserAuditResult;
+  }
+
+  userAuditInFlight = true;
+  try {
+    const [totalUsers, suspiciousNames, missingContacts, invalidRoles, integrityHashMismatches] =
+      await Promise.all([
+        User.estimatedDocumentCount(),
+        querySuspiciousNames(),
+        queryMissingContacts(),
+        queryInvalidRoles(),
+        queryIntegrityHashMismatches({ fix }),
+      ]);
+
+    const summary = {
+      suspiciousNameCount: suspiciousNames.length,
+      missingContactCount: missingContacts.length,
+      invalidRoleCount: invalidRoles.length,
+      integrityMismatchCount: integrityHashMismatches.length,
+      fixedCount: integrityHashMismatches.filter((x) => x.fixed).length,
+    };
+
+    const result = {
+      checkedAt: new Date(now).toISOString(),
+      reason,
+      totals: { users: totalUsers },
+      summary,
+      buckets: {
+        suspiciousNames: summarizeBucket(suspiciousNames),
+        missingContacts: summarizeBucket(missingContacts),
+        invalidRoles: summarizeBucket(invalidRoles),
+        integrityHashMismatches: summarizeBucket(integrityHashMismatches),
+      },
+    };
+
+    lastUserAuditResult = result;
+    lastUserRunAt = now;
+    lastUserAuditError = null;
+
+    return result;
+  } catch (err) {
+    lastUserAuditError = err;
+    throw err;
+  } finally {
+    userAuditInFlight = false;
+  }
+}
+
+/* ============================================================
+   SUITE + SCHEDULER
+   ============================================================ */
+async function runAuditSuite({ reason = "manual", force = false, fix = false } = {}) {
   const [userAudit, workshopAudit] = await Promise.all([
-    runUserIntegrityAudit({ reason, force }),
-    runWorkshopIntegrityAudit({ reason, force }),
+    runUserIntegrityAudit({ reason, force, fix }),
+    runWorkshopIntegrityAudit({ reason, force, fix }),
   ]);
 
   lastAuditSuite = {
@@ -239,122 +299,34 @@ async function runAuditSuite(options = {}) {
   return lastAuditSuite;
 }
 
-async function runUserIntegrityAudit({ reason = "manual", force = false } = {}) {
-  if (userAuditInFlight) {
-    return lastUserAuditResult;
-  }
-
-  const now = Date.now();
-  if (!force && now - lastUserRunAt < MIN_AUDIT_INTERVAL_MS && lastUserAuditResult) {
-    return lastUserAuditResult;
-  }
-
-  userAuditInFlight = true;
-  try {
-    const [totalUsers, suspiciousNames, missingContacts, invalidRoles] = await Promise.all([
-      User.estimatedDocumentCount(),
-      querySuspiciousNames(),
-      queryMissingContacts(),
-      queryInvalidRoles(),
-    ]);
-
-    const [
-  missingIntegrityHashes,
-  integrityHashMismatches,
-] = await Promise.all([
-  queryMissingIntegrityHashes(),
-  queryIntegrityHashMismatches(),
-]);
-
-
-    const summary = {
-  suspiciousNameCount: suspiciousNames.length,
-  missingContactCount: missingContacts.length,
-  invalidRoleCount: invalidRoles.length,
-  missingIntegrityCount: missingIntegrityHashes.length,
-  integrityMismatchCount: integrityHashMismatches.length,
-};
-
-
-    const result = {
-      checkedAt: new Date(now).toISOString(),
-      reason,
-      totals: { users: totalUsers },
-      summary,
-      buckets: {
-        suspiciousNames: summarizeBucket(suspiciousNames),
-        missingContacts: summarizeBucket(missingContacts),
-        invalidRoles: summarizeBucket(invalidRoles),
-        missingIntegrityHashes: summarizeBucket(missingIntegrityHashes),
-        integrityHashMismatches: summarizeBucket(integrityHashMismatches),
-      },
-    };
-
-    lastUserAuditResult = result;
-    lastUserAuditError = null;
-    lastUserRunAt = now;
-
-    if (
-      summary.suspiciousNameCount ||
-      summary.invalidRoleCount ||
-      summary.missingIntegrityCount ||
-      summary.integrityMismatchCount
-    ) {
-      console.warn("[AUDIT] anomalies detected", summary);
-    } else {
-      console.log("[AUDIT] clean run", summary);
-    }
-
-    return result;
-  } catch (err) {
-    lastUserAuditError = err;
-    console.error("[AUDIT] failed", err.message || err);
-    throw err;
-  } finally {
-    userAuditInFlight = false;
-  }
-}
-
-function getAuditSnapshot() {
-  return {
-    userAudit: lastUserAuditResult,
-    workshopAudit: lastWorkshopAudit,
-    suite: lastAuditSuite,
-    lastUserAuditError: lastUserAuditError
-      ? lastUserAuditError.message || String(lastUserAuditError)
-      : null,
-    lastUserRunAt,
-    lastWorkshopRunAt,
-  };
-}
-
 function startAuditScheduler({ intervalMs } = {}) {
   if (process.env.NODE_ENV === "test") return;
   if (auditTimer) return;
 
-  const computedInterval =
-    typeof intervalMs === "number" && intervalMs > MIN_AUDIT_INTERVAL_MS
+  const interval =
+    typeof intervalMs === "number"
       ? intervalMs
       : Number(process.env.AUDIT_INTERVAL_MS || 30 * 60 * 1000);
 
-  const runScheduledAudit = () => {
-    runAuditSuite({ reason: "scheduled", force: true }).catch((err) => {
-      console.error("[AUDIT] scheduled run failed", err.message || err);
-    });
-  };
+  auditTimer = setInterval(() => {
+    runAuditSuite({ reason: "scheduled", force: true }).catch(console.error);
+  }, interval).unref();
 
-  auditTimer = setInterval(runScheduledAudit, computedInterval).unref();
-
-  // Fire one audit immediately on startup so stale data is cleaned proactively
-  runScheduledAudit();
-
-  console.log(`[AUDIT] scheduler started, interval=${computedInterval}ms`);
+  runAuditSuite({ reason: "startup", force: true }).catch(console.error);
 }
 
 module.exports = {
   runUserIntegrityAudit,
   runWorkshopIntegrityAudit,
   runAuditSuite,
-  getAuditSnapshot,
+  getAuditSnapshot: () => ({
+    userAudit: lastUserAuditResult,
+    workshopAudit: lastWorkshopAudit,
+    suite: lastAuditSuite,
+    lastUserAuditError:
+      lastUserAuditError?.message || String(lastUserAuditError || ""),
+    lastUserRunAt,
+    lastWorkshopRunAt,
+  }),
   startAuditScheduler,
 };

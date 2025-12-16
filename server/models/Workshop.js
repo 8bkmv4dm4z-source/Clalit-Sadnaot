@@ -46,8 +46,11 @@ const WorkshopSchema = new mongoose.Schema(
     available: { type: Boolean, default: true },
     description: { type: String, default: "" },
     price: { type: Number, default: 0 },
-    image: { type: String, default: "" },
-
+image: { 
+    type: String, 
+    default: 'functional_training', // Set a valid ID from your list
+    trim: true 
+  },
     /** 👥 Participants */
     participants: [
       {
