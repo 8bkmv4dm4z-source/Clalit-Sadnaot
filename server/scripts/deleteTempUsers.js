@@ -9,14 +9,13 @@
 
 require("dotenv").config({ path: "../.env" });
 const mongoose = require("mongoose");
-const path = require("path");
 
 // Load User Model
 let User;
 try {
   User = require("../models/User");
 } catch (e) {
-  console.error("❌ Error: Could not find '../models/User.js'.");
+  console.error("❌ Error: Could not find '../models/User.js'.", e);
   process.exit(1);
 }
 
