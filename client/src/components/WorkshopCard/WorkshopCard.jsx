@@ -7,7 +7,7 @@ import { getEntityIdentifiers } from "../../utils/entityTypes";
 import { useNavigate } from "react-router-dom";
 
 // 1. Import the Image Helper
-import { getWorkshopImage } from "../constants/workshopImages";
+import { getWorkshopImage } from "../../constants/workshopImages";
 
 import {
   MapPin,

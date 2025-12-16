@@ -19,7 +19,7 @@ let Workshop;
 try {
   Workshop = require("../models/Workshop");
 } catch (e) {
-  console.error("❌ Error: Could not find '../models/Workshop.js'.");
+  console.error("❌ Error: Could not find '../models/Workshop.js'.", e);
   process.exit(1);
 }
 
@@ -53,7 +53,7 @@ function extractActivityName(description, category) {
     let clean = description.trim();
 
     // 1. CUT OFF TIME
-    const timeIndex = clean.search(/\d{1,2}[:\.]\d{2}/);
+    const timeIndex = clean.search(/\d{1,2}[:.]\d{2}/);
     if (timeIndex > -1) {
         clean = clean.substring(0, timeIndex).trim();
     }
@@ -116,7 +116,7 @@ function parseScheduleAndDetails(description, startDate) {
 function parseSmartDate(dateStr) {
     if (!dateStr) return null;
     const clean = dateStr.toString().replace(/['"]/g, '').trim();
-    const parts = clean.split(/[/\.-]/);
+    const parts = clean.split(/[./-]/);
     if (parts.length !== 3) return null;
   
     let day, month, year;
@@ -164,7 +164,7 @@ async function run() {
 async function processUpdates(rows, isWriteMode) {
   let count = { updated: 0, notFound: 0, skipped: 0 };
 
-  for (const [index, row] of rows.entries()) {
+  for (const row of rows) {
     const rawGroup = row['קבוצה']; 
     const rawDesc = row['אפיון'];   
     const rawDate = row['תאריך התחלה']; 

@@ -19,7 +19,7 @@ let Workshop;
 try {
   Workshop = require("../models/Workshop");
 } catch (e) {
-  console.error("❌ Error: Could not find '../models/Workshop.js'.");
+  console.error("❌ Error: Could not find '../models/Workshop.js'.", e);
   process.exit(1);
 }
 
@@ -43,7 +43,7 @@ function parseIsraeliDate(dateStr) {
   
   // 2. חיפוש תבנית של מספרים עם מפרידים (/, ., -)
   // דוגמה: 14/01/2026 או 1.1.26
-  const match = clean.match(/^(\d{1,2})[/\.-](\d{1,2})[/\.-](\d{2,4})$/);
+  const match = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
 
   if (!match) {
     // אם התבנית לא מתאימה, מחזירים null מיד (בלי ניחושים!)
@@ -76,7 +76,7 @@ function parseSchedule(text) {
   });
 
   let hour = "18:00"; 
-  const timeMatch = text.match(/(\d{1,2})[:\.](\d{2})/);
+  const timeMatch = text.match(/(\d{1,2})[:.](\d{2})/);
   if (timeMatch) {
     hour = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
   }

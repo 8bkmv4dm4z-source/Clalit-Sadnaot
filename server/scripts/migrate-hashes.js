@@ -9,7 +9,7 @@
 // Point to the .env file in the parent directory
 require('dotenv').config({ path: '../.env' });
 const mongoose = require('mongoose');
-const crypto = require("node:crypto");
+const nodeCrypto = require("node:crypto");
 
 // ==========================================================
 // 1. CONFIGURATION & IMPORTS (Paths updated for scripts/ folder)
@@ -39,7 +39,7 @@ if (!SECRET) {
 function hashId(type, id) {
   if (!type || !id) throw new Error("hashId requires type and id");
   
-  return crypto
+  return nodeCrypto
     .createHmac("sha256", SECRET)
     .update(`${type}:${id.toString()}`)
     .digest("base64url")
@@ -52,7 +52,7 @@ const IS_DRY_RUN = !args.includes('--write');
 
 console.log(`\n==================================================`);
 console.log(`MODE: ${IS_DRY_RUN ? '🛡️  DRY RUN (No changes)' : '⚠️  WRITE (Updating DB)'}`);
-console.log(`SECRET FINGERPRINT: ${crypto.createHash("sha256").update(SECRET).digest("hex").slice(0, 10)}`);
+console.log(`SECRET FINGERPRINT: ${nodeCrypto.createHash("sha256").update(SECRET).digest("hex").slice(0, 10)}`);
 console.log(`==================================================\n`);
 
 // ==========================================================
