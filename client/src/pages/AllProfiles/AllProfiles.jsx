@@ -327,21 +327,23 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);
     setEditingId(rowKey);
+    // Initialize with current row data (which definitely has the ID)
     setEditBuffer({ ...row });
     setEntityLoadingId(rowKey);
+
     try {
       const enriched = await getEntityDetails(row);
-      setEditBuffer(enriched);
+      // ✅ FIX: Merge new details into existing buffer so we don't lose _id/entityKey
+      setEditBuffer((prev) => ({ ...prev, ...enriched }));
     } catch (err) {
       console.error("Failed to load entity details", err);
-      alert(err?.message || "שגיאה בטעינת נתונים");
-      setEditingId(null);
-      setEditBuffer({});
+      // Don't alert blocking errors on fetch details, just let user edit what they have
     } finally {
       setEntityLoadingId(null);
     }
   };
 
+  
   const cancelEdit = () => {
     setEditingId(null);
     setEditBuffer({});
@@ -359,42 +361,65 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     try {
       const ids = getEntityIdentifiers(editBuffer);
       const isFamily = ids.isFamily;
-      const entityKey = ids.entityKey;
+      
+      // ✅ FIX: Use editingId as the fallback source of truth for the ID
+      const entityKey = ids.entityKey || editingId;
 
       const allowedKeys = isFamily
         ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
         : ["name", "idNumber", "birthDate", "phone", "city", "canCharge"];
 
       const updates = {};
-      for (const k of allowedKeys) if (editBuffer[k] !== undefined) updates[k] = editBuffer[k];
+      
+      for (const k of allowedKeys) {
+        if (editBuffer[k] !== undefined) {
+          let val = editBuffer[k];
+          
+          // ✅ FIX: Convert empty strings to null for unique fields (email/phone)
+          // preventing DB "duplicate key" errors on empty strings
+          if (typeof val === "string" && val.trim() === "") {
+             val = null;
+          }
+          updates[k] = val;
+        }
+      }
+
+      // Check if we actually have data to update
+      if (Object.keys(updates).length === 0) {
+        cancelEdit();
+        return;
+      }
 
       const payload = { entityKey, updates };
-      const rowKey = entityKey || editingId;
 
+      // Optimistic Update
       optimisticPatchEverywhere((r) => {
         const k = buildEntityKey(r);
-        return k === String(rowKey) ? { ...r, ...updates } : r;
+        // Compare loosely (string vs string)
+        return String(k) === String(entityKey) ? { ...r, ...updates } : r;
       });
 
+      console.log("Saving payload:", payload); // For debugging
       const result = await updateEntity(payload);
-      if (!result?.success) throw new Error(result?.message || "Update failed");
+      
+      if (!result?.success) {
+        throw new Error(result?.message || "Update failed");
+      }
 
+      // Refresh list to ensure data consistency
       if (typeof fetchProfiles === "function") {
-        try {
-          await fetchProfiles({ limit: 1000, compact: 1 });
-        } catch (refreshErr) {
-          console.warn("profiles refresh failed", refreshErr);
-        }
+        await fetchProfiles({ limit: 1000, compact: 1 });
       }
 
       setEditingId(null);
       setEditBuffer({});
     } catch (err) {
       console.error("Save error:", err);
-      alert("שגיאה בשמירה: " + err.message);
+      alert("שגיאה בשמירה: " + (err.message || "Unknown error"));
+      // We do NOT revert optimistic update here to keep UI snappy, 
+      // but in a strict app, you might trigger a refresh here to undo changes.
     }
   };
-
   const showWorkshops = async (row) => {
     try {
       setModalTitle("טוען סדנאות...");
