@@ -152,7 +152,22 @@ function createPasswordResetArtifacts() {
   const expiresAt = Date.now() + PASSWORD_RESET_TOKEN_TTL_MS;
   return { otp, rawToken, hashedToken, expiresAt };
 }
-
+function sanitizeUserForResponse(user, loggedInUser) {
+  // Convert Mongoose doc to object if needed
+  const u = user.toObject ? user.toObject() : user;
+  
+  // delete sensitive fields
+  delete u.passwordHash;
+  delete u.otpCode;
+  delete u.otpExpires;
+  delete u.otpAttempts;
+  delete u.passwordResetTokenHash;
+  delete u.passwordResetTokenExpires;
+  delete u.refreshTokens;
+  delete u.__v;
+  
+  return u;
+}
 /* ============================================================
    ✉️ Send Email (Resend Only)
    ============================================================ */
@@ -188,17 +203,18 @@ async function sendEmail({ to, subject, text, html }) {
   }
 }
 
-module.exports = {
-  generateAccessToken,
-  generateRefreshToken,
-  setRefreshCookie,
-  sendEmail,
-  resolveClientBaseUrl,
-  createPasswordResetArtifacts,
-  buildPasswordResetPayload,
-  hashResetToken,
-  tokensMatch,
-};
+/* ============================================================
+   🛠 Export Helpers (Fixed)
+   ============================================================ */
+exports.generateAccessToken = generateAccessToken;
+exports.generateRefreshToken = generateRefreshToken;
+exports.setRefreshCookie = setRefreshCookie;
+exports.sendEmail = sendEmail;
+exports.resolveClientBaseUrl = resolveClientBaseUrl;
+exports.createPasswordResetArtifacts = createPasswordResetArtifacts;
+exports.buildPasswordResetPayload = buildPasswordResetPayload;
+exports.hashResetToken = hashResetToken;
+exports.tokensMatch = tokensMatch;
 
 /* ============================================================
    👤 Register User
