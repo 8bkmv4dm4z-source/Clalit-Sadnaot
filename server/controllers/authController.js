@@ -1,8 +1,7 @@
 /**
- * authController.js — Unified Auth + OTP Controller (Full Logs)
+ * authController.js — Unified Auth + OTP Controller (Resend Only)
  * -------------------------------------------------------------
- * ✅ Priority: Checks USE_GMAIL first (for Dev/Codespaces), then Resend (for Render).
- * ✅ URL Fix: Uses CLIENT_URL from .env to ensure links work in cloud environments.
+ * ✅ Priority: Uses Resend (sadnaot.online) exclusively.
  * ✅ Logs: Keeps all your existing safeAuthLog logic.
  */
 
@@ -11,10 +10,8 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const nodemailer = require("nodemailer");
 const { Resend } = require("resend");
 const User = require("../models/User");
-const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
 
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
@@ -52,7 +49,7 @@ function parseJwtExpToMs(exp) {
 
 function setRefreshCookie(res, refreshToken) {
   const isProd = process.env.NODE_ENV === "production";
-  const sameSite = "Lax";
+  const sameSite = "Lax"; // or 'None' if frontend/backend are on different domains
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
@@ -64,32 +61,19 @@ function setRefreshCookie(res, refreshToken) {
 }
 
 /* ============================================================
-   📤 Email Transport Configuration
+   📤 Email Configuration (Resend Only)
    ============================================================ */
 const isProd = process.env.NODE_ENV === "production";
-const isDev = !isProd;
 const logFile = path.join(__dirname, "../../otp_log.csv");
 
 let resend = null;
-let gmailTransport = null;
 
-// 1. Initialize Resend (if key exists)
+// Initialize Resend
 if (process.env.RESEND_API_KEY) {
   resend = new Resend(process.env.RESEND_API_KEY);
   console.log("📩 Resend API initialized.");
-}
-
-// 2. Initialize Gmail (if configured)
-const allowGmail = process.env.USE_GMAIL === "true";
-if (allowGmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  gmailTransport = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-  console.log("📨 Gmail SMTP initialized (Preferred for Dev).");
+} else {
+  console.warn("⚠️  RESEND_API_KEY is missing. Emails will not send.");
 }
 
 /* ============================================================
@@ -122,10 +106,6 @@ function tokensMatch(storedToken, candidateToken) {
   return safeEqual(stored, Buffer.from(String(candidateToken)));
 }
 
-/**
- * FIXED: Prioritizes CLIENT_URL from .env to ensure links are correct
- * regardless of where the server is hosted (Codespaces, Render, etc).
- */
 function resolveClientBaseUrl(req) {
   // 1. Best: Explicit env var
   if (process.env.CLIENT_URL) return process.env.CLIENT_URL.replace(/\/$/, "");
@@ -174,61 +154,51 @@ function createPasswordResetArtifacts() {
 }
 
 /* ============================================================
-   ✉️ Send Email (Logic Updated)
+   ✉️ Send Email (Resend Only)
    ============================================================ */
 async function sendEmail({ to, subject, text, html }) {
   safeAuthLog(`sendEmail invoked for: ${to}`);
 
-  try {
-    // 1️⃣ Priority: Gmail (If USE_GMAIL=true and configured)
-    // This allows you to force Gmail in dev without removing Resend keys
-    if (allowGmail && gmailTransport) {
-      try {
-        await gmailTransport.sendMail({
-          from: process.env.MAIL_FROM || `"Clalit Workshops" <${process.env.EMAIL_USER}>`,
-          to,
-          subject,
-          html: html || `<p>${text}</p>`,
-        });
-        safeAuthLog("✅ sendEmail delivered via Gmail SMTP");
-        return true;
-      } catch (err) {
-        console.warn(`⚠️ Gmail attempt failed: ${err.message}. Trying next method...`);
-      }
-    }
-
-    // 2️⃣ Secondary: Resend API (Production Standard)
-    if (resend) {
-      try {
-        await resend.emails.send({
-          // Note: Without a verified domain, 'from' must be onboarding@resend.dev
-          from: "onboarding@resend.dev", 
-          to, 
-          subject,
-          html: html || `<p>${text}</p>`,
-        });
-        safeAuthLog("✅ sendEmail delivered via Resend");
-        return true;
-      } catch (err) {
-        console.warn(`⚠️ Resend failed: ${err.message}`);
-      }
-    }
-
-    // 3️⃣ Fallback: Log locally (Dev/Offline)
-    if (isDev) {
-      const line = `[${new Date().toISOString()}] To: ${to} | Subject: ${subject} | Code/Msg: ${text}\n`;
-      fs.appendFileSync(logFile, line);
-      safeAuthLog("📝 sendEmail logged locally to otp_log.csv");
-      return true; // Treat as success for dev flow
-    }
-
-    console.error("❌ No email transport available — message not sent");
+  if (!resend) {
+    console.error("❌ Resend API not initialized. Cannot send email.");
     return false;
+  }
+
+  // 1️⃣ Send via Resend
+  try {
+    const fromAddress = process.env.EMAIL_FROM || "info@sadnaot.online";
+    
+    await resend.emails.send({
+      from: fromAddress, // Must be your verified domain
+      to, 
+      subject,
+      html: html || `<p>${text}</p>`,
+    });
+    
+    safeAuthLog("✅ sendEmail delivered via Resend");
+    return true;
+    
   } catch (err) {
-    console.error("❌ Email send error:", err.message);
+    console.error(`❌ Resend failed: ${err.message}`);
+    
+    // Fallback: Log locally for debugging if Resend fails
+    const line = `[${new Date().toISOString()}] To: ${to} | Subject: ${subject} | Error: ${err.message}\n`;
+    fs.appendFileSync(logFile, line);
     return false;
   }
 }
+
+module.exports = {
+  generateAccessToken,
+  generateRefreshToken,
+  setRefreshCookie,
+  sendEmail,
+  resolveClientBaseUrl,
+  createPasswordResetArtifacts,
+  buildPasswordResetPayload,
+  hashResetToken,
+  tokensMatch,
+};
 
 /* ============================================================
    👤 Register User
