@@ -1,4 +1,4 @@
-// server/routes/workshops.js — FIXED ORDER
+// server/routes/workshops.js — FIXED & COMPLETE
 const express = require("express");
 const router = express.Router();
 const { runWorkshopAudit } = require("../services/workshopAuditService");
@@ -20,27 +20,63 @@ const {
 } = require("../middleware/validation");
 
 /* ============================================================
-   🟢 PUBLIC / USER ROUTES
+   🟢 STATIC / META ROUTES (MUST BE FIRST)
    ============================================================ */
 
-// Meta
+// 1. Audit (Moved to top so it's not caught by /:id)
+router.get("/audit/run", async (req, res) => {
+  try {
+    const adminKey = req.query.key;
+    const SERVER_KEY = process.env.ADMIN_KEY;
+
+    // 1. Try cookie/JWT admin first
+    if (req.user && req.user.role === "admin") {
+      const result = await runWorkshopAudit();
+      return res.json({ success: true, result });
+    }
+
+    // 2. Fallback: admin key in query
+    if (adminKey && SERVER_KEY && adminKey === SERVER_KEY) {
+      const result = await runWorkshopAudit();
+      return res.json({ success: true, result });
+    }
+
+    return res.status(401).json({ message: "Unauthorized" });
+
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// 2. Meta Routes
 router.get("/meta/cities", workshopController.getAvailableCities);
+
+// 3. Validation Routes
+// Note: I added a plain alias just in case frontend calls /validate-address directly
 router.get(
   "/meta/validate-address",
   protect,
   authorizeAdmin,
   workshopController.validateAddress
 );
-
-// List + search
-router.get("/", workshopController.getAllWorkshops);
-router.get("/search", workshopController.searchWorkshops);
-router.get("/registered", protect, workshopController.getRegisteredWorkshops);
+router.get(
+  "/validate-address", 
+  protect, 
+  authorizeAdmin, 
+  workshopController.validateAddress
+);
 
 /* ============================================================
-   🟢 ACTION ROUTES — MUST COME BEFORE /:id
+   🟢 LIST ROUTES
    ============================================================ */
+// Search must come before /:id
+router.get("/search", workshopController.searchWorkshops);
+router.get("/registered", protect, workshopController.getRegisteredWorkshops);
+router.get("/", workshopController.getAllWorkshops);
 
+/* ============================================================
+   🟢 ACTION ROUTES (Specific Sub-resources)
+   ============================================================ */
 // Register / Unregister entity
 router.post(
   "/:id/register-entity",
@@ -71,8 +107,23 @@ router.delete(
   workshopController.removeEntityFromWaitlist
 );
 
+// Export & Waitlist View
+router.post(
+  "/:id/export",
+  protect,
+  authorizeAdmin,
+  workshopController.exportWorkshopExcel
+);
+
+router.get(
+  "/:id/waitlist",
+  protect,
+  authorizeAdmin,
+  workshopController.getWaitlist
+);
+
 /* ============================================================
-   🟢 DETAIL ROUTES — SAFE NOW
+   🟢 DETAIL ROUTES (SPECIFIC GETs)
    ============================================================ */
 
 router.get(
@@ -81,11 +132,17 @@ router.get(
   workshopController.getWorkshopParticipants
 );
 
+/* ============================================================
+   ⚠️ GENERIC GET ROUTE (MUST BE LAST GET)
+   ============================================================ */
+// This catches anything that looks like an ID. 
+// If "audit" or "search" were below this, they would break.
 router.get("/:id", workshopController.getWorkshopById);
 
 /* ============================================================
-   🟣 ADMIN ROUTES
+   🟣 ADMIN ROUTES (POST/PUT/DELETE)
    ============================================================ */
+// These are safe here because the HTTP methods are different (not GET)
 
 router.post(
   "/",
@@ -109,45 +166,5 @@ router.delete(
   authorizeAdmin,
   workshopController.deleteWorkshop
 );
-
-router.post(
-  "/:id/export",
-  protect,
-  authorizeAdmin,
-  workshopController.exportWorkshopExcel
-);
-
-router.get(
-  "/:id/waitlist",
-  protect,
-  authorizeAdmin,
-  workshopController.getWaitlist
-);
-
-
-
-router.get("/audit/run", async (req, res) => {
-  try {
-    const adminKey = req.query.key;
-    const SERVER_KEY = process.env.ADMIN_KEY;
-
-    // 1. Try cookie/JWT admin first
-    if (req.user && req.user.role === "admin") {
-      const result = await runWorkshopAudit();
-      return res.json({ success: true, result });
-    }
-
-    // 2. Fallback: admin key in query
-    if (adminKey && SERVER_KEY && adminKey === SERVER_KEY) {
-      const result = await runWorkshopAudit();
-      return res.json({ success: true, result });
-    }
-
-    return res.status(401).json({ message: "Unauthorized" });
-
-  } catch (e) {
-    res.status(500).json({ success: false, message: e.message });
-  }
-});
 
 module.exports = router;

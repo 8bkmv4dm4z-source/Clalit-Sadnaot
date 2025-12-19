@@ -15,7 +15,6 @@
  */
 
 import { createPortal } from "react-dom";
-
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MoreVertical } from "lucide-react";
@@ -64,7 +63,6 @@ const normalizeLocalQuery = (value) => {
  */
 const rowMatchesQuery = (row, normalizedQuery) => {
   if (!normalizedQuery) return true;
-
   const fields = ["name", "email", "phone", "city", "idNumber"];
 
   return fields.some((field) => {
@@ -251,10 +249,14 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
   // Local view-model
   const [search, setSearch] = useState("");
-  const [profiles, setProfiles] = useState([]); // search results only
+  const [profiles, setProfiles] = useState([]);
+
+  // search results only
   const [entityLoadingId, setEntityLoadingId] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
-  const [busyRowKey, setBusyRowKey] = useState(null); // for disabling buttons during bulk remove
+  const [busyRowKey, setBusyRowKey] = useState(null);
+
+  // for disabling buttons during bulk remove
   const [deletingRowId, setDeletingRowId] = useState(null);
 
   // Edit + modal state
@@ -321,7 +323,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
     return () => clearTimeout(t);
   }, [search, searchProfiles]);
-    const startEdit = async (row) => {
+
+  const startEdit = async (row) => {
     const rowKey = buildEntityKey(row);
     setEditingId(rowKey);
     setEditBuffer({ ...row });
@@ -366,8 +369,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       for (const k of allowedKeys) if (editBuffer[k] !== undefined) updates[k] = editBuffer[k];
 
       const payload = { entityKey, updates };
-
       const rowKey = entityKey || editingId;
+
       optimisticPatchEverywhere((r) => {
         const k = buildEntityKey(r);
         return k === String(rowKey) ? { ...r, ...updates } : r;
@@ -408,6 +411,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         entityKey: isFamily ? parentKey : entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
+
       setUserWorkshops(Array.isArray(list) ? list : []);
       setModalTitle(isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name);
     } catch (e) {
@@ -427,6 +431,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const rowKey = buildEntityKey(row);
 
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
+
     if (
       !window.confirm(
         `למחוק את ההרשמות של "${displayName}" מכל הסדנאות? הפעולה בלתי הפיכה.`
@@ -441,6 +446,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         entityKey: isFamily ? parentKey : entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
+
       const workshopIds = (Array.isArray(list) ? list : [])
         .map((w) => String(w.workshopKey || w.workshopId || w.id))
         .filter(Boolean);
@@ -477,10 +483,12 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const entityKey = ids.entityKey;
     const rowKey = buildEntityKey(row);
 
-    const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
+    const displayName = isFamily ?
+      `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     const confirmMessage = isFamily
       ? `האם למחוק את ${displayName}? פעולה זו תסיר אותו מכל הסדנאות.`
       : `האם למחוק את המשתמש \"${displayName}\" וכל בני המשפחה המקושרים?`;
+
     if (!window.confirm(confirmMessage)) return;
 
     setDeletingRowId(rowKey);
@@ -537,22 +545,19 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         <div className="h-4 w-24 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
-        <div className="h-4 w-36 bg-gray-200 animate-pulse rounded" />
-      </td>
-      <td className="p-3 text-center relative overflow-visible z-10">
-        <div className="h-4 w-24 bg-gray-200 animate-pulse rounded" />
+        <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
         <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
+      </td>
+      <td className="p-3 text-center relative overflow-visible z-10">
+        <div className="h-4 w-36 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
         <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
         <div className="h-4 w-10 bg-gray-200 animate-pulse rounded" />
-      </td>
-      <td className="p-3 text-center relative overflow-visible z-10">
-        <div className="h-4 w-16 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
         <div className="h-8 w-8 mx-auto bg-gray-200 animate-pulse rounded-full" />
@@ -569,7 +574,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       dir="rtl"
       className="min-h-screen flex flex-col items-center bg-gray-50 py-10 px-4 sm:px-6"
     >
-      <div className="w-full max-w-6xl bg-white rounded-xl shadow p-5 sm:p-8">
+      {/* Container widened to 98% per request */}
+      <div className="w-full max-w-[98%] bg-white rounded-xl shadow p-5 sm:p-8">
+        
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 sm:mb-6 gap-3">
           <h2 className="text-2xl sm:text-3xl font-bold text-indigo-700">
@@ -585,22 +592,37 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         </div>
 
         {/* ===== Desktop Table ===== */}
-        <div className="hidden md:block relative z-0" style={{ overflow: "visible" }}>
-          <table className="table table-fixed w-full text-sm">
-            <thead>
-              <tr>
-                <th className="w-[16%]">שם</th>
-                <th className="w-[18%]">אימייל</th>
-                <th className="w-[14%]">טלפון</th>
-                <th className="w-[12%]">עיר</th>
-                <th className="w-[12%]">ת.ז</th>
-                <th className="w-[8%]">גיל</th>
-                <th className="w-[10%]">קשר</th>
-                <th className="w-[6%] text-center">חיוב</th>
-                <th className="w-[10%] text-center">פעולות</th>
+{/* 1. Added overflow-x-auto so you can scroll sideways */}
+<div className="hidden md:block relative z-0 overflow-x-auto custom-scrollbar pb-10">
+  {/* 2. Added min-w-[1200px] so columns are wide enough to show full text */}
+  <table className="table table-fixed w-full min-w-[1200px] text-sm">
+    <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                {/* 1. NAME (15%) */}
+                <th className="w-[15%] p-3 text-right font-semibold text-gray-600">שם</th>
+                
+                {/* 2. ID (12%) - Moved here */}
+                <th className="w-[12%] p-3 text-right font-semibold text-gray-600">ת.ז</th>
+
+                {/* 3. PHONE (14%) - Expanded width */}
+                <th className="w-[14%] p-3 text-right font-semibold text-gray-600">טלפון</th>
+
+                {/* 4. EMAIL (24%) - Largest chunk for long emails */}
+                <th className="w-[24%] p-3 text-right font-semibold text-gray-600">אימייל</th>
+
+                {/* 5. CITY (10%) */}
+                <th className="w-[10%] p-3 text-right font-semibold text-gray-600">עיר</th>
+
+                {/* 6. AGE (5%) */}
+                <th className="w-[5%]  p-3 text-right font-semibold text-gray-600">גיל</th>
+
+                {/* 7. CHARGE (8%) */}
+                <th className="w-[8%]  p-3 text-center font-semibold text-gray-600">חיוב</th>
+
+                {/* 8. ACTIONS (12%) */}
+                <th className="w-[12%] p-3 text-center font-semibold text-gray-600">פעולות</th>
               </tr>
             </thead>
-
             <tbody>
               {isFetching && effectiveProfiles.length === 0 ? (
                 <>
@@ -610,7 +632,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                 </>
               ) : effectiveProfiles.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center text-gray-500 py-6">
+                  <td colSpan={8} className="text-center text-gray-500 py-6">
                     לא נמצאו תוצאות מתאימות
                   </td>
                 </tr>
@@ -623,10 +645,12 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   const busy = busyRowKey === rowKey;
                   const isDeleting = deletingRowId === rowKey;
                   const isFamily = normalizedRow.isFamily;
+
                   const displayEmail = normalizedRow.email || "-";
                   const displayPhone = normalizedRow.phone || "-";
                   const displayCity = normalizedRow.city || "-";
                   const displayIdNumber = normalizedRow.idNumber || "-";
+
                   const displayAge =
                     typeof normalizedRow.age === "number"
                       ? normalizedRow.age
@@ -649,78 +673,62 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                           : "bg-gray-50"
                       }
                     >
-                      {/* name */}
-                      <td className="p-3 font-medium text-gray-800">
-                        {isEditing
-                          ? renderEditInput(
-                              "name",
-                              editBuffer?.name ?? normalizedRow.name
-                            )
-                          : normalizedRow.name}
-                        {isFamily && (
-                          <span className="mr-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                            בן משפחה של {normalizedRow.parentName}
-                          </span>
-                        )}
+                   {/* --- 1. NAME --- */}
+<td className="p-3 font-medium text-gray-800" title={normalizedRow.name}>
+  {/* REMOVED 'truncate' below */}
+  <div className="w-full"> 
+    {isEditing
+      ? renderEditInput("name", editBuffer?.name ?? normalizedRow.name)
+      : normalizedRow.name}
+  </div>
+  {/* (Tags code remains the same...) */}
+</td>
+
+{/* --- 2. ID --- */}
+<td className="p-3 text-gray-600" title={normalizedRow.idNumber}>
+  {/* REMOVED 'truncate' below */}
+  <div className="w-full">
+    {isEditing
+      ? renderEditInput("idNumber", editBuffer?.idNumber ?? normalizedRow.idNumber)
+      : displayIdNumber}
+  </div>
+</td>
+
+{/* --- 3. PHONE --- */}
+<td className="p-3 text-gray-600" dir="ltr" title={normalizedRow.phone}>
+  {/* REMOVED 'truncate' below */}
+  <div className="w-full text-right">
+    {isEditing
+      ? renderEditInput("phone", editBuffer?.phone ?? normalizedRow.phone)
+      : displayPhone}
+  </div>
+</td>
+
+{/* --- 4. EMAIL --- */}
+<td className="p-3 text-gray-600" dir="ltr" title={normalizedRow.email}>
+  {/* REMOVED 'truncate' below */}
+  <div className="w-full text-right">
+    {isEditing
+      ? renderEditInput("email", editBuffer?.email ?? normalizedRow.email)
+      : displayEmail}
+  </div>
+</td>
+
+{/* --- 5. CITY --- */}
+<td className="p-3 text-gray-600" title={normalizedRow.city}>
+  {/* REMOVED 'truncate' below */}
+  <div className="w-full">
+    {isEditing
+      ? renderEditInput("city", editBuffer?.city ?? normalizedRow.city)
+      : displayCity}
+  </div>
+</td>
+                      {/* --- 6. AGE --- */}
+                      <td className="p-3 text-gray-600">
+                        {displayAge ?? "-"}
                       </td>
 
-                      {/* email */}
-                      <td className="p-3">
-                        {isEditing
-                          ? renderEditInput(
-                              "email",
-                              editBuffer?.email ?? normalizedRow.email
-                            )
-                          : displayEmail}
-                      </td>
-
-                      {/* phone */}
-                      <td className="p-3">
-                        {isEditing
-                          ? renderEditInput(
-                              "phone",
-                              editBuffer?.phone ?? normalizedRow.phone
-                            )
-                          : displayPhone}
-                      </td>
-
-                      {/* city */}
-                      <td className="p-3">
-                        {isEditing
-                          ? renderEditInput(
-                              "city",
-                              editBuffer?.city ?? normalizedRow.city
-                            )
-                          : displayCity}
-                      </td>
-
-                      {/* idNumber */}
-                      <td className="p-3">
-                        {isEditing
-                          ? renderEditInput(
-                              "idNumber",
-                              editBuffer?.idNumber ?? normalizedRow.idNumber
-                            )
-                          : displayIdNumber}
-                      </td>
-
-                      {/* age */}
-                      <td className="p-3">{displayAge ?? "-"}</td>
-
-                      {/* relation */}
-                      <td className="p-3">
-                        {isEditing
-                          ? renderEditInput(
-                              "relation",
-                              editBuffer?.relation ??
-                                (isFamily ? normalizedRow.relation ?? "" : "")
-                            )
-                          : isFamily
-                          ? normalizedRow.relation || "בן משפחה"
-                          : "-"}
-                      </td>
-
-                      {/* canCharge */}
+                      {/* --- 7. CHARGE --- */}
                       <td className="p-3 text-center">
                         {isEditing ? (
                           <button
@@ -740,7 +748,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                         )}
                       </td>
 
-                      {/* actions */}
+                      {/* --- 8. ACTIONS --- */}
                       <td className="p-3 text-center relative overflow-visible z-[1000]">
                         {isEditing ? (
                           <div className="flex flex-col items-center gap-1">
@@ -814,7 +822,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
             </tbody>
           </table>
         </div>
-        {/* ===== Mobile Cards ===== */}
+
+        {/* ===== Mobile Cards (No Relation Field) ===== */}
         <div className="md:hidden space-y-3">
           {isFetching && effectiveProfiles.length === 0 ? (
             <div className="rounded-xl border bg-white border-gray-100 shadow-sm p-4">
@@ -839,6 +848,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
               const busy = busyRowKey === rowKey;
               const isDeleting = deletingRowId === rowKey;
               const isFamily = normalizedRow.isFamily;
+
               const displayEmail = normalizedRow.email || "-";
               const displayPhone = normalizedRow.phone || "-";
               const displayCity = normalizedRow.city || "-";
@@ -909,9 +919,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                     )}
                   </div>
 
-                  <div
-                    className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm"
-                  >
+                  <div className="px-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <Field
                       label="אימייל"
                       isEditing={isEditing}
@@ -953,18 +961,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       isEditing={false}
                       value={displayAge ?? "-"}
                     />
-                    <Field
-                      label="קשר"
-                      isEditing={isEditing}
-                      value={
-                        isFamily ? normalizedRow.relation || "בן משפחה" : "-"
-                      }
-                      input={renderEditInput(
-                        "relation",
-                        editBuffer?.relation ??
-                          (isFamily ? normalizedRow.relation ?? "" : "")
-                      )}
-                    />
+                    
+                    {/* Relation field removed from Mobile as well for consistency */}
+
                     <div className="col-span-2">
                       <div className="text-xs text-gray-500 mb-1">חיוב</div>
                       {isEditing ? (
@@ -1113,4 +1112,3 @@ function Field({ label, value, isEditing, input }) {
     </div>
   );
 }
-

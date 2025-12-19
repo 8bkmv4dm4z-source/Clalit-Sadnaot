@@ -108,6 +108,8 @@ async function loadWorkshopByIdentifier(identifier) {
   if (!identifier) return null;
   const id = String(identifier).trim();
 
+  // 🔒 STRICT: Only allow lookup by public keys (hashedId or workshopKey)
+  // We explicitly do NOT check _id here to prevent enumeration or direct object access.
   const candidates = [
     { hashedId: id },
     { workshopKey: id },
@@ -606,6 +608,8 @@ exports.getWorkshopById = async (req, res) => {
 exports.updateWorkshop = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // 1. Strict Lookup (Returns 404 if id is not a valid hashedId/key)
     const existing = await loadWorkshopByIdentifier(id);
     if (!existing) {
       return res.status(404).json({ message: "Workshop not found" });
@@ -627,41 +631,39 @@ exports.updateWorkshop = async (req, res) => {
     }
 
     /* ============================================================
-       🌍 Address validation (non-blocking)
+       🌍 Address validation (Soft / Non-blocking)
        ============================================================ */
+    // We removed the "return 400" block here.
+    // If city or address is missing, we just skip the OSM check and save anyway.
     if ("city" in updates || "address" in updates) {
       const city = updates.city ?? existing.city;
       const address = updates.address ?? existing.address;
 
-      if (!city || !address) {
-        return res.status(400).json({
-          message: "City and address are required for update",
-        });
-      }
+      if (city && address) {
+        const checkAddress = async () => {
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2500);
+            const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
+              city
+            )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
 
-      const checkAddress = async () => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 2500);
-          const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
-            city
-          )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
+            const resp = await fetch(url, {
+              signal: controller.signal,
+              headers: { "User-Agent": "Clalit-Workshops-App" },
+            });
+            clearTimeout(timeout);
+            const result = await resp.json();
 
-          const resp = await fetch(url, {
-            signal: controller.signal,
-            headers: { "User-Agent": "Clalit-Workshops-App" },
-          });
-          clearTimeout(timeout);
-          const result = await resp.json();
-
-          if (!Array.isArray(result) || result.length === 0) {
-            console.warn(`⚠ Address not found for city "${city}" — saving anyway`);
+            if (!Array.isArray(result) || result.length === 0) {
+              console.warn(`⚠ Address warning: "${address}" in "${city}" not found on OSM.`);
+            }
+          } catch (err) {
+            console.warn("⚠ Address validation service unavailable — skipping check");
           }
-        } catch (err) {
-          console.warn("⚠ Address validation service unavailable — skipping check");
-        }
-      };
-      checkAddress().catch(() => {});
+        };
+        checkAddress().catch(() => {});
+      }
     }
 
     /* ============================================================
@@ -716,6 +718,7 @@ exports.updateWorkshop = async (req, res) => {
     /* ============================================================
        📦 Reload normalized + populated data
        ============================================================ */
+    // We reload the document to make sure we return the freshest data (including virtuals/endDate)
     const ws = await Workshop.findById(existing._id)
       .populate("participants", "name email idNumber phone city")
       .populate("familyRegistrations.parentUser", "name email idNumber phone city")

@@ -273,7 +273,7 @@ exports.validateAddress = async (req, res) => {
 };
 
 /* ============================================================
-   🟢 CREATE WORKSHOP
+   🟢 CREATE WORKSHOP (Fixed Address Validation)
    ============================================================ */
 const validateWorkshopCreate = celebrate({
   [Segments.BODY]: Joi.object({
@@ -282,9 +282,9 @@ const validateWorkshopCreate = celebrate({
     type: Joi.string().trim().pattern(safeText).max(50).optional(),
     ageGroup: Joi.string().trim().pattern(safeText).max(50).optional(),
 
-    /** 🏙 City & Address */
-    city: Joi.string().trim().pattern(safeText).max(50).required(),
-    address: Joi.string().trim().pattern(safeText).max(100).optional(),
+    /** 🏙 City & Address - REMOVED STRICT REGEX & ADDED allow("") */
+    city: Joi.string().trim().allow("").max(50).required(),
+    address: Joi.string().trim().allow("").max(100).optional(),
 
     studio: Joi.string().trim().pattern(safeText).max(50).optional(),
     coach: Joi.string().trim().pattern(safeText).max(50).optional(),
@@ -317,29 +317,16 @@ const validateWorkshopCreate = celebrate({
     description: Joi.string().trim().allow("").max(500).optional(),
     price: Joi.number().min(0).max(99999).optional(),
     available: Joi.boolean().optional(),
-    image: Joi.string().uri().allow("").optional(),
+    image: Joi.string().allow("").optional(),
 
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),
     waitingListMax: Joi.number().integer().min(0).max(500).optional(),
     autoEnrollOnVacancy: Joi.boolean().optional(),
-  })
-    /** ✅ Soft address validation — never blocks, only warns */
-    .external(async (body) => {
-      if (body.city && body.address) {
-        const valid = await validateAddressRemote(body.city, body.address);
-        if (!valid) {
-          console.warn(
-            `⚠ Address "${body.address}" not found in city "${body.city}" — allowing save anyway.`
-          );
-        }
-      }
-      return body; // ✅ Always return the body itself
-    })
-    .unknown(true),
+  }).unknown(true), // Allow extra fields just in case
 });
 
 /* ============================================================
-   🟣 EDIT WORKSHOP
+   🟣 EDIT WORKSHOP (Fixed Address Validation)
    ============================================================ */
 const validateWorkshopEdit = celebrate({
   [Segments.BODY]: Joi.object({
@@ -347,8 +334,9 @@ const validateWorkshopEdit = celebrate({
     type: Joi.string().trim().pattern(safeText).max(50).optional(),
     ageGroup: Joi.string().trim().pattern(safeText).max(50).optional(),
 
-    city: Joi.string().trim().pattern(safeText).max(50).optional(),
-    address: Joi.string().trim().pattern(safeText).max(100).optional(),
+    /** 🏙 City & Address - NO REGEX, NO BLOCKING */
+    city: Joi.string().trim().allow("").max(50).optional(),
+    address: Joi.string().trim().allow("").max(100).optional(),
 
     studio: Joi.string().trim().pattern(safeText).max(50).optional(),
     coach: Joi.string().trim().pattern(safeText).max(50).optional(),
@@ -371,26 +359,13 @@ const validateWorkshopEdit = celebrate({
     description: Joi.string().trim().allow("").max(500).optional(),
     price: Joi.number().min(0).max(99999).optional(),
     available: Joi.boolean().optional(),
-    image: Joi.string().uri().allow("").optional(),
+    image: Joi.string().allow("").optional(),
 
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),
     waitingListMax: Joi.number().integer().min(0).max(500).optional(),
     autoEnrollOnVacancy: Joi.boolean().optional(),
-  })
-    .external(async (body) => {
-      if (body.city && body.address) {
-        const valid = await validateAddressRemote(body.city, body.address);
-        if (!valid) {
-          console.warn(
-            `⚠ Address "${body.address}" not found in city "${body.city}" — allowing save anyway.`
-          );
-        }
-      }
-      return body; // ✅ חובה להחזיר את הגוף
-    })
-    .unknown(true),
+  }).unknown(true),
 });
-
 /* ============================================================
    🧍 REGISTER / UNREGISTER
    ============================================================ */
