@@ -364,10 +364,15 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       
       // ✅ FIX: Use editingId as the fallback source of truth for the ID
       const entityKey = ids.entityKey || editingId;
+      if (!entityKey) {
+        throw new Error("Missing entity key for update");
+      }
 
+      const baseUserFields = ["name", "email", "phone", "city", "birthDate", "idNumber"];
+      const userAllowed = isAdmin ? [...baseUserFields, "canCharge"] : baseUserFields;
       const allowedKeys = isFamily
         ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
-        : ["name", "idNumber", "birthDate", "phone", "city", "canCharge"];
+        : userAllowed;
 
       const updates = {};
       
@@ -378,7 +383,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
           // ✅ FIX: Convert empty strings to null for unique fields (email/phone)
           // preventing DB "duplicate key" errors on empty strings
           if (typeof val === "string" && val.trim() === "") {
-             val = null;
+            val = null;
           }
           updates[k] = val;
         }
@@ -512,7 +517,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       `${row.name} (${row.relation || "בן משפחה"})` : row.name;
     const confirmMessage = isFamily
       ? `האם למחוק את ${displayName}? פעולה זו תסיר אותו מכל הסדנאות.`
-      : `האם למחוק את המשתמש \"${displayName}\" וכל בני המשפחה המקושרים?`;
+      : `האם למחוק את המשתמש "${displayName}" וכל בני המשפחה המקושרים?`;
 
     if (!window.confirm(confirmMessage)) return;
 
