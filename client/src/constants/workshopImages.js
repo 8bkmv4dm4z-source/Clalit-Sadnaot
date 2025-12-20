@@ -1,69 +1,102 @@
 // src/constants/workshopImages.js
 
 export const WORKSHOP_IMAGES = [
-  // --- STRENGTH & HIGH INTENSITY ---
+  // ==========================================
+  // 1. STRENGTH & HIGH INTENSITY
+  // ==========================================
   {
     id: 'weightlifting_heavy',
     label: 'Weightlifting',
-    src: 'https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?auto=format&fit=crop&w=600&q=80',
+    // VERIFIED: Girl with Kettlebell
+    src: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=600&q=80',
   },
   {
     id: 'crossfit_box',
     label: 'Crossfit & HIIT',
-    src: 'https://images.unsplash.com/photo-1517963879466-e925ac6943f6?auto=format&fit=crop&w=600&q=80',
+    // VERIFIED: Dynamic Gym Box
+    src: 'https://images.unsplash.com/photo-1599058945522-28d584b6f0ff?auto=format&fit=crop&w=600&q=80',
   },
   {
     id: 'functional_training',
     label: 'Functional Training',
-    src: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=600&q=80',
+    // VERIFIED: Sled Push / High Intensity
+    src: 'https://images.unsplash.com/photo-1550259979-ed79b48d2a30?w=900&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fGZ1bmN0aW9uYWwlMjB0cmFpbmluZ3xlbnwwfHwwfHx8MA%3D%3D',
   },
-
-  // --- PILATES & CONTROL ---
-  {
-    id: 'pilates_reformer',
-    label: 'Pilates (Reformer)',
-    src: 'https://images.unsplash.com/photo-1518611012118-696072aa8795?auto=format&fit=crop&w=600&q=80',
-  },
+  // ==========================================
+  // 2. PILATES (Simplified)
+  // ==========================================
   {
     id: 'pilates_mat',
     label: 'Pilates (Mat)',
-    src: 'https://images.unsplash.com/photo-1518310383802-640c2de311b2?auto=format&fit=crop&w=600&q=80',
+    // VERIFIED: Standard Mat
+    src: 'https://images.unsplash.com/photo-1683056255281-e52a141924f0?w=1600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8cGlsYXRlc3xlbnwwfHwwfHx8MA%3D%3D',
   },
 
-  // --- YOGA & WELLNESS ---
+  // ==========================================
+  // 3. YOGA
+  // ==========================================
   {
     id: 'yoga_flow',
-    label: 'Yoga',
-    src: 'https://images.unsplash.com/photo-1599447421405-0c323d27bc5d?auto=format&fit=crop&w=600&q=80',
+    label: 'Yoga (General)',
+    // VERIFIED: Studio Flow
+    src: 'https://images.unsplash.com/photo-1552196563-55cd4e45efb3?auto=format&fit=crop&w=600&q=80',
   },
+  {
+    id: 'yoga_hatha',
+    label: 'Hatha / Stretch',
+    // VERIFIED: Gentle Stretch
+    src: 'https://images.unsplash.com/photo-1545205597-3d9d02c29597?auto=format&fit=crop&w=600&q=80',
+  },
+
+  // ==========================================
+  // 4. WELLNESS & SPECIALTY
+  // ==========================================
   {
     id: 'wellness_mind',
     label: 'Wellness',
+    // SWAPPED: Now using the "Sunset Flow" image you liked from the old Vinyasa slot
     src: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
   },
-
-  // --- SPECIALTY ---
   {
     id: 'baby_development',
     label: 'Baby Development',
+    // VERIFIED: Mom and baby
     src: 'https://images.unsplash.com/photo-1519689680058-324335c77eba?auto=format&fit=crop&w=600&q=80',
   },
   {
     id: 'swimming_water',
     label: 'Swimming',
+    // VERIFIED: Pool/Water
     src: 'https://images.unsplash.com/photo-1530549387789-4c1017266635?auto=format&fit=crop&w=600&q=80',
-  }
+  },
+
+  // ==========================================
+  // 5. HIGH RESOLUTION EXTRAS (New)
+  // ==========================================
+  {
+    id: 'high_res_gym',
+    label: 'Cinematic Gym',
+    // NEW: Dark, moody, high-quality gym aesthetic
+    src: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=600&q=80',
+  },
+ 
+  {
+    id: 'high_res_athletic',
+    label: 'Focused Athletics',
+    // NEW: High detail runner/track shot
+    src: 'https://images.unsplash.com/photo-1602263515015-dd72f8e9f301?q=80&w=987&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+  },
+
+  // ==========================================
+  // 6. MOOD & FUNNY
+  // ==========================================
+  
 ];
 
 // --- SMART HELPER ---
 export const getWorkshopImage = (identifier) => {
-  // 1. Fallback if empty
   if (!identifier) return WORKSHOP_IMAGES[0].src; 
-
-  // 2. Check if it's a Preset ID
   const preset = WORKSHOP_IMAGES.find((img) => img.id === identifier);
   if (preset) return preset.src;
-
-  // 3. Otherwise, it's a custom URL/Path
   return identifier;
 };
