@@ -36,7 +36,7 @@ const validateRegister = celebrate({
     name: Joi.string().trim().pattern(safeText).max(80).required(),
     email: Joi.string().email().lowercase().trim().required(),
     password: Joi.string()
-      .min(8)
+      .min(8) // ✅ Correct: 8 chars
       .max(64)
       .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include a letter, number, and special character.")
@@ -89,7 +89,7 @@ const validatePasswordReset = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
     newPassword: Joi.string()
-      .min(10)
+      .min(8) // ✅ CHANGED: Was 10, now 8
       .max(64)
       .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include a letter, number, and special character.")
