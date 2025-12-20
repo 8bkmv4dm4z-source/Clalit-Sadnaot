@@ -7,7 +7,7 @@ export const WORKSHOP_IMAGES = [
   {
     id: 'weightlifting_heavy',
     label: 'Weightlifting',
-    // VERIFIED: Girl with Kettlebell (moved from old functional slot)
+    // VERIFIED: Girl with Kettlebell
     src: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=600&q=80',
   },
   {
@@ -19,36 +19,18 @@ export const WORKSHOP_IMAGES = [
   {
     id: 'functional_training',
     label: 'Functional Training',
-    // REPLACED: "More Action" -> Sled Push / High Intensity movement
+    // VERIFIED: Sled Push / High Intensity
     src: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=600&q=80',
   },
 
   // ==========================================
-  // 2. PILATES
+  // 2. PILATES (Simplified)
   // ==========================================
-  {
-    id: 'pilates_reformer',
-    label: 'Pilates (Reformer)',
-    // REPLACED: New high-quality studio Reformer shot (Close up/Clean)
-    src: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=600&q=80',
-  },
-  {
-    id: 'pilates_reformer_action',
-    label: 'Pilates (Reformer Action)',
-    // REPLACED: Person actively using the machine (Side view/Stretch)
-    src: 'https://images.unsplash.com/photo-1522845036863-9d79367e6871?auto=format&fit=crop&w=600&q=80',
-  },
   {
     id: 'pilates_mat',
     label: 'Pilates (Mat)',
     // VERIFIED: Standard Mat
     src: 'https://images.unsplash.com/photo-1518310383802-640c2de311b2?auto=format&fit=crop&w=600&q=80',
-  },
-  {
-    id: 'pilates_core',
-    label: 'Pilates (Core/Ball)',
-    // REPLACED: Woman balancing on pink exercise ball (Clearer subject)
-    src: 'https://images.unsplash.com/photo-1597452485669-2c7bb5fef90d?auto=format&fit=crop&w=600&q=80',
   },
 
   // ==========================================
@@ -59,18 +41,6 @@ export const WORKSHOP_IMAGES = [
     label: 'Yoga (General)',
     // VERIFIED: Studio Flow
     src: 'https://images.unsplash.com/photo-1552196563-55cd4e45efb3?auto=format&fit=crop&w=600&q=80',
-  },
-  {
-    id: 'yoga_vinyasa',
-    label: 'Vinyasa Flow',
-    // VERIFIED: Sunset/Warm Flow
-    src: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
-  },
-  {
-    id: 'yoga_ashtanga',
-    label: 'Ashtanga / Power',
-    // REPLACED: Male doing advanced strong pose (Hand balance)
-    src: 'https://images.unsplash.com/photo-1562088287-b9c3de7b897e?auto=format&fit=crop&w=600&q=80',
   },
   {
     id: 'yoga_hatha',
@@ -85,8 +55,8 @@ export const WORKSHOP_IMAGES = [
   {
     id: 'wellness_mind',
     label: 'Wellness',
-    // VERIFIED: You explicitly liked this
-    src: 'https://images.unsplash.com/photo-1544367563-12123d8965cd?auto=format&fit=crop&w=600&q=80',
+    // SWAPPED: Now using the "Sunset Flow" image you liked from the old Vinyasa slot
+    src: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=600&q=80',
   },
   {
     id: 'baby_development',
@@ -102,14 +72,30 @@ export const WORKSHOP_IMAGES = [
   },
 
   // ==========================================
-  // 5. MOOD & FUNNY
+  // 5. HIGH RESOLUTION EXTRAS (New)
   // ==========================================
   {
-    id: 'funny_yoga_baby',
-    label: 'Yoga Baby',
-    // REPLACED: Funny baby legs in air (classic "Happy Baby" pose)
-    src: 'https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?auto=format&fit=crop&w=600&q=80',
+    id: 'high_res_gym',
+    label: 'Cinematic Gym',
+    // NEW: Dark, moody, high-quality gym aesthetic
+    src: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=600&q=80',
   },
+  {
+    id: 'high_res_outdoor',
+    label: 'Outdoor Zen',
+    // NEW: Crisp outdoor nature workout/meditation
+    src: 'https://images.unsplash.com/photo-1552674605-4696041720bd?auto=format&fit=crop&w=600&q=80',
+  },
+  {
+    id: 'high_res_athletic',
+    label: 'Focused Athletics',
+    // NEW: High detail runner/track shot
+    src: 'https://images.unsplash.com/photo-1486218119243-13883505764c?auto=format&fit=crop&w=600&q=80',
+  },
+
+  // ==========================================
+  // 6. MOOD & FUNNY
+  // ==========================================
   {
     id: 'funny_gym_dog',
     label: 'Gym Dog',
