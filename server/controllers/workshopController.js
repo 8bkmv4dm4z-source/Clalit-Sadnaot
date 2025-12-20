@@ -1,8 +1,8 @@
 const jwt = require("jsonwebtoken");
 const Workshop = require("../models/Workshop");
 const User = require("../models/User");
-const ExcelJS = require("exceljs");
-const nodemailer = require("nodemailer");
+const ExcelJS = require('exceljs');
+const emailService = require('../services/emailService');
 const {
   unregisterUserFromWorkshop,
   unregisterFamilyFromWorkshop,
@@ -1469,54 +1469,39 @@ exports.exportWorkshopExcel = async (req, res) => {
       return a;
     };
 
-    // Fetch workshop + relations
+    // 1. Fetch Data
+    // (Assuming loadWorkshopByIdentifier and Workshop model are imported)
     const baseWorkshop = await loadWorkshopByIdentifier(workshopId);
-    if (!baseWorkshop)
-      return res.status(404).json({ message: "Workshop not found" });
+    if (!baseWorkshop) return res.status(404).json({ message: "Workshop not found" });
 
     const workshopDoc = await Workshop.findById(baseWorkshop._id)
-      .populate(
-        "participants",
-        "name email phone city birthDate idNumber canCharge"
-      )
-      .populate(
-        "familyRegistrations.parentUser",
-        "name email phone city canCharge"
-      )
-      .populate(
-        "familyRegistrations.familyMemberId",
-        "name relation idNumber phone birthDate"
-      )
+      .populate("participants", "name email phone city birthDate idNumber canCharge")
+      .populate("familyRegistrations.parentUser", "name email phone city canCharge")
+      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .lean();
 
-    if (!workshopDoc)
-      return res.status(404).json({ message: "Workshop not found" });
+    if (!workshopDoc) return res.status(404).json({ message: "Workshop not found" });
 
+    // (Assuming ensureHashedWorkshop is available in scope)
     const workshop = ensureHashedWorkshop(workshopDoc);
 
-    // Defaults
+    // 2. Setup Excel Logic (Preserved from your code)
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
     const periodDays = Number(workshop.timePeriod) || 30;
     const endDate = new Date(startDate.getTime() + periodDays * 24 * 60 * 60 * 1000);
-
     const startDateStr = toHebDate(startDate);
     const endDateStr = toHebDate(endDate);
 
-    // Which sections to include
     const exportType = String(req.query.type || "").toLowerCase();
     const includeParticipants = !exportType || exportType === "current";
     const includeWaitlist = !exportType || exportType === "waitlist";
 
-    // ---------------- Excel (RTL) ----------------
+    // Create Workbook
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("דו\"ח משתתפים", {
-      views: [{ rightToLeft: true }], // RTL view
-    });
+    const sheet = workbook.addWorksheet("דו\"ח משתתפים", { views: [{ rightToLeft: true }] });
 
-    sheet.views = [{ rightToLeft: true }];
-
-    // Define columns
+    // Define Columns
     sheet.columns = [
       { header: "שם משתתף", key: "p_name", width: 25 },
       { header: "קרבה", key: "p_relation", width: 15 },
@@ -1529,60 +1514,45 @@ exports.exportWorkshopExcel = async (req, res) => {
       { header: "מקור", key: "origin", width: 16 },
     ];
 
-    const header = sheet.getRow(1);
-    header.font = { bold: true };
-    header.alignment = { horizontal: "center", vertical: "middle" };
+    // Styling
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: "center", vertical: "middle" };
 
     const addRowRTL = (rowObj) => {
       const r = sheet.addRow(rowObj);
       r.eachCell((cell, colNumber) => {
         const key = sheet.columns[colNumber - 1].key;
-        if (key === "p_age" || key === "p_cancharge") {
-          cell.alignment = { horizontal: "center", vertical: "middle" };
-        } else {
-          cell.alignment = { horizontal: "right", vertical: "middle" };
-        }
+        cell.alignment = (key === "p_age" || key === "p_cancharge") 
+          ? { horizontal: "center", vertical: "middle" } 
+          : { horizontal: "right", vertical: "middle" };
       });
       return r;
     };
 
-    // Participants
+    // Populate Participants
     if (includeParticipants) {
       (workshop.participants || []).forEach((p) => {
         addRowRTL({
-          p_name: p.name || "",
-          p_relation: "עצמי",
-          p_email: p.email || "",
-          p_phone: p.phone || "",
-          p_id: p.idNumber || "",
-          p_birth: toHebDate(p.birthDate),
-          p_age: calcAge(p.birthDate),
-          p_cancharge: p.canCharge ? "כן" : "לא",
-          origin: "משתתף",
+          p_name: p.name || "", p_relation: "עצמי", p_email: p.email || "",
+          p_phone: p.phone || "", p_id: p.idNumber || "", p_birth: toHebDate(p.birthDate),
+          p_age: calcAge(p.birthDate), p_cancharge: p.canCharge ? "כן" : "לא", origin: "משתתף",
         });
       });
 
       (workshop.familyRegistrations || []).forEach((fr) => {
         const fm = fr.familyMemberId || {};
         const parent = fr.parentUser || {};
-        const email = fm.email || parent.email || "";
-        const phone = fm.phone || parent.phone || "";
-        const canCharge = parent.canCharge ? "כן" : "לא";
         addRowRTL({
-          p_name: fm.name || fr.name || "",
-          p_relation: fm.relation || fr.relation || "בן משפחה",
-          p_email: email,
-          p_phone: phone,
-          p_id: fm.idNumber || fr.idNumber || "",
-          p_birth: toHebDate(fm.birthDate || fr.birthDate),
-          p_age: calcAge(fm.birthDate || fr.birthDate),
-          p_cancharge: canCharge,
-          origin: "משתתף",
+          p_name: fm.name || fr.name || "", p_relation: fm.relation || fr.relation || "בן משפחה",
+          p_email: fm.email || parent.email || "", p_phone: fm.phone || parent.phone || "",
+          p_id: fm.idNumber || fr.idNumber || "", p_birth: toHebDate(fm.birthDate || fr.birthDate),
+          p_age: calcAge(fm.birthDate || fr.birthDate), p_cancharge: parent.canCharge ? "כן" : "לא", origin: "משתתף",
         });
       });
     }
 
-    // Separator if both sections exist
+    // Separator
     if (includeParticipants && includeWaitlist) {
       const sepRowIdx = sheet.lastRow.number + 2;
       sheet.mergeCells(sepRowIdx, 1, sepRowIdx, sheet.columnCount);
@@ -1592,185 +1562,68 @@ exports.exportWorkshopExcel = async (req, res) => {
       sheet.getRow(sepRowIdx).font = { bold: true };
     }
 
-    // Waiting list
+    // Populate Waitlist
     if (includeWaitlist) {
       (workshop.waitingList || []).forEach((wl) => {
         const parent = wl.parentUser || {};
-        const email = wl.email || parent.email || "";
-        const phone = wl.phone || parent.phone || "";
-        const canCharge = parent.canCharge ? "כן" : "לא";
         addRowRTL({
-          p_name: wl.name || "",
-          p_relation: wl.relation || (wl.familyMemberId ? "בן משפחה" : "עצמי"),
-          p_email: email,
-          p_phone: phone,
-          p_id: wl.idNumber || "",
-          p_birth: toHebDate(wl.birthDate),
-          p_age: calcAge(wl.birthDate),
-          p_cancharge: canCharge,
-          origin: "רשימת המתנה",
+          p_name: wl.name || "", p_relation: wl.relation || (wl.familyMemberId ? "בן משפחה" : "עצמי"),
+          p_email: wl.email || parent.email || "", p_phone: wl.phone || parent.phone || "",
+          p_id: wl.idNumber || "", p_birth: toHebDate(wl.birthDate),
+          p_age: calcAge(wl.birthDate), p_cancharge: parent.canCharge ? "כן" : "לא", origin: "רשימת המתנה",
         });
       });
     }
 
+    // 3. Generate Buffer
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // ---------------- Email Content ----------------
+    // 4. Prepare Email Content
     const maxCap = Number(workshop.maxParticipants ?? 0);
     const capStr = maxCap === 0 ? "∞" : String(maxCap);
-    const statsLine = `${
-      workshop.participantsCount ??
-      ((workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0))
-    } מתוך ${capStr}`;
+    const currentCount = (workshop.participantsCount ?? ((workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0)));
     const waitCount = workshop.waitingList?.length || 0;
-
-    const hebLetters = {
-      Sunday: "א",
-      Monday: "ב",
-      Tuesday: "ג",
-      Wednesday: "ד",
-      Thursday: "ה",
-      Friday: "ו",
-      Saturday: "ש",
-    };
-    const daysStr = Array.isArray(workshop.days) && workshop.days.length
-      ? workshop.days.map((d) => hebLetters[d] || d).join(", ")
-      : "-";
-    const hourStr = workshop.hour || "-";
-
-    const plainBody = `
-שלום ${admin.name},
-
-להלן דו״ח הסדנה "${workshop.title || "-"}":
-
-פרטי הסדנה:
-• סוג: ${workshop.type || "-"}
-• מאמן: ${workshop.coach || "-"}
-• סטודיו: ${workshop.studio || "-"}
-• עיר: ${workshop.city || "-"}
-• ימים: ${daysStr}
-• שעה: ${hourStr}
-• תאריך התחלה: ${startDateStr}
-• תאריך סיום: ${endDateStr}
-• תקופה (ימים): ${periodDays}
-• כמות משתתפים: ${statsLine}
-• רשימת המתנה: ${waitCount} משתתפים
-
-מצורף קובץ אקסל עם רשימת המשתתפים ורשימת ההמתנה.
-
-בברכה,
-מערכת הסדנאות
-`;
-
+    
     const htmlBody = `
-<!doctype html>
-<html dir="rtl" lang="he">
-  <body style="direction:rtl;text-align:right;font-family:'Segoe UI',Tahoma,Arial,sans-serif;line-height:1.6;color:#222;font-size:15px;">
-    <p>שלום ${admin.name},</p>
-    <p>להלן דו״ח הסדנה <strong>"${workshop.title || "-"}"</strong>:</p>
+      <!doctype html>
+      <html dir="rtl" lang="he">
+        <body style="direction:rtl;text-align:right;font-family:sans-serif;line-height:1.6;color:#222;">
+          <p>שלום ${admin.name},</p>
+          <p>להלן דו״ח הסדנה <strong>"${workshop.title || "-"}"</strong>:</p>
+          <ul>
+            <li>משתתפים רשומים: ${currentCount} מתוך ${capStr}</li>
+            <li>רשימת המתנה: ${waitCount}</li>
+            <li>תאריך התחלה: ${startDateStr}</li>
+          </ul>
+          <p>מצורף קובץ אקסל עם הרשימות.</p>
+        </body>
+      </html>
+    `;
 
-    <h3 style="margin-bottom:8px;margin-top:16px;">פרטי הסדנה:</h3>
-    <ul style="list-style-type:none;padding:0;margin:0;">
-      <li>• סוג: ${workshop.type || "-"}</li>
-      <li>• מאמן: ${workshop.coach || "-"}</li>
-      <li>• סטודיו: ${workshop.studio || "-"}</li>
-      <li>• עיר: ${workshop.city || "-"}</li>
-      <li>• ימים: ${daysStr}</li>
-      <li>• שעה: ${hourStr}</li>
-      <li>• תאריך התחלה: ${startDateStr}</li>
-      <li>• תאריך סיום: ${endDateStr}</li>
-      <li>• תקופה (ימים): ${periodDays}</li>
-      <li>• כמות משתתפים: ${statsLine}</li>
-      <li>• רשימת המתנה: ${waitCount} משתתפים</li>
-    </ul>
+    console.log(`📤 Sending Excel report for "${workshop.title}" to ${admin.email}...`);
 
-    <p style="margin-top:16px;">מצורף קובץ אקסל עם רשימת המשתתפים ורשימת ההמתנה.</p>
+    // 5. 🔥 Send via Shared Service
+    const result = await emailService.sendEmail({
+      to: admin.email,
+      subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
+      html: htmlBody,
+      attachments: [
+        {
+          filename: `דו״ח משתתפים - ${workshop.title || "export"}.xlsx`,
+          content: buffer // Resend SDK handles Buffer objects automatically
+        }
+      ]
+    });
 
-    <p style="margin-top:24px;">
-      בברכה,<br/>
-      <strong>מערכת הסדנאות</strong>
-    </p>
-  </body>
-</html>
-`;
-
-    // ---------------- Email Sending (Resend → Gmail → log) ----------------
-    const isDev = process.env.NODE_ENV !== "production";
-    const logFile = path.join(__dirname, "../../export_log.csv");
-
-    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-    let gmailTransport = null;
-
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      gmailTransport = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
+    if (result.success) {
+      return res.json({ success: true, message: "Excel sent successfully via Email Service" });
+    } else {
+      throw new Error(result.error || "Email service returned failure");
     }
 
-    async function sendReportEmail() {
-      if (isDev) {
-        fs.appendFileSync(logFile, `${new Date().toISOString()},admin_export,Excel Export\n`);
-        console.info("⚙️ [DEV] Logged export email dispatch");
-        return true;
-      }
-
-      try {
-        if (resend) {
-          await resend.emails.send({
-            from: process.env.MAIL_FROM || "Clalit Workshops <onboarding@resend.dev>",
-            to: admin.email,
-            subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
-            html: htmlBody,
-            attachments: [
-              {
-                filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
-                content: buffer.toString("base64"),
-              },
-            ],
-          });
-          console.info("📬 Resend sent Excel report to admin");
-          return true;
-        }
-      } catch (err) {
-        console.warn(`⚠️ Resend failed: ${err.message}`);
-      }
-
-      if (gmailTransport) {
-        try {
-          await gmailTransport.sendMail({
-            from: process.env.MAIL_FROM || `"מערכת סדנאות" <${process.env.EMAIL_USER}>`,
-            to: admin.email,
-            subject: `📊 דו״ח סדנה — ${workshop.title || ""}`,
-            text: plainBody,
-            html: htmlBody,
-            attachments: [
-              {
-                filename: `דו״ח משתתפים - ${workshop.title || "ללא שם"}.xlsx`,
-                content: buffer,
-                contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              },
-            ],
-          });
-          console.info("📧 Gmail fallback sent Excel report to admin");
-          return true;
-        } catch (err) {
-          console.error("❌ Gmail failed:", err.message);
-        }
-      }
-
-      console.error("❌ No email transport available for Excel export");
-      return false;
-    }
-
-    await sendReportEmail();
-    res.json({ success: true, message: "Excel sent successfully" });
   } catch (err) {
     console.error("❌ exportWorkshopExcel error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: "Error sending report: " + err.message });
   }
 };
 

@@ -12,7 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const { Resend } = require("resend");
 const User = require("../models/User");
-
+const emailService = require('../services/emailService');
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
 const safeAuthLog = (message) => {
@@ -332,37 +332,54 @@ exports.loginUser = async (req, res) => {
 /* ============================================================
    ✉️ Send OTP
    ============================================================ */
+/* ============================================================
+   ✉️ Send OTP
+   ============================================================ */
 exports.sendOtp = async (req, res) => {
   try {
     const email = (req.body?.email || "").trim().toLowerCase();
-    safeAuthLog("sendOtp invoked");
+    
+    // Assuming safeAuthLog is defined in this file
+    if (typeof safeAuthLog === 'function') safeAuthLog("sendOtp invoked");
 
     if (!email) return res.status(400).json({ message: "Email is required" });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User with this email not found" });
 
+    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // Save to DB
     user.otpCode = otp;
-    user.otpExpires = Date.now() + 5 * 60 * 1000;
+    user.otpExpires = Date.now() + 5 * 60 * 1000; // 5 minutes
     user.otpAttempts = 0;
     await user.save();
 
-    const sent = await sendEmail({
+    // 🔥 USE THE SHARED SERVICE HERE
+    const result = await emailService.sendEmail({
       to: email,
-      subject: "קוד אימות - סדנאות כללית", // "Verification Code" in Hebrew
+      subject: "קוד אימות - סדנאות כללית",
       text: `קוד האימות שלך הוא ${otp}. הקוד בתוקף ל-5 דקות.`,
-      html: `<div dir="rtl" style="font-family:sans-serif;">
-              <h2>קוד אימות</h2>
-              <p>קוד האימות שלך הוא: <strong style="font-size: 20px;">${otp}</strong></p>
-              <p>הקוד בתוקף ל-5 דקות.</p>
-             </div>`,
+      html: `
+        <div dir="rtl" style="font-family:sans-serif; color: #333;">
+           <h2>קוד אימות</h2>
+           <p>קוד האימות שלך הוא: <strong style="font-size: 24px; color: #4F46E5;">${otp}</strong></p>
+           <p>הקוד בתוקף ל-5 דקות.</p>
+           <hr style="border:none; border-top:1px solid #eee; margin: 20px 0;">
+           <small style="color: #666;">אם לא ביקשת קוד זה, אנא התעלם מהודעה זו.</small>
+        </div>
+      `,
     });
 
-    if (!sent) return res.status(500).json({ message: "Failed to send OTP email." });
+    // Check success based on the service response structure
+    if (!result.success) {
+      console.error("❌ Email Service Failed:", result.error);
+      return res.status(500).json({ message: "Failed to send OTP email." });
+    }
 
     return res.json({ success: true, message: "OTP sent successfully." });
+
   } catch (e) {
     console.error("❌ sendOtp error:", e);
     res.status(500).json({ message: "Failed to send OTP." });
