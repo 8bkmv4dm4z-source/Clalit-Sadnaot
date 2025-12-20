@@ -20,9 +20,8 @@ export const WORKSHOP_IMAGES = [
     id: 'functional_training',
     label: 'Functional Training',
     // VERIFIED: Sled Push / High Intensity
-    src: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=600&q=80',
+    src: 'https://images.unsplash.com/photo-1550259979-ed79b48d2a30?w=900&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fGZ1bmN0aW9uYWwlMjB0cmFpbmluZ3xlbnwwfHwwfHx8MA%3D%3D',
   },
-
   // ==========================================
   // 2. PILATES (Simplified)
   // ==========================================
