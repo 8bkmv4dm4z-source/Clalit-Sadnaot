@@ -36,7 +36,7 @@ const validateRegister = celebrate({
     name: Joi.string().trim().pattern(safeText).max(80).required(),
     email: Joi.string().email().lowercase().trim().required(),
     password: Joi.string()
-      .min(10)
+      .min(8)
       .max(64)
       .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include a letter, number, and special character.")
