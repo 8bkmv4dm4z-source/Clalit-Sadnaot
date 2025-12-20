@@ -18,6 +18,7 @@ const idPattern = /^[0-9]{5,10}$/;
 // Opaque entityKey (base64url + padding "0", minLength is set in HASHID_MIN_LENGTH)
 const entityKeyPattern = /^[A-Za-z0-9_\-=]{10,200}$/;
 
+// ✅ FIX 1: Changed to unknown(true) to prevent crashes if frontend sends extra UI flags (like 'isOpen')
 const familyMemberSchema = Joi.object({
   name: Joi.string().trim().pattern(safeText).max(80).required(),
   relation: Joi.string().trim().pattern(safeText).max(50).allow("").optional(),
@@ -26,7 +27,7 @@ const familyMemberSchema = Joi.object({
   email: Joi.string().email().lowercase().trim().allow("").optional(),
   city: Joi.string().trim().pattern(safeText).allow("").optional(),
   birthDate: Joi.date().iso().optional(),
-}).unknown(false);
+}).unknown(true); 
 
 /* ============================================================
    🔐 AUTH VALIDATION
@@ -36,10 +37,11 @@ const validateRegister = celebrate({
     name: Joi.string().trim().pattern(safeText).max(80).required(),
     email: Joi.string().email().lowercase().trim().required(),
     password: Joi.string()
-      .min(8) // ✅ Correct: 8 chars
+      .min(8)
       .max(64)
-      .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
-      .message("Password must include a letter, number, and special character.")
+      // ✅ FIX 2: Added Upper/Lower check to match Client Translator ("אות גדולה")
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
+      .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
       .required(),
 
     phone: Joi.string().trim().pattern(phonePattern).optional(),
@@ -89,10 +91,11 @@ const validatePasswordReset = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
     newPassword: Joi.string()
-      .min(8) // ✅ CHANGED: Was 10, now 8
+      .min(8)
       .max(64)
-      .pattern(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
-      .message("Password must include a letter, number, and special character.")
+      // ✅ FIX 2: Enforced Uppercase here as well
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
+      .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
       .required(),
     otp: Joi.alternatives()
       .try(
@@ -186,6 +189,11 @@ const hourPattern = /^[0-9:\s\-APMapm]+$/;
 async function validateAddressRemote(city, address) {
   if (!city || !address) return true; // skip validation if missing
   try {
+    // ✅ FIX 3: Safety check for fetch (prevents crash on Node <18)
+    if (typeof fetch === "undefined") {
+        console.warn("Global fetch not available. Skipping OSM validation.");
+        return true; 
+    }
     const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(
       city
     )}&street=${encodeURIComponent(address)}&country=Israel&format=json`;
