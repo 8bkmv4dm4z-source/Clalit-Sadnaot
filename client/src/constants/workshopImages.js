@@ -79,12 +79,7 @@ export const WORKSHOP_IMAGES = [
     // NEW: Dark, moody, high-quality gym aesthetic
     src: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=600&q=80',
   },
-  {
-    id: 'high_res_outdoor',
-    label: 'Outdoor Zen',
-    // NEW: Crisp outdoor nature workout/meditation
-    src: 'https://images.unsplash.com/photo-1552674605-4696041720bd?auto=format&fit=crop&w=600&q=80',
-  },
+ 
   {
     id: 'high_res_athletic',
     label: 'Focused Athletics',
