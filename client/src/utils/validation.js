@@ -24,7 +24,7 @@ const HEBREW_MESSAGES = {
   required: (label) => `נא להזין ${label}.`,
   email: "נא להזין כתובת אימייל תקינה.",
   phone: "נא להזין מספר טלפון ישראלי תקין (ספרות וללא רווחים מיותרים).",
-  passwordLength: "הסיסמה חייבת להכיל לפחות 10 תווים.",
+  passwordLength: "הסיסמה חייבת להכיל לפחות 8 תווים.", // <--- CHANGED FROM 10 TO 8
   passwordUpper: "הסיסמה חייבת לכלול לפחות אות אחת גדולה (A-Z).",
   passwordSpecial: "הסיסמה חייבת לכלול לפחות תו מיוחד אחד (!@#$%^&*).",
   passwordDigit: "הסיסמה חייבת לכלול לפחות ספרה אחת.",
@@ -84,11 +84,20 @@ export const validatePhone = (value) => {
  * @description Order of checks is deliberate so users receive the most actionable first failure rather than a
  * generic list. Keeps UX consistent with backend rejection reasons.
  */
+/**
+ * Enforce password strength rules aligned with backend security requirements.
+ *
+ * @param {string | undefined | null} value - Raw password string as typed by the user.
+ * @returns {{ valid: boolean, message: string }} Message points to the first unmet requirement for clarity.
+ */
 export const validatePasswordComplexity = (value) => {
   const password = String(value || "");
-  if (password.length < 10) {
+  
+  // CHANGED: Check for 8 characters instead of 10
+  if (password.length < 8) {
     return { valid: false, message: HEBREW_MESSAGES.passwordLength };
   }
+
   if (!/[A-Z]/.test(password)) {
     return { valid: false, message: HEBREW_MESSAGES.passwordUpper };
   }
