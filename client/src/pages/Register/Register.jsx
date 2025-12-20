@@ -328,7 +328,7 @@ export default function Register() {
             onChange={handleChange}
             onBlur={() => markTouched("password")}
             required
-            placeholder="סיסמה (לפחות 10 תווים, אות גדולה ותו מיוחד)"
+            placeholder="סיסמה (לפחות 8 תווים, אות גדולה ותו מיוחד)"
             className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
               errors.password && touched.password ? "border-rose-400" : ""
             }`}
