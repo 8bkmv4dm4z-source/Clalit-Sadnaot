@@ -36,13 +36,24 @@ const validateRegister = celebrate({
   [Segments.BODY]: Joi.object({
     name: Joi.string().trim().pattern(safeText).max(80).required(),
     email: Joi.string().email().lowercase().trim().required(),
+
+    // ✅ 1. Main Password
     password: Joi.string()
       .min(8)
       .max(64)
-      // ✅ FIX 2: Added Upper/Lower check to match Client Translator ("אות גדולה")
       .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
       .required(),
+
+    // ✅ 2. FIX: Validate Confirm Password & Strip It
+    confirmPassword: Joi.string()
+      .valid(Joi.ref("password")) // Must match "password"
+      .required()
+      .strip() // Removes field after validation so it doesn't reach the DB
+      .messages({
+        "any.only": "Passwords do not match",
+        "any.required": "Confirm password is required",
+      }),
 
     phone: Joi.string().trim().pattern(phonePattern).optional(),
     city: Joi.string().trim().pattern(safeText).max(60).optional(),
@@ -50,7 +61,7 @@ const validateRegister = celebrate({
     canCharge: Joi.boolean().optional(),
     familyMembers: Joi.array().items(familyMemberSchema).max(20).optional(),
     role: Joi.string().valid("user").optional(),
-  }).unknown(false),
+  }).unknown(false), // Safe to keep false now that confirmPassword is handled
 });
 
 const validateLogin = celebrate({
