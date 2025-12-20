@@ -29,7 +29,7 @@ export const WORKSHOP_IMAGES = [
     id: 'pilates_mat',
     label: 'Pilates (Mat)',
     // VERIFIED: Standard Mat
-    src: 'https://images.unsplash.com/photo-1518310383802-640c2de311b2?auto=format&fit=crop&w=600&q=80',
+    src: 'https://images.unsplash.com/photo-1683056255281-e52a141924f0?w=1600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Nnx8cGlsYXRlc3xlbnwwfHwwfHx8MA%3D%3D',
   },
 
   // ==========================================
@@ -89,18 +89,13 @@ export const WORKSHOP_IMAGES = [
     id: 'high_res_athletic',
     label: 'Focused Athletics',
     // NEW: High detail runner/track shot
-    src: 'https://images.unsplash.com/photo-1486218119243-13883505764c?auto=format&fit=crop&w=600&q=80',
+    src: 'https://images.unsplash.com/photo-1602263515015-dd72f8e9f301?q=80&w=987&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
   },
 
   // ==========================================
   // 6. MOOD & FUNNY
   // ==========================================
-  {
-    id: 'funny_gym_dog',
-    label: 'Gym Dog',
-    // VERIFIED: Dog
-    src: 'https://images.unsplash.com/photo-1583337130417-3346a1be7dee?auto=format&fit=crop&w=600&q=80',
-  }
+  
 ];
 
 // --- SMART HELPER ---
