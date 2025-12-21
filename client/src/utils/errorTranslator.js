@@ -31,20 +31,20 @@ const AUTH_ERROR_MESSAGES = {
   register: {
     400: {
       messageMap: {
-        "A user with this email or phone already exists":
-          "כבר קיים משתמש עם כתובת האימייל או מספר הטלפון שסופקו.",
-        "Email or phone is required":
-          "יש להזין כתובת אימייל או מספר טלפון תקף אחד לפחות.",
-        "Password must include a letter, number, and special character.":
-          "הסיסמה חייבת לכלול לפחות אות, מספר וסימן מיוחד.",
-        "Validation error":
-          "חלק מהשדות אינם עומדים בדרישות. בדקו ונסו שוב.",
+        // Joi / Celebrate pattern keys
+        "Password must include an uppercase letter, lowercase letter, number, and special character.":
+          "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)",
+        "password must include an uppercase letter, lowercase letter, number, and special character.":
+          "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)",
+        "password must include a letter, number, and special character.":
+          "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)",
+        "validation error": "חלק מהשדות אינם עומדים בדרישות. בדקו ונסו שוב.",
       },
       default: "חלק מהפרטים אינם תקינים. ודאו את הערכים ונסו שוב.",
     },
     409: {
       default:
-        "בקשה זו כבר עובדה עבור המשתמש. נסו להתחבר או לאפס סיסמה.",
+        "אחד מהערכים שהוזנו (אימייל או טלפון) כבר קיים במערכת. אנא נסה שנית עם ערך שונה",
     },
     429: {
       default: "בוצעו יותר מדי ניסיונות. המתינו מספר דקות ונסו שוב.",
@@ -73,8 +73,10 @@ const NETWORK_MESSAGE =
 const VALIDATION_HINT_RULES = [
   { test: (msg) => msg.includes("email"), message: "כתובת האימייל אינה תקינה." },
   {
-    test: (msg) => msg.includes("password") && msg.includes("pattern"),
-    message: "הסיסמה חייבת לכלול לפחות אות, ספרה וסימן מיוחד.",
+    test: (msg) =>
+      msg.includes("password") &&
+      (msg.includes("pattern") || msg.includes("uppercase") || msg.includes("lowercase")),
+    message: "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)",
   },
   {
     // ✅ תוקן: שונה מ-10 ל-8 תווים
@@ -108,15 +110,18 @@ const VALIDATION_HINT_RULES = [
 function toHebrewValidationMessage(rawMessage) {
   if (!rawMessage) return "";
   const normalized = String(rawMessage).replace(/["']/g, "").toLowerCase();
-  
+
   const rule = VALIDATION_HINT_RULES.find((entry) => entry.test(normalized));
   if (rule) return rule.message;
   
   if (normalized.includes("password")) {
-    return "הסיסמה אינה עומדת בדרישות האבטחה.";
+    return "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)";
   }
   // אם זו שגיאת Pattern כללית שלא תפסנו למעלה
   if (normalized.includes("pattern") || normalized.includes("fails to match")) {
+      if (normalized.includes("safetext") || normalized.includes("<>")) {
+        return "השדה מכיל תווים אסורים (<, >) לצרכי אבטחה";
+      }
       return "אחד השדות מכיל תווים לא חוקיים.";
   }
 
@@ -196,11 +201,18 @@ export function translateAuthError(action, status, payload) {
   const statusEntry = dictionary[status];
 
   let message = "";
+  const normalizedServer = serverMessage ? serverMessage.toLowerCase() : "";
 
   if (statusEntry) {
     if (statusEntry.messageMap && serverMessage) {
       const mapped = statusEntry.messageMap[serverMessage];
       if (mapped) message = mapped;
+      else {
+        const fuzzyMatch = Object.entries(statusEntry.messageMap).find(
+          ([key]) => normalizedServer && normalizedServer.includes(key.toLowerCase())
+        );
+        if (fuzzyMatch) message = fuzzyMatch[1];
+      }
     }
     if (!message) {
       if (typeof statusEntry === "string") message = statusEntry;
@@ -210,6 +222,24 @@ export function translateAuthError(action, status, payload) {
 
   if (!message) {
     message = dictionary.default || GENERIC_MESSAGES[status] || GENERIC_MESSAGES.default;
+  }
+
+  // Post-detection for validation specifics (ensure no generic responses)
+  if (status === 400) {
+    if (
+      normalizedServer.includes("password") &&
+      (normalizedServer.includes("pattern") ||
+        normalizedServer.includes("uppercase") ||
+        normalizedServer.includes("lowercase"))
+    ) {
+      message = "הסיסמה אינה עומדת בדרישות (אות גדולה, אות קטנה, מספר ותו מיוחד)";
+    } else if (
+      normalizedServer.includes("safetext") ||
+      normalizedServer.includes("<>") ||
+      normalizedServer.includes("fails to match the required pattern: /^[^<>${}]{1,}$/")
+    ) {
+      message = "השדה מכיל תווים אסורים (<, >) לצרכי אבטחה";
+    }
   }
 
   const details = extractValidationDetails(payload);

@@ -9,6 +9,7 @@ import {
   validatePasswordConfirmation,
   validatePhone,
   validateRequired,
+  validateSafeText,
 } from "../../utils/validation";
 
 /**
@@ -70,7 +71,11 @@ export default function Register() {
   const runValidation = (field, value, nextAccount = account) => {
     switch (field) {
       case "name":
-        return validateRequired(value, "שם מלא");
+        {
+          const required = validateRequired(value, "שם מלא");
+          if (!required.valid) return required;
+          return validateSafeText(value, "שם מלא");
+        }
       case "email": {
         const required = validateRequired(value, "כתובת אימייל");
         if (!required.valid) return required;
@@ -93,6 +98,8 @@ export default function Register() {
         if (!required.valid) return required;
         return validateIsraeliId(value);
       }
+      case "city":
+        return validateSafeText(value, "שם העיר");
       default:
         return { valid: true, message: "" };
     }

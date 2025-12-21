@@ -3,15 +3,25 @@
  * ------------------------------------------------
  * Matches Joi logic on server/middleware/validation.js
  */
+const PATTERNS = {
+  // Matches server/middleware/validation.js
+  safeText: /^[^<>${}]{1,}$/,
+  phone: /^[0-9+\-\s]{6,20}$/,
+  idNumber: /^[0-9]{5,10}$/,
+  password: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/,
+};
+
 const HEBREW_MESSAGES = {
   required: (label) => `נא להזין ${label}.`,
   email: "נא להזין כתובת אימייל תקינה.",
-  phone: "נא להזין מספר טלפון ישראלי תקין (ספרות וללא רווחים מיותרים).",
-  passwordLength: "הסיסמה חייבת להכיל לפחות 8 תווים.", // ✅ Corrected for 8
+  phone: "נא להזין מספר טלפון תקין (ספרות, רווחים, מקפים או +).",
+  passwordLength: "הסיסמה חייבת להכיל לפחות 8 תווים.",
   passwordUpper: "הסיסמה חייבת לכלול לפחות אות אחת גדולה (A-Z).",
+  passwordLower: "הסיסמה חייבת לכלול לפחות אות אחת קטנה (a-z).",
   passwordSpecial: "הסיסמה חייבת לכלול לפחות תו מיוחד אחד (!@#$%^&*).",
   passwordDigit: "הסיסמה חייבת לכלול לפחות ספרה אחת.",
   passwordConfirm: "הסיסמאות אינן תואמות.",
+  safeText: "השדה מכיל תווים אסורים (<, >) לצרכי אבטחה.",
   israelId: "מספר תעודת הזהות שהוזן אינו תקין.",
 };
 
@@ -28,9 +38,8 @@ export const validateEmail = (value) => {
 };
 
 export const validatePhone = (value) => {
-  const digits = String(value || "").replace(/[^0-9+]/g, "");
-  const israeliPattern = /^(\+972-?|0)([23489]|5[0-9])[0-9]{7}$/;
-  const valid = israeliPattern.test(digits.replace(/-/g, ""));
+  const normalized = String(value || "").trim();
+  const valid = PATTERNS.phone.test(normalized);
   return { valid, message: valid ? "" : HEBREW_MESSAGES.phone };
 };
 
@@ -44,6 +53,9 @@ export const validatePasswordComplexity = (value) => {
 
   if (!/[A-Z]/.test(password)) {
     return { valid: false, message: HEBREW_MESSAGES.passwordUpper };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, message: HEBREW_MESSAGES.passwordLower };
   }
   if (!/[!@#$%^&*]/.test(password)) {
     return { valid: false, message: HEBREW_MESSAGES.passwordSpecial };
@@ -59,9 +71,17 @@ export const validatePasswordConfirmation = (password, confirm) => {
   return { valid: match, message: match ? "" : HEBREW_MESSAGES.passwordConfirm };
 };
 
+export const validateSafeText = (value, label = "השדה") => {
+  const text = String(value || "").trim();
+  if (!text) return { valid: true, message: "" };
+  const valid = PATTERNS.safeText.test(text);
+  return { valid, message: valid ? "" : `${label} ${HEBREW_MESSAGES.safeText}` };
+};
+
 export const validateIsraeliId = (value) => {
   const digits = String(value || "").replace(/\D/g, "");
-  if (digits.length < 5 || digits.length > 9) {
+
+  if (!PATTERNS.idNumber.test(digits)) {
     return { valid: false, message: HEBREW_MESSAGES.israelId };
   }
 
