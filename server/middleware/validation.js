@@ -80,6 +80,11 @@ const validateRegistrationRequest = celebrate({
     birthDate: Joi.date().iso().optional(),
     canCharge: Joi.boolean().optional(),
     familyMembers: Joi.array().items(familyMemberSchema).max(20).optional(),
+    role: Joi.forbidden()
+      .strip()
+      .messages({
+        "any.forbidden": "Role is assigned by the server and must not be provided by the client.",
+      }),
   }).unknown(false),
 });
 

@@ -193,22 +193,24 @@ function normalizeFamilyMembers(familyMembers = [], defaults = {}) {
 }
 
 function normalizeRegistrationPayload(body = {}) {
-  const normalizedEmail = String(body.email || "").trim().toLowerCase();
-  const normalizedPhone = String(body.phone || "").trim();
-  const normalizedCity = String(body.city || "").trim();
+  const { role, ...safeBody } = body; // Explicitly discard any client-supplied role
+
+  const normalizedEmail = String(safeBody.email || "").trim().toLowerCase();
+  const normalizedPhone = String(safeBody.phone || "").trim();
+  const normalizedCity = String(safeBody.city || "").trim();
 
   const payload = {
-    name: String(body.name || "").trim(),
+    name: String(safeBody.name || "").trim(),
     email: normalizedEmail,
-    password: body.password,
+    password: safeBody.password,
     phone: normalizedPhone,
-    idNumber: String(body.idNumber || "").trim(),
-    birthDate: body.birthDate || "",
+    idNumber: String(safeBody.idNumber || "").trim(),
+    birthDate: safeBody.birthDate || "",
     city: normalizedCity,
-    canCharge: !!body.canCharge,
+    canCharge: !!safeBody.canCharge,
   };
 
-  payload.familyMembers = normalizeFamilyMembers(body.familyMembers, {
+  payload.familyMembers = normalizeFamilyMembers(safeBody.familyMembers, {
     phone: normalizedPhone,
     email: normalizedEmail,
     city: normalizedCity,

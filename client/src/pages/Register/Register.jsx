@@ -214,7 +214,6 @@ export default function Register() {
       email: trimmedEmail,
       password: account.password,
       canCharge: account.canCharge,
-      role: "user",
       familyMembers: familyMembers
         .map((member) => ({
           name: String(member.name || "").trim(),
