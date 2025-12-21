@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const { Resend } = require("resend");
 const User = require("../models/User");
+const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
@@ -67,6 +68,8 @@ const isProd = process.env.NODE_ENV === "production";
 const logFile = path.join(__dirname, "../../otp_log.csv");
 
 let resend = null;
+let gmailTransport = null;
+let resendOverride = null;
 
 // Initialize Resend
 if (process.env.RESEND_API_KEY) {
@@ -168,39 +171,113 @@ function sanitizeUserForResponse(user, loggedInUser) {
   
   return u;
 }
+
+function normalizeFamilyMembers(familyMembers = [], defaults = {}) {
+  const basePhone = defaults.phone || "";
+  const baseEmail = defaults.email || "";
+  const baseCity = defaults.city || "";
+
+  return Array.isArray(familyMembers)
+    ? familyMembers
+        .filter((m) => m && m.name && m.idNumber)
+        .map((m) => ({
+          name: String(m.name || "").trim(),
+          relation: String(m.relation || "").trim(),
+          idNumber: String(m.idNumber || "").trim(),
+          phone: String(m.phone || "").trim() || basePhone,
+          email: String(m.email || "").trim() || baseEmail,
+          city: String(m.city || "").trim() || baseCity,
+          birthDate: m.birthDate || "",
+        }))
+    : [];
+}
+
+function normalizeRegistrationPayload(body = {}) {
+  const normalizedEmail = String(body.email || "").trim().toLowerCase();
+  const normalizedPhone = String(body.phone || "").trim();
+  const normalizedCity = String(body.city || "").trim();
+
+  const payload = {
+    name: String(body.name || "").trim(),
+    email: normalizedEmail,
+    password: body.password,
+    phone: normalizedPhone,
+    idNumber: String(body.idNumber || "").trim(),
+    birthDate: body.birthDate || "",
+    city: normalizedCity,
+    canCharge: !!body.canCharge,
+  };
+
+  payload.familyMembers = normalizeFamilyMembers(body.familyMembers, {
+    phone: normalizedPhone,
+    email: normalizedEmail,
+    city: normalizedCity,
+  });
+
+  return payload;
+}
+
+function setResendInstance(instance) {
+  resendOverride = instance;
+  if (instance) {
+    resend = instance;
+  }
+}
+
+function setGmailTransport(transport) {
+  gmailTransport = transport;
+}
+
+function resetTransports() {
+  resendOverride = null;
+  gmailTransport = null;
+}
 /* ============================================================
    ✉️ Send Email (Resend Only)
    ============================================================ */
 async function sendEmail({ to, subject, text, html }) {
   safeAuthLog(`sendEmail invoked for: ${to}`);
 
-  if (!resend) {
-    console.error("❌ Resend API not initialized. Cannot send email.");
-    return false;
+  const activeResend = resendOverride || resend;
+
+  if (activeResend) {
+    try {
+      const fromAddress = process.env.EMAIL_FROM || "info@sadnaot.online";
+
+      await activeResend.emails.send({
+        from: fromAddress, // Must be your verified domain
+        to,
+        subject,
+        html: html || `<p>${text}</p>`,
+        text,
+      });
+
+      safeAuthLog("✅ sendEmail delivered via Resend");
+      return true;
+    } catch (err) {
+      console.error(`❌ Resend failed: ${err.message}`);
+    }
   }
 
-  // 1️⃣ Send via Resend
-  try {
-    const fromAddress = process.env.EMAIL_FROM || "info@sadnaot.online";
-    
-    await resend.emails.send({
-      from: fromAddress, // Must be your verified domain
-      to, 
-      subject,
-      html: html || `<p>${text}</p>`,
-    });
-    
-    safeAuthLog("✅ sendEmail delivered via Resend");
-    return true;
-    
-  } catch (err) {
-    console.error(`❌ Resend failed: ${err.message}`);
-    
-    // Fallback: Log locally for debugging if Resend fails
-    const line = `[${new Date().toISOString()}] To: ${to} | Subject: ${subject} | Error: ${err.message}\n`;
-    fs.appendFileSync(logFile, line);
-    return false;
+  if (gmailTransport?.sendMail) {
+    try {
+      await gmailTransport.sendMail({
+        to,
+        subject,
+        html: html || `<p>${text}</p>`,
+        text,
+      });
+      safeAuthLog("✅ sendEmail delivered via Gmail transport");
+      return true;
+    } catch (err) {
+      console.error("❌ Gmail transport failed:", err.message);
+    }
   }
+
+  // Fallback: Log locally for debugging if all transports fail
+  const line = `[${new Date().toISOString()}] To: ${to} | Subject: ${subject} | Error: sendEmail transport missing or failed\n`;
+  fs.appendFileSync(logFile, line);
+  return false;
 }
 
 /* ============================================================
@@ -215,6 +292,12 @@ exports.createPasswordResetArtifacts = createPasswordResetArtifacts;
 exports.buildPasswordResetPayload = buildPasswordResetPayload;
 exports.hashResetToken = hashResetToken;
 exports.tokensMatch = tokensMatch;
+exports.__test = {
+  sendEmail,
+  setResendInstance,
+  setGmailTransport,
+  resetTransports,
+};
 
 /* ============================================================
    👤 Register User
@@ -222,61 +305,35 @@ exports.tokensMatch = tokensMatch;
 exports.registerUser = async (req, res) => {
   safeAuthLog("registerUser invoked");
   try {
-    const {
-      name,
-      email = "",
-      password,
-      idNumber,
-      birthDate,
-      city,
-      phone = "",
-      canCharge,
-      familyMembers = [],
-    } = req.body;
+    const payload = normalizeRegistrationPayload(req.body);
 
     const role = "user";
-    if (!email && !phone)
+    if (!payload.email && !payload.phone)
       return res.status(400).json({ message: "Email or phone is required" });
 
-    const cleanEmail = email?.trim().toLowerCase();
     const existing = await User.findOne({
       $or: [
-        cleanEmail ? { email: cleanEmail } : null,
-        phone ? { phone } : null,
+        payload.email ? { email: payload.email } : null,
+        payload.phone ? { phone: payload.phone } : null,
       ].filter(Boolean),
     });
 
     if (existing)
       return res.status(400).json({ message: "A user with this email or phone already exists" });
 
-    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
-    
-    // Sanitize family members
-    const validFamily = Array.isArray(familyMembers)
-      ? familyMembers
-          .filter((m) => m.name && m.idNumber)
-          .map((m) => ({
-            name: m.name,
-            relation: m.relation || "",
-            idNumber: m.idNumber,
-            phone: m.phone || phone || "",
-            email: m.email || cleanEmail || "",
-            city: m.city || city || "",
-            birthDate: m.birthDate || "",
-          }))
-      : [];
+    const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
 
     const user = await User.create({
-      name,
-      email: cleanEmail || null,
-      phone: phone || null,
+      name: payload.name,
+      email: payload.email || null,
+      phone: payload.phone || null,
       passwordHash,
-      idNumber,
-      birthDate,
-      city,
-      canCharge: !!canCharge,
-      familyMembers: validFamily,
-      hasPassword: !!password,
+      idNumber: payload.idNumber,
+      birthDate: payload.birthDate,
+      city: payload.city,
+      canCharge: !!payload.canCharge,
+      familyMembers: payload.familyMembers,
+      hasPassword: !!payload.password,
       temporaryPassword: false,
       role,
     });
@@ -290,6 +347,195 @@ exports.registerUser = async (req, res) => {
   } catch (e) {
     console.error("❌ registerUser error:", e);
     res.status(500).json({ message: "Server error during registration." });
+  }
+};
+
+/* ============================================================
+   🧾 Two-Step Registration (Request + OTP Verify)
+   ============================================================ */
+const REGISTRATION_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const REGISTRATION_REQUEST_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+exports.requestRegistration = async (req, res) => {
+  safeAuthLog("requestRegistration invoked");
+  try {
+    const payload = normalizeRegistrationPayload(req.body);
+
+    if (!payload.email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const existing = await User.findOne({
+      $or: [
+        payload.email ? { email: payload.email } : null,
+        payload.phone ? { phone: payload.phone } : null,
+      ].filter(Boolean),
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: "A user with this email or phone already exists" });
+    }
+
+    const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = Date.now() + REGISTRATION_OTP_TTL_MS;
+    const expiresAt = new Date(Date.now() + REGISTRATION_REQUEST_TTL_MS);
+
+    const baseFields = {
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone,
+      idNumber: payload.idNumber,
+      birthDate: payload.birthDate,
+      city: payload.city,
+      canCharge: payload.canCharge,
+      familyMembers: payload.familyMembers,
+    };
+
+    let request = await RegistrationRequest.findOne({
+      email: payload.email,
+      status: "pending",
+    }).select("+passwordHash +otpCode +otpExpires +otpAttempts");
+
+    if (request) {
+      Object.assign(request, baseFields);
+    } else {
+      request = new RegistrationRequest(baseFields);
+    }
+
+    request.passwordHash = passwordHash;
+    request.otpCode = otp;
+    request.otpExpires = otpExpires;
+    request.otpAttempts = 0;
+    request.status = "pending";
+    request.expiresAt = expiresAt;
+    request.meta = {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"] || "",
+    };
+
+    await request.save();
+
+    const emailResult = await emailService.sendEmail({
+      to: payload.email,
+      subject: "קוד אימות הרשמה - סדנאות כללית",
+      text: `קוד האימות שלך הוא ${otp}. הקוד בתוקף ל-10 דקות.`,
+      html: `
+        <div dir="rtl" style="font-family:sans-serif; color: #1f2937;">
+          <h2 style="color:#4F46E5;">אימות הרשמה</h2>
+          <p>שלום ${payload.name || ""},</p>
+          <p>להשלמת ההרשמה למערכת יש להזין את הקוד הבא:</p>
+          <p style="font-size:24px; font-weight:bold; color:#111827;">${otp}</p>
+          <p>הקוד בתוקף ל-10 דקות.</p>
+          <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;" />
+          <small style="color:#6b7280;">אם לא ביקשת הרשמה, ניתן להתעלם מהודעה זו.</small>
+        </div>
+      `,
+    });
+
+    if (!emailResult.success) {
+      console.error("❌ Email Service Failed:", emailResult.error);
+      return res.status(500).json({ message: "Failed to send OTP email." });
+    }
+
+    return res.status(202).json({
+      success: true,
+      message: "Registration accepted. Please enter the code sent to your email.",
+      requestId: request._id,
+    });
+  } catch (e) {
+    console.error("❌ requestRegistration error:", e);
+    res.status(500).json({ message: "Server error during registration request." });
+  }
+};
+
+exports.verifyRegistrationOtp = async (req, res) => {
+  safeAuthLog("verifyRegistrationOtp invoked");
+  try {
+    const email = (req.body?.email || "").trim().toLowerCase();
+    const otp = String(req.body?.otp || "").trim();
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
+    }
+
+    const request = await RegistrationRequest.findOne({
+      email,
+      status: "pending",
+    }).select("+passwordHash +otpCode +otpExpires +otpAttempts");
+
+    if (!request) {
+      return res.status(404).json({ message: "Registration request not found or already completed." });
+    }
+
+    const now = Date.now();
+    if (request.expiresAt && request.expiresAt.getTime() < now) {
+      request.status = "expired";
+      await request.save();
+      return res.status(400).json({ message: "Registration request expired. Please restart registration." });
+    }
+
+    if (!request.otpCode || !request.otpExpires || request.otpExpires < now) {
+      request.status = "expired";
+      request.otpCode = null;
+      request.otpExpires = null;
+      await request.save();
+      return res.status(400).json({ message: "OTP expired. Please restart registration." });
+    }
+
+    if (String(request.otpCode).trim() !== otp) {
+      request.otpAttempts = (request.otpAttempts || 0) + 1;
+      await request.save();
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    const existing = await User.findOne({
+      $or: [
+        email ? { email } : null,
+        request.phone ? { phone: request.phone } : null,
+      ].filter(Boolean),
+    });
+
+    if (existing) {
+      request.status = "consumed";
+      request.userId = existing._id;
+      request.otpCode = null;
+      request.otpExpires = null;
+      await request.save();
+      return res.status(409).json({ message: "A user with this email or phone already exists" });
+    }
+
+    const user = await User.create({
+      name: request.name,
+      email: request.email,
+      phone: request.phone || null,
+      passwordHash: request.passwordHash || null,
+      idNumber: request.idNumber,
+      birthDate: request.birthDate,
+      city: request.city,
+      canCharge: request.canCharge,
+      familyMembers: request.familyMembers || [],
+      hasPassword: !!request.passwordHash,
+      temporaryPassword: false,
+      role: "user",
+    });
+
+    request.status = "verified";
+    request.completedAt = new Date();
+    request.otpCode = null;
+    request.otpExpires = null;
+    request.otpAttempts = 0;
+    request.userId = user._id;
+    await request.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Registration confirmed.",
+      user: sanitizeUserForResponse(user, user),
+    });
+  } catch (e) {
+    console.error("❌ verifyRegistrationOtp error:", e);
+    res.status(500).json({ message: "Server error verifying registration code." });
   }
 };
 
