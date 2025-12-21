@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const { refreshAccessToken, logout } = require("../controllers/authController");
+const { perUserRateLimit } = require("../middleware/perUserRateLimit");
 
 const {
   registerUser,
@@ -35,6 +36,16 @@ const {
 const { authenticate } = require("../middleware/authMiddleware");
 
 console.log("🧩 AUTH ROUTES INIT");
+
+const perUserAuthLimiter = perUserRateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+});
+
+const perUserOtpLimiter = perUserRateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 5,
+});
 
 // ============================================================
 // 🚦 Rate Limiters (final tuned version)
@@ -140,6 +151,7 @@ function otpEmailLimiter(req, res, next) {
 router.post(
   "/register/request",
   generalAuthLimiter,
+  perUserAuthLimiter,
   registrationLimiter,
   enforceRegistrationVelocity,
   validateRegistrationRequest,
@@ -150,6 +162,7 @@ router.post(
 router.post(
   "/register/verify",
   otpLimiter,
+  perUserOtpLimiter,
   otpEmailLimiter,
   validateRegistrationOtp,
   verifyRegistrationOtp
@@ -159,6 +172,7 @@ router.post(
 router.post(
   "/register",
   generalAuthLimiter,
+  perUserAuthLimiter,
   registrationLimiter,
   enforceRegistrationVelocity,
   validateRegister,
@@ -166,10 +180,10 @@ router.post(
 );
 
 // 🔵 Login existing user
-router.post("/login", generalAuthLimiter, validateLogin, loginUser);
+router.post("/login", generalAuthLimiter, perUserAuthLimiter, validateLogin, loginUser);
 
 // 🟣 Refresh access token (no validation body)
-router.post("/refresh", refreshAccessToken);
+router.post("/refresh", perUserAuthLimiter, refreshAccessToken);
 
 // 🔴 Logout
 router.post("/logout", logout);
@@ -179,10 +193,10 @@ router.post("/logout", logout);
 // ============================================================
 
 // ✉️ Send OTP (for login or recovery)
-router.post("/send-otp", otpLimiter,otpEmailLimiter,validateSendOtp, sendOtp);
+router.post("/send-otp", otpLimiter, otpEmailLimiter, perUserOtpLimiter, validateSendOtp, sendOtp);
 
 // ✅ Verify OTP
-router.post("/verify", otpLimiter, validateOTP, verifyOtp);
+router.post("/verify", otpLimiter, perUserOtpLimiter, validateOTP, verifyOtp);
 
 // 🛠️ Recover password (send reset link + OTP to email)
 router.post(

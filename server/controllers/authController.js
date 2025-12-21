@@ -22,6 +22,38 @@ const safeAuthLog = (message) => {
   }
 };
 
+// Enumeration-safe responses (OTP + registration flows)
+const GENERIC_OTP_SEND_RESPONSE = Object.freeze({
+  success: true,
+  message: "If the account is eligible, a verification code has been sent.",
+});
+
+const GENERIC_OTP_VERIFY_FAILURE = Object.freeze({
+  message: "Invalid or expired verification code. Request a new code and try again.",
+});
+
+const GENERIC_REGISTRATION_ACCEPTED = Object.freeze({
+  success: true,
+  message: "If the registration is eligible, we started verification. Check your email for next steps.",
+});
+
+const GENERIC_REGISTRATION_VERIFY_FAILURE = Object.freeze({
+  message: "Registration could not be completed. Request a new code or use password reset if you already have an account.",
+});
+
+const enumerationDelay = () =>
+  new Promise((resolve) => setTimeout(resolve, 150 + Math.floor(Math.random() * 200)));
+
+const REFRESH_COOKIE_NAME = "refreshToken";
+const REFRESH_COOKIE_SAMESITE =
+  process.env.REFRESH_COOKIE_SAMESITE || "Strict"; // prefer Strict, allow override to None/Lax if needed
+const REFRESH_COOKIE_SECURE =
+  process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+const REFRESH_TOKEN_CAP = Number(process.env.REFRESH_TOKEN_CAP || 5);
+const OTP_SEND_COOLDOWN_MS = 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_LOCK_MS = 10 * 60 * 1000;
+
 /* ============================================================
    🔐 JWT Helpers
    ============================================================ */
@@ -32,9 +64,14 @@ function generateAccessToken(user) {
   });
 }
 
+function createJti() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return crypto.randomBytes(16).toString("hex");
+}
+
 function generateRefreshToken(user) {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
-  return jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, {
+  return jwt.sign({ id: user._id, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn,
   });
 }
@@ -48,17 +85,55 @@ function parseJwtExpToMs(exp) {
   return n * map[unit];
 }
 
+const REFRESH_TOKEN_TTL_MS = parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d");
+
 function setRefreshCookie(res, refreshToken) {
-  const isProd = process.env.NODE_ENV === "production";
-  const sameSite = "Lax"; // or 'None' if frontend/backend are on different domains
-  res.cookie("refreshToken", refreshToken, {
+  const cookieOptions = {
     httpOnly: true,
-    secure: isProd,
-    sameSite,
+    secure: REFRESH_COOKIE_SECURE,
+    sameSite: REFRESH_COOKIE_SAMESITE,
     path: "/",
     maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
+  };
+
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, cookieOptions);
+  safeAuthLog(`refreshToken cookie set | secure=${cookieOptions.secure} | sameSite=${cookieOptions.sameSite}`);
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: REFRESH_COOKIE_SECURE,
+    sameSite: REFRESH_COOKIE_SAMESITE,
+    path: "/",
   });
-  safeAuthLog(`refreshToken cookie set | secure=${isProd}`);
+}
+
+function pruneRefreshSessions(user) {
+  if (!user || !Array.isArray(user.refreshTokens)) return;
+  const now = Date.now();
+
+  const filtered = user.refreshTokens
+    .filter((rt) => {
+      if (!rt?.token) return false;
+      const createdAt = rt.createdAt ? new Date(rt.createdAt).getTime() : 0;
+      if (!createdAt) return true; // keep if timestamp missing to avoid accidental lockouts
+      return now - createdAt < REFRESH_TOKEN_TTL_MS;
+    })
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  user.refreshTokens = filtered.slice(0, REFRESH_TOKEN_CAP);
+}
+
+function recordRefreshToken(user, hashedToken, userAgent = "") {
+  if (!user || !hashedToken) return;
+  user.refreshTokens = user.refreshTokens || [];
+  user.refreshTokens.unshift({
+    token: hashedToken,
+    userAgent,
+    createdAt: new Date(),
+  });
+  pruneRefreshSessions(user);
 }
 
 /* ============================================================
@@ -303,6 +378,8 @@ async function sendEmail({ to, subject, text, html }) {
 exports.generateAccessToken = generateAccessToken;
 exports.generateRefreshToken = generateRefreshToken;
 exports.setRefreshCookie = setRefreshCookie;
+exports.pruneRefreshSessions = pruneRefreshSessions;
+exports.recordRefreshToken = recordRefreshToken;
 exports.sendEmail = sendEmail;
 exports.resolveClientBaseUrl = resolveClientBaseUrl;
 exports.createPasswordResetArtifacts = createPasswordResetArtifacts;
@@ -314,6 +391,8 @@ exports.__test = {
   setResendInstance,
   setGmailTransport,
   resetTransports,
+  pruneRefreshSessions,
+  recordRefreshToken,
 };
 
 /* ============================================================
@@ -335,8 +414,10 @@ exports.registerUser = async (req, res) => {
       ].filter(Boolean),
     });
 
-    if (existing)
-      return res.status(400).json({ message: "A user with this email or phone already exists" });
+    if (existing) {
+      await enumerationDelay();
+      return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
+    }
 
     const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
 
@@ -356,11 +437,7 @@ exports.registerUser = async (req, res) => {
     });
 
     safeAuthLog("registerUser succeeded");
-    return res.status(201).json({
-      success: true,
-      message: "User registered successfully.",
-      user: sanitizeUserForResponse(user, user),
-    });
+    return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
   } catch (e) {
     console.error("❌ registerUser error:", e);
     res.status(500).json({ message: "Server error during registration." });
@@ -390,7 +467,8 @@ exports.requestRegistration = async (req, res) => {
     });
 
     if (existing) {
-      return res.status(400).json({ message: "A user with this email or phone already exists" });
+      await enumerationDelay();
+      return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
     }
 
     const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
@@ -414,7 +492,12 @@ exports.requestRegistration = async (req, res) => {
       status: "pending",
     }).select("+passwordHash +otpCode +otpExpires +otpAttempts");
 
+    const now = Date.now();
+
     if (request) {
+      if (request.meta?.otpLastSent && now - request.meta.otpLastSent < OTP_SEND_COOLDOWN_MS) {
+        return res.status(429).json({ message: "Please wait before requesting another code." });
+      }
       Object.assign(request, baseFields);
     } else {
       request = new RegistrationRequest(baseFields);
@@ -429,6 +512,13 @@ exports.requestRegistration = async (req, res) => {
     request.meta = {
       ip: req.ip,
       userAgent: req.headers["user-agent"] || "",
+    };
+
+    request.meta = {
+      ...(request.meta || {}),
+      ip: req.ip,
+      userAgent: req.headers["user-agent"] || "",
+      otpLastSent: now,
     };
 
     await request.save();
@@ -455,11 +545,7 @@ exports.requestRegistration = async (req, res) => {
       return res.status(500).json({ message: "Failed to send OTP email." });
     }
 
-    return res.status(202).json({
-      success: true,
-      message: "Registration accepted. Please enter the code sent to your email.",
-      requestId: request._id,
-    });
+    return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
   } catch (e) {
     console.error("❌ requestRegistration error:", e);
     res.status(500).json({ message: "Server error during registration request." });
@@ -473,7 +559,8 @@ exports.verifyRegistrationOtp = async (req, res) => {
     const otp = String(req.body?.otp || "").trim();
 
     if (!email || !otp) {
-      return res.status(400).json({ message: "Email and OTP are required" });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     const request = await RegistrationRequest.findOne({
@@ -482,14 +569,16 @@ exports.verifyRegistrationOtp = async (req, res) => {
     }).select("+passwordHash +otpCode +otpExpires +otpAttempts");
 
     if (!request) {
-      return res.status(404).json({ message: "Registration request not found or already completed." });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     const now = Date.now();
     if (request.expiresAt && request.expiresAt.getTime() < now) {
       request.status = "expired";
       await request.save();
-      return res.status(400).json({ message: "Registration request expired. Please restart registration." });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     if (!request.otpCode || !request.otpExpires || request.otpExpires < now) {
@@ -497,13 +586,15 @@ exports.verifyRegistrationOtp = async (req, res) => {
       request.otpCode = null;
       request.otpExpires = null;
       await request.save();
-      return res.status(400).json({ message: "OTP expired. Please restart registration." });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     if (String(request.otpCode).trim() !== otp) {
       request.otpAttempts = (request.otpAttempts || 0) + 1;
       await request.save();
-      return res.status(400).json({ message: "Invalid OTP" });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     const existing = await User.findOne({
@@ -519,7 +610,8 @@ exports.verifyRegistrationOtp = async (req, res) => {
       request.otpCode = null;
       request.otpExpires = null;
       await request.save();
-      return res.status(409).json({ message: "A user with this email or phone already exists" });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_REGISTRATION_VERIFY_FAILURE);
     }
 
     const user = await User.create({
@@ -574,10 +666,7 @@ exports.loginUser = async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-    user.refreshTokens.push({
-      token: hashRefreshToken(refreshToken),
-      userAgent: req.headers["user-agent"] || "",
-    });
+    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
     await user.save();
     setRefreshCookie(res, refreshToken);
 
@@ -607,8 +696,20 @@ exports.sendOtp = async (req, res) => {
 
     if (!email) return res.status(400).json({ message: "Email is required" });
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User with this email not found" });
+    const user = await User.findOne({ email }).select("+otpLastSent +otpLockUntil +otpAttempts");
+    if (!user) {
+      await enumerationDelay();
+      return res.json(GENERIC_OTP_SEND_RESPONSE);
+    }
+
+    const now = Date.now();
+    if (user.otpLockUntil && user.otpLockUntil > now) {
+      return res.status(429).json({ message: "Too many OTP attempts. Try again later." });
+    }
+
+    if (user.otpLastSent && now - user.otpLastSent < OTP_SEND_COOLDOWN_MS) {
+      return res.status(429).json({ message: "Please wait before requesting another code." });
+    }
 
     // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -617,6 +718,8 @@ exports.sendOtp = async (req, res) => {
     user.otpCode = otp;
     user.otpExpires = Date.now() + 5 * 60 * 1000; // 5 minutes
     user.otpAttempts = 0;
+    user.otpLastSent = now;
+    user.otpLockUntil = 0;
     await user.save();
 
     // 🔥 USE THE SHARED SERVICE HERE
@@ -641,7 +744,7 @@ exports.sendOtp = async (req, res) => {
       return res.status(500).json({ message: "Failed to send OTP email." });
     }
 
-    return res.json({ success: true, message: "OTP sent successfully." });
+    return res.json(GENERIC_OTP_SEND_RESPONSE);
 
   } catch (e) {
     console.error("❌ sendOtp error:", e);
@@ -656,16 +759,32 @@ exports.verifyOtp = async (req, res) => {
   safeAuthLog("verifyOtp invoked");
   try {
     const { email, otp } = req.body;
+    const normalizedEmail = (email || "").toLowerCase().trim();
     const normalizedOtp = String(otp ?? "").trim();
-    const user = await User.findOne({
-      email: (email || "").toLowerCase().trim(),
-    }).select("+otpCode +otpExpires +otpAttempts");
 
-    if (!user) return res.status(404).json({ message: "User not found." });
+    if (!normalizedEmail || !normalizedOtp) {
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
+    }
+
+    const user = await User.findOne({
+      email: normalizedEmail,
+    }).select("+otpCode +otpExpires +otpAttempts +otpLockUntil +otpLastSent");
+
+    if (!user) {
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
+    }
+
+    const now = Date.now();
+    if (user.otpLockUntil && user.otpLockUntil > now) {
+      return res.status(429).json({ message: "Too many OTP attempts. Try again later." });
+    }
 
     // Handle consumed/missing OTP
     if (!user.otpCode && !user.otpExpires) {
-      return res.status(409).json({ message: "OTP already verified or missing." });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
     }
 
     // Expired
@@ -673,14 +792,21 @@ exports.verifyOtp = async (req, res) => {
       user.otpCode = null;
       user.otpExpires = null;
       await user.save();
-      return res.status(400).json({ message: "OTP expired." });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
     }
 
     // Wrong code
     if (String(user.otpCode).trim() !== normalizedOtp) {
       user.otpAttempts = (user.otpAttempts || 0) + 1;
+      if (user.otpAttempts >= OTP_MAX_ATTEMPTS) {
+        user.otpLockUntil = now + OTP_LOCK_MS;
+        user.otpCode = null;
+        user.otpExpires = null;
+      }
       await user.save();
-      return res.status(400).json({ message: "Invalid OTP" });
+      await enumerationDelay();
+      return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
     }
 
     // Valid
@@ -691,10 +817,7 @@ exports.verifyOtp = async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-    user.refreshTokens.push({
-      token: hashRefreshToken(refreshToken),
-      userAgent: req.headers["user-agent"] || "",
-    });
+    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
     await user.save();
 
     setRefreshCookie(res, refreshToken);
@@ -875,7 +998,7 @@ exports.updatePassword = async (req, res) => {
    ============================================================ */
 exports.refreshAccessToken = async (req, res) => {
   try {
-    const token = req.cookies?.refreshToken;
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!token) return res.status(401).json({ message: "No refresh token" });
 
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
@@ -883,10 +1006,27 @@ exports.refreshAccessToken = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const session = user.refreshTokens.find((rt) => tokensMatch(rt.token, token));
-    if (!session) return res.status(403).json({ message: "Refresh not recognized" });
+    if (!session) {
+      // Reuse detection: presented token is valid JWT but not in the persisted family.
+      user.refreshTokens = [];
+      await user.save();
+      clearRefreshCookie(res);
+      return res.status(403).json({
+        message: "Session invalidated. Please login again.",
+      });
+    }
 
-    const newAccess = generateAccessToken(user);
-    return res.json({ accessToken: newAccess });
+    // Rotate refresh token: remove the old one, add a new hash, and return new access.
+    const accessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken(user);
+    const hashedNew = hashRefreshToken(newRefreshToken);
+
+    user.refreshTokens = user.refreshTokens.filter((rt) => !tokensMatch(rt.token, token));
+    recordRefreshToken(user, hashedNew, req.headers["user-agent"] || "");
+    await user.save();
+    setRefreshCookie(res, newRefreshToken);
+
+    return res.json({ accessToken });
   } catch (e) {
     res.status(500).json({ message: "Server error refreshing token" });
   }
@@ -894,15 +1034,9 @@ exports.refreshAccessToken = async (req, res) => {
 
 exports.logout = async (req, res) => {
   try {
-    const token = req.cookies?.refreshToken;
-    const isProd = process.env.NODE_ENV === "production";
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
     
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "Lax",
-      path: "/",
-    });
+    clearRefreshCookie(res);
 
     if (token) {
       try {
@@ -912,6 +1046,7 @@ exports.logout = async (req, res) => {
           user.refreshTokens = user.refreshTokens.filter(
             (rt) => !tokensMatch(rt.token, token)
           );
+          pruneRefreshSessions(user);
           await user.save();
         }
       } catch (err) {

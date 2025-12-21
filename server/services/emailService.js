@@ -2,7 +2,13 @@ const { Resend } = require('resend');
 require('dotenv').config();
 
 // Initialize Resend
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resend = null;
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+} else {
+  // Avoid throwing during tests/local dev when key is absent
+  console.warn("⚠️  RESEND_API_KEY is missing. Email sending is disabled.");
+}
 
 const DEFAULT_SENDER = process.env.EMAIL_FROM || 'Sadnaot <noreply@sadnaot.online>';
 
@@ -17,6 +23,10 @@ const DEFAULT_SENDER = process.env.EMAIL_FROM || 'Sadnaot <noreply@sadnaot.onlin
  */
 exports.sendEmail = async ({ to, subject, html, text, attachments }) => {
   try {
+    if (!resend) {
+      return { success: false, error: "Email transport unavailable" };
+    }
+
     // Auto-generate plain text if not provided
     const plainText = text || html.replace(/<[^>]*>?/gm, '');
 

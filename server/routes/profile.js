@@ -28,8 +28,14 @@ router.put("/edit", authenticate, validateProfile, async (req, res) => {
       return res.status(401).json({ message: "Unauthorized - no user in token" });
     }
 
+    const allowed = ["name", "phone", "city", "email", "birthDate", "idNumber"];
+    const updates = allowed.reduce((acc, key) => {
+      if (req.body[key] !== undefined) acc[key] = req.body[key];
+      return acc;
+    }, {});
+
     req.body.userId = req.user._id.toString(); // ⬅️ נשתמש במבנה של updateEntity
-    req.body.updates = req.body; // ⬅️ כי updateEntity מצפה ל-updates
+    req.body.updates = updates; // ⬅️ כי updateEntity מצפה ל-updates
 
     await updateEntity(req, res); // ⬅️ קורא לפונקציה הקיימת שלך
   } catch (e) {

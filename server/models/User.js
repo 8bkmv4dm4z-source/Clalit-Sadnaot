@@ -83,6 +83,8 @@ const UserSchema = new mongoose.Schema(
     otpCode: { type: String, select: false },
     otpExpires: { type: Number, default: 0 },
     otpAttempts: { type: Number, default: 0, select: false },
+    otpLastSent: { type: Number, default: 0, select: false },
+    otpLockUntil: { type: Number, default: 0, select: false },
 
     // 🔁 Reset tokens
     passwordResetTokenHash: { type: String, select: false },

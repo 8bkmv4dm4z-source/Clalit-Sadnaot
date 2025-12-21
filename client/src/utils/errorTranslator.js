@@ -54,6 +54,50 @@ const AUTH_ERROR_MESSAGES = {
     },
     default: "הרשמה נכשלה. בדקו את הפרטים ונסו שוב.",
   },
+  otp_send: {
+    200: {
+      messageMap: {
+        "If the account is eligible, a verification code has been sent.": "אם החשבון קיים, שלחנו קוד אימות למייל.",
+      },
+      default: "אם החשבון קיים, שלחנו קוד אימות למייל.",
+    },
+    400: {
+      messageMap: {
+        "Email is required": "חסרה כתובת אימייל.",
+      },
+      default: "לא ניתן לשלוח קוד אימות כעת.",
+    },
+    429: { default: "בוצעו יותר מדי בקשות קוד. נסו שוב מאוחר יותר." },
+    500: { default: "שליחת הקוד נכשלה זמנית. נסו שוב מאוחר יותר." },
+    default: "לא ניתן לשלוח קוד אימות כעת.",
+  },
+  otp_verify: {
+    200: { default: "התחברות באמצעות קוד הצליחה." },
+    400: {
+      messageMap: {
+        "Invalid or expired verification code. Request a new code and try again.": "קוד האימות שגוי או פג תוקף. בקשו קוד חדש ונסו שוב.",
+      },
+      default: "קוד האימות שגוי או פג תוקף.",
+    },
+    401: { default: "אין הרשאה לבצע את הפעולה." },
+    404: { default: "המשתמש לא נמצא." },
+    429: { default: "בוצעו יותר מדי ניסיונות אימות. המתינו ונסו שוב." },
+    default: "אימות הקוד נכשל. נסו שוב.",
+  },
+  registration_verify: {
+    200: { default: "האימות הושלם בהצלחה." },
+    201: { default: "החשבון נוצר בהצלחה." },
+    400: {
+      messageMap: {
+        "Registration could not be completed. Request a new code or use password reset if you already have an account.":
+          "לא ניתן להשלים את ההרשמה. בקשו קוד חדש או בצעו איפוס סיסמה אם כבר קיים חשבון.",
+      },
+      default: "לא ניתן להשלים את ההרשמה. בקשו קוד חדש או בצעו איפוס סיסמה.",
+    },
+    404: { default: "הבקשה להרשמה לא נמצאה." },
+    429: { default: "בוצעו יותר מדי ניסיונות. המתינו ונסו שוב." },
+    default: "האימות נכשל. נסו שוב.",
+  },
 };
 
 const GENERIC_MESSAGES = {
