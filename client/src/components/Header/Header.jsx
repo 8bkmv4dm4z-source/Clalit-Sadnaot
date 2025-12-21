@@ -164,7 +164,7 @@ export default function Header() {
         <div className="flex items-center justify-between gap-3">
           {/* 🏠 Brand */}
           <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
-            כללית סדנאות
+            תפריט
           </h1>
 
           <div className="flex items-center gap-3">
