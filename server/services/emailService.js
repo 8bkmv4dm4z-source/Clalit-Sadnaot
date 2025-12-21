@@ -26,19 +26,16 @@ exports.sendEmail = async ({ to, subject, html, text, attachments }) => {
       subject: subject,
       html: html,
       text: plainText,
-      attachments: attachments // 👈 THIS IS CRITICAL FOR EXCEL EXPORT
+      attachments: attachments 
     });
 
     if (data.error) {
-      console.error(`❌ [EmailService] Failed to send to ${to}:`, data.error);
       return { success: false, error: data.error };
     }
 
-    console.log(`✅ [EmailService] Sent to ${to} | ID: ${data.data?.id}`);
     return { success: true, id: data.data?.id };
 
   } catch (err) {
-    console.error(`❌ [EmailService] Exception:`, err.message);
     return { success: false, error: err.message };
   }
 };
