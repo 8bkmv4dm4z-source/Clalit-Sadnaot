@@ -13,8 +13,7 @@ function useQueryParams() {
   return useMemo(() => new URLSearchParams(search), [search]);
 }
 
-const tokenPattern = /^[a-f0-9]{64}$/i;
-const otpPattern = /^\d{6}$/;
+const phoneDigitsPattern = /^[0-9]{4,15}$/;
 
 export default function ResetPassword() {
   const query = useQueryParams();
@@ -26,7 +25,7 @@ export default function ResetPassword() {
 
   const [email, setEmail] = useState(initialEmail);
   const [token, setToken] = useState(initialToken);
-  const [otp, setOtp] = useState("");
+  const [phoneAnswer, setPhoneAnswer] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [status, setStatus] = useState("idle");
@@ -35,15 +34,13 @@ export default function ResetPassword() {
   const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({
     email: "",
-    token: "",
-    otp: "",
+    phoneAnswer: "",
     password: "",
     confirmPassword: "",
   });
   const [touched, setTouched] = useState({
     email: Boolean(initialEmail),
-    token: Boolean(initialToken),
-    otp: false,
+    phoneAnswer: false,
     password: false,
     confirmPassword: false,
   });
@@ -55,45 +52,29 @@ export default function ResetPassword() {
         email: validateEmail(initialEmail).message,
       }));
     }
-    if (initialToken) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        token: tokenPattern.test(initialToken)
-          ? ""
-          : "אסימון האיפוס אינו תקין.",
-      }));
-    }
-  }, [initialEmail, initialToken]);
+  }, [initialEmail]);
+
+  useEffect(() => {
+    setToken(initialToken);
+  }, [initialToken]);
 
   const hasToken = Boolean(token.trim());
-  const hasOtp = Boolean(otp.trim());
 
   const canSubmit = useMemo(() => {
     const emailOk = email && !fieldErrors.email;
+    const phoneOk = phoneAnswer && !fieldErrors.phoneAnswer;
     const passwordOk = password && !fieldErrors.password;
     const confirmOk = confirmPassword && !fieldErrors.confirmPassword;
-    const tokenOk = hasToken ? !fieldErrors.token : true;
-    const otpOk = hasOtp ? !fieldErrors.otp : true;
-    const challengeProvided = hasToken || hasOtp;
 
     return (
       emailOk &&
+      phoneOk &&
       passwordOk &&
       confirmOk &&
-      tokenOk &&
-      otpOk &&
-      challengeProvided &&
+      hasToken &&
       status !== "submitting"
     );
-  }, [
-    email,
-    password,
-    confirmPassword,
-    fieldErrors,
-    hasToken,
-    hasOtp,
-    status,
-  ]);
+  }, [email, phoneAnswer, password, confirmPassword, fieldErrors, hasToken, status]);
 
   const validateField = (field, value) => {
     let message = "";
@@ -118,24 +99,14 @@ export default function ResetPassword() {
         message = result.valid ? "" : result.message;
         break;
       }
-      case "token": {
+      case "phoneAnswer": {
         if (!value) {
-          message = "";
+          message = validateRequired(value, "מספר טלפון לאימות").message;
           break;
         }
-        message = tokenPattern.test(value)
+        message = phoneDigitsPattern.test(value)
           ? ""
-          : "אסימון האיפוס צריך להיות באורך 64 תווים הקסדצימליים.";
-        break;
-      }
-      case "otp": {
-        if (!value) {
-          message = "";
-          break;
-        }
-        message = otpPattern.test(value)
-          ? ""
-          : "קוד ה-OTP חייב לכלול 6 ספרות.";
+          : "יש להקליד את הספרות האחרונות של מספר הטלפון (לפחות 4 ספרות).";
         break;
       }
       default:
@@ -157,28 +128,22 @@ export default function ResetPassword() {
     const emailValid = validateField("email", email);
     const passwordValid = validateField("password", password);
     const confirmValid = validateField("confirmPassword", confirmPassword);
-    const tokenValid = validateField("token", token.trim());
-    const otpValid = validateField("otp", otp.trim());
+    const phoneValid = validateField("phoneAnswer", phoneAnswer.trim());
 
-    setTouched({
+    setTouched((prev) => ({
+      ...prev,
       email: true,
       password: true,
       confirmPassword: true,
-      token: hasToken,
-      otp: hasOtp,
-    });
+      phoneAnswer: true,
+    }));
 
-    const challengeProvided = token.trim() || otp.trim();
-
-    if (!emailValid || !passwordValid || !confirmValid || !tokenValid || !otpValid) {
+    if (!emailValid || !passwordValid || !confirmValid || !phoneValid) {
       return;
     }
 
-    if (!challengeProvided) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        token: "נדרש אסימון מהקישור או קוד OTP שהתקבל במייל.",
-      }));
+    if (!hasToken) {
+      setErrorMsg("הקישור מתוך המייל נדרש כדי לאפס את הסיסמה. ודאו שנכנסתם דרך המייל.");
       return;
     }
 
@@ -189,8 +154,8 @@ export default function ResetPassword() {
     const payload = {
       email: email.trim(),
       newPassword: password,
-      token: token.trim() || undefined,
-      otp: otp.trim() || undefined,
+      token: token.trim(),
+      phoneAnswer: phoneAnswer.trim(),
     };
 
     const result = await completePasswordReset(payload);
@@ -198,7 +163,7 @@ export default function ResetPassword() {
     if (result?.success) {
       setSuccessMsg("הסיסמה עודכנה בהצלחה! ניתן להתחבר עם הסיסמה החדשה.");
       setToken("");
-      setOtp("");
+      setPhoneAnswer("");
       setPassword("");
       setConfirmPassword("");
     } else {
@@ -217,9 +182,15 @@ export default function ResetPassword() {
         <header className="text-center space-y-2">
           <h1 className="text-3xl font-extrabold text-indigo-700">איפוס סיסמה</h1>
           <p className="text-gray-600 text-sm">
-            הזינו סיסמה חדשה. ניתן להשתמש או בקישור שנשלח במייל או בקוד ה-OTP החד־פעמי.
+            הזינו סיסמה חדשה. האיפוס יתבצע דרך הקישור שנשלח למייל ויאומת באמצעות מספר הטלפון ששמרתם במערכת.
           </p>
         </header>
+
+        <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-4 text-sm text-indigo-800">
+          <p>
+            הקישור נועד לפתיחה מאובטחת גם ב-Gmail. לא נבקש קוד OTP או אסימון גלוי, רק אימות של ספרות מהטלפון ששמור אצלנו.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="grid gap-6">
           <div>
@@ -249,62 +220,34 @@ export default function ResetPassword() {
             )}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-semibold text-indigo-700 mb-2">
-                אסימון מהקישור (Token)
-              </label>
-              <input
-                type="text"
-                value={token}
-                onChange={(e) => {
-                  setToken(e.target.value.trim());
-                  validateField("token", e.target.value.trim());
-                }}
-                onBlur={() => {
-                  markTouched("token");
-                  validateField("token", token.trim());
-                }}
-                className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
-                  fieldErrors.token && touched.token
-                    ? "border-rose-400"
-                    : "border-indigo-100"
-                }`}
-                placeholder="הדביקו כאן את האסימון מהקישור"
-              />
-              {fieldErrors.token && touched.token && (
-                <p className="mt-2 text-xs text-rose-600">{fieldErrors.token}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-indigo-700 mb-2">
-                או הזינו קוד OTP
-              </label>
-              <input
-                type="text"
-                value={otp}
-                onChange={(e) => {
-                  setOtp(e.target.value.replace(/[^0-9]/g, ""));
-                  validateField("otp", e.target.value.replace(/[^0-9]/g, ""));
-                }}
-                onBlur={() => {
-                  markTouched("otp");
-                  validateField("otp", otp.trim());
-                }}
-                inputMode="numeric"
-                maxLength={6}
-                className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
-                  fieldErrors.otp && touched.otp
-                    ? "border-rose-400"
-                    : "border-indigo-100"
-                }`}
-                placeholder="123456"
-              />
-              {fieldErrors.otp && touched.otp && (
-                <p className="mt-2 text-xs text-rose-600">{fieldErrors.otp}</p>
-              )}
-            </div>
+          <div>
+            <label className="block text-sm font-semibold text-indigo-700 mb-2">
+              ספרות אחרונות של מספר הטלפון
+            </label>
+            <input
+              type="text"
+              value={phoneAnswer}
+              onChange={(e) => {
+                const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                setPhoneAnswer(digitsOnly);
+                validateField("phoneAnswer", digitsOnly);
+              }}
+              onBlur={() => {
+                markTouched("phoneAnswer");
+                validateField("phoneAnswer", phoneAnswer.trim());
+              }}
+              inputMode="numeric"
+              maxLength={15}
+              className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                fieldErrors.phoneAnswer && touched.phoneAnswer
+                  ? "border-rose-400"
+                  : "border-indigo-100"
+              }`}
+              placeholder="הקלידו את הספרות האחרונות לשם אימות"
+            />
+            {fieldErrors.phoneAnswer && touched.phoneAnswer && (
+              <p className="mt-2 text-xs text-rose-600">{fieldErrors.phoneAnswer}</p>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">

@@ -123,7 +123,7 @@ function resolveClientBaseUrl(req) {
   return "http://localhost:5173";
 }
 
-function buildPasswordResetPayload({ baseUrl, email, otp, token, minutes }) {
+function buildPasswordResetPayload({ baseUrl, email, token, minutes }) {
   const resetUrl = new URL("/resetpassword", baseUrl);
   resetUrl.searchParams.set("token", token);
   resetUrl.searchParams.set("email", email);
@@ -133,28 +133,43 @@ function buildPasswordResetPayload({ baseUrl, email, otp, token, minutes }) {
     : `${minutes} דקות`;
 
   const text =
-    `קישור לאיפוס סיסמה: ${resetUrl.toString()}\n\n` +
-    `קוד חד-פעמי: ${otp}\n\n` +
-    `הקישור והקוד יהיו זמינים למשך ${prettyMinutes}. אם לא ביקשת איפוס, ניתן להתעלם מהודעה זו.`;
+    `קישור מאובטח לאיפוס סיסמה: ${resetUrl.toString()}\n\n` +
+    `לצורך אבטחה תתבקש/י לאמת את מספר הטלפון המשויך לחשבון. אין צורך בקוד OTP או בהעתקת אסימונים מהקישור.\n\n` +
+    `הקישור יהיה זמין למשך ${prettyMinutes}. אם לא ביקשת איפוס, ניתן להתעלם מהודעה זו.`;
 
   const html = `<div dir="rtl" style="text-align:right; font-family:sans-serif;">
     <p>לקוח יקר/ה,</p>
     <p>בקשה לאיפוס סיסמה התקבלה עבור המשתמש <strong>${email}</strong>.</p>
     <p><a href="${resetUrl.toString()}" style="color:#2563eb;font-weight:bold;">לחצו כאן כדי לאפס את הסיסמה</a></p>
-    <p>ניתן גם להקליד את הקוד החד-פעמי: <strong>${otp}</strong></p>
-    <p>הקישור והקוד יהיו זמינים למשך ${prettyMinutes}. אם לא ביקשתם איפוס, ניתן להתעלם מהודעה זו.</p>
+    <p>במסך האיפוס נבקש לאשר את מספר הטלפון המשויך לחשבון לצורך אימות זהות. אין צורך בהזנת OTP.</p>
+    <p>הקישור יהיה זמין למשך ${prettyMinutes}. אם לא ביקשתם איפוס, ניתן להתעלם מהודעה זו.</p>
     </div>`;
 
   return { text, html, resetUrl: resetUrl.toString() };
 }
 
+function generateResetToken() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+
+  const buf = crypto.randomBytes(16);
+  buf[6] = (buf[6] & 0x0f) | 0x40;
+  buf[8] = (buf[8] & 0x3f) | 0x80;
+
+  const hex = buf.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(
+    16,
+    20
+  )}-${hex.slice(20)}`;
+}
+
 function createPasswordResetArtifacts() {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const rawToken = crypto.randomBytes(32).toString("hex");
+  const rawToken = generateResetToken();
   const hashedToken = hashResetToken(rawToken);
   const expiresAt = Date.now() + PASSWORD_RESET_TOKEN_TTL_MS;
-  return { otp, rawToken, hashedToken, expiresAt };
+  return { rawToken, hashedToken, expiresAt };
 }
+
+const normalizeDigits = (value = "") => String(value || "").replace(/\D/g, "");
 function sanitizeUserForResponse(user, loggedInUser) {
   // Convert Mongoose doc to object if needed
   const u = user.toObject ? user.toObject() : user;
@@ -724,10 +739,10 @@ async function handlePasswordResetRequest(req, res) {
       return res.json(genericResponse);
     }
 
-    const { otp, rawToken, hashedToken, expiresAt } = createPasswordResetArtifacts();
+    const { rawToken, hashedToken, expiresAt } = createPasswordResetArtifacts();
 
-    user.otpCode = otp;
-    user.otpExpires = expiresAt;
+    user.otpCode = null;
+    user.otpExpires = 0;
     user.otpAttempts = 0;
     user.passwordResetTokenHash = hashedToken;
     user.passwordResetTokenExpires = expiresAt;
@@ -738,7 +753,6 @@ async function handlePasswordResetRequest(req, res) {
     const payload = buildPasswordResetPayload({
       baseUrl,
       email,
-      otp,
       token: rawToken,
       minutes: PASSWORD_RESET_TOKEN_MINUTES,
     });
@@ -769,9 +783,9 @@ exports.requestPasswordReset = handlePasswordResetRequest;
 exports.resetPassword = async (req, res) => {
   safeAuthLog("resetPassword invoked");
   try {
-    const { email, otp, newPassword, token } = req.body;
-    if (!email || !newPassword) {
-      return res.status(400).json({ message: "email and newPassword required" });
+    const { email, newPassword, token, phoneAnswer } = req.body;
+    if (!email || !newPassword || !token || !phoneAnswer) {
+      return res.status(400).json({ message: "Email, token, phone verification, and new password are required" });
     }
 
     const user = await User.findOne({
@@ -783,35 +797,27 @@ exports.resetPassword = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const now = Date.now();
-    let verified = false;
-
-    // Verify Token (Link Click)
-    if (token) {
-      const normalizedToken = String(token).trim().toLowerCase();
-      const hashed = hashResetToken(normalizedToken);
-      if (
-        !user.passwordResetTokenHash ||
-        !user.passwordResetTokenExpires ||
-        now > user.passwordResetTokenExpires
-      ) {
-        return res.status(400).json({ message: "Reset token expired" });
-      }
-      if (hashed !== user.passwordResetTokenHash) {
-        return res.status(400).json({ message: "Invalid reset token" });
-      }
-      verified = true;
+    const normalizedToken = String(token).trim();
+    const hashed = hashResetToken(normalizedToken);
+    if (
+      !user.passwordResetTokenHash ||
+      !user.passwordResetTokenExpires ||
+      now > user.passwordResetTokenExpires
+    ) {
+      return res.status(400).json({ message: "Reset token expired" });
+    }
+    if (hashed !== user.passwordResetTokenHash) {
+      return res.status(400).json({ message: "Invalid reset token" });
     }
 
-    // Verify OTP (Manual Entry)
-    if (!verified) {
-      if (!otp) return res.status(400).json({ message: "OTP or token required" });
-      if (!user.otpCode || !user.otpExpires || now > user.otpExpires) {
-        return res.status(400).json({ message: "OTP expired" });
-      }
-      if (String(otp).trim() !== String(user.otpCode).trim()) {
-        return res.status(400).json({ message: "Invalid OTP" });
-      }
-      verified = true;
+    const providedDigits = normalizeDigits(phoneAnswer);
+    const userDigits = normalizeDigits(user.phone);
+    const expected = userDigits ? userDigits.slice(-Math.min(4, userDigits.length)) : "";
+    if (!expected) {
+      return res.status(400).json({ message: "Phone verification unavailable for this account. Contact support." });
+    }
+    if (!providedDigits || providedDigits.slice(-expected.length) !== expected) {
+      return res.status(400).json({ message: "Phone verification failed" });
     }
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);

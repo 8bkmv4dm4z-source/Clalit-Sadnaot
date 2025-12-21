@@ -540,19 +540,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const completePasswordReset = async ({ email, newPassword, token, otp }) => {
+  const completePasswordReset = async ({ email, newPassword, token, phoneAnswer }) => {
     log("🔁 completePasswordReset invoked", {
       email,
       hasToken: Boolean(token),
-      hasOtp: Boolean(otp),
+      hasPhoneAnswer: Boolean(phoneAnswer),
     });
 
     try {
       const payload = {
         email,
         newPassword,
-        ...(token ? { token } : {}),
-        ...(otp ? { otp } : {}),
+        token,
+        phoneAnswer,
       };
 
       const res = await apiFetch("/api/auth/reset", {
