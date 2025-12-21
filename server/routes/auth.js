@@ -28,6 +28,7 @@ const {
   validateOTP,
   validatePasswordResetRequest,
   validatePasswordReset,
+  validatePasswordChange,
 } = require("../middleware/validation");
 
 // 🧱 Authentication middleware
@@ -212,6 +213,6 @@ router.post("/reset", otpLimiter, validatePasswordReset, resetPassword);
 router.get("/me", authenticate, getUserProfile);
 
 // 🔑 Update password (authenticated)
-router.put("/password", authenticate, validatePasswordReset, updatePassword);
+router.put("/password", authenticate, validatePasswordChange, updatePassword);
 
 module.exports = router;

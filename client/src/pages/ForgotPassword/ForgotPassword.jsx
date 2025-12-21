@@ -45,7 +45,7 @@ export default function ForgotPassword() {
     const result = await requestPasswordReset(email.trim());
     if (result?.success) {
       setSuccessMsg(
-        "אם החשבון קיים, נשלח קישור וקוד חד־פעמי לאיפוס הסיסמה. בדקו את תיבת המייל."
+        "אם החשבון קיים, נשלח קישור מאובטח לאיפוס הסיסמה. בתהליך תתבקשו לאשר את מספר הטלפון ששמור במערכת."
       );
     } else {
       setErrorMsg(result?.message || "שליחת הבקשה נכשלה. אנא נסו שוב.");

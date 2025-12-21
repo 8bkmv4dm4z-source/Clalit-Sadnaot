@@ -134,6 +134,8 @@ const validateOTP = celebrate({
   }).unknown(true),
 });
 
+const phoneDigits = Joi.string().trim().pattern(/^[0-9]{4,15}$/);
+
 const validatePasswordReset = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
@@ -144,19 +146,27 @@ const validatePasswordReset = celebrate({
       .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
       .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
       .required(),
-    otp: Joi.alternatives()
-      .try(
-        Joi.string().length(6).pattern(/^\d+$/),
-        Joi.number().integer().min(100000).max(999999)
-      )
-      .optional(),
-    token: Joi.string().length(64).hex().optional(),
-  })
-    .or("otp", "token")
-    .messages({
-      "object.missing": "OTP or reset token is required.",
-    })
-    .unknown(false),
+    phoneAnswer: phoneDigits
+      .required()
+      .messages({
+        "string.pattern.base": "Provide only digits (at least 4) from the phone number on file.",
+      }),
+    token: Joi.string()
+      .guid({ version: ["uuidv4", "uuidv5", "uuidv1", "uuidv3"] })
+      .required(),
+  }).unknown(false),
+});
+
+const validatePasswordChange = celebrate({
+  [Segments.BODY]: Joi.object({
+    currentPassword: Joi.string().min(4).max(64).required(),
+    newPassword: Joi.string()
+      .min(8)
+      .max(64)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
+      .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
+      .required(),
+  }).unknown(false),
 });
 
 /* ============================================================
@@ -486,6 +496,7 @@ module.exports = {
   validateLogin,
   validateOTP,
   validatePasswordReset,
+  validatePasswordChange,
   validateUserRegistration,
   validateUserEdit,
   validateFamilyMember,
