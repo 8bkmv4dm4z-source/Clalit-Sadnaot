@@ -54,9 +54,18 @@ export default function Register() {
   });
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [serverDetails, setServerDetails] = useState([]);
+
+  const [phase, setPhase] = useState("form");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState("");
+  const [otpSuccess, setOtpSuccess] = useState("");
+  const [otpDetails, setOtpDetails] = useState([]);
+  const [otpLoading, setOtpLoading] = useState(false);
 
   const navigate = useNavigate();
-  const { registerUser } = useAuth();
+  const { startRegistration, confirmRegistration } = useAuth();
 
   const runValidation = (field, value, nextAccount = account) => {
     switch (field) {
@@ -96,6 +105,14 @@ export default function Register() {
     setAccount(nextAccount);
     setSubmitError("");
     setSubmitSuccess("");
+    setServerDetails([]);
+    setOtpError("");
+    setOtpDetails([]);
+    if (name === "email" && phase === "otp") {
+      setPhase("form");
+      setPendingEmail("");
+      setOtpCode("");
+    }
 
     const result = runValidation(name, nextValue, nextAccount);
     setErrors((prev) => {
@@ -175,6 +192,7 @@ export default function Register() {
 
     setSubmitError("");
     setSubmitSuccess("");
+    setServerDetails([]);
 
     if (!validateForm()) return;
 
@@ -209,13 +227,56 @@ export default function Register() {
     if (trimmedCity) payload.city = trimmedCity;
 
     setLoading(true);
-    const result = await registerUser(payload);
+    const result = await startRegistration(payload);
     setLoading(false);
 
     if (result.success) {
-      setSubmitSuccess("✅ נרשמת בהצלחה! ניתן להתחבר כעת.");
+      setSubmitSuccess("📨 ההרשמה התקבלה! שלחנו אליך קוד אימות להמשך.");
+      setPhase("otp");
+      setPendingEmail(trimmedEmail);
+      setOtpCode("");
+      setOtpError("");
+      setOtpDetails([]);
+    } else {
+      setSubmitError(`❌ ${result.message || "שגיאה בהרשמה"}`);
+      setServerDetails(result.details || []);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setOtpError("");
+    setOtpSuccess("");
+    setOtpDetails([]);
+
+    const normalizedEmail =
+      pendingEmail || account.email.trim().toLowerCase() || "";
+
+    if (!normalizedEmail) {
+      setOtpError("❌ יש למלא כתובת אימייל תקינה בשלב הראשון.");
+      return;
+    }
+
+    if (!otpCode.trim()) {
+      setOtpError("❌ יש להזין את קוד האימות שקיבלת.");
+      return;
+    }
+
+    setOtpLoading(true);
+    const result = await confirmRegistration({
+      email: normalizedEmail,
+      otp: otpCode.trim(),
+    });
+    setOtpLoading(false);
+
+    if (result.success) {
+      setOtpSuccess("✅ ההרשמה הושלמה! ניתן להתחבר כעת.");
+      setSubmitSuccess("");
       setAccount({ ...initialAccount });
       setFamilyMembers([]);
+      setPhase("form");
+      setPendingEmail("");
+      setOtpCode("");
       setTouched({
         name: false,
         email: false,
@@ -232,9 +293,10 @@ export default function Register() {
         confirm: "",
         idNumber: "",
       });
-      setTimeout(() => navigate("/login"), 600);
+      setTimeout(() => navigate("/login"), 800);
     } else {
-      setSubmitError(`❌ ${result.message || "שגיאה בהרשמה"}`);
+      setOtpError(`❌ ${result.message || "אימות הקוד נכשל"}`);
+      setOtpDetails(result.details || []);
     }
   };
 
@@ -266,6 +328,26 @@ export default function Register() {
             </span>{" "}
             כדי ליצור חשבון חדש
           </p>
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold">
+            <span
+              className={`px-3 py-1 rounded-full border ${
+                phase === "form"
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-indigo-50 text-indigo-700 border-indigo-200"
+              }`}
+            >
+              שלב 1: פרטי הרשמה
+            </span>
+            <span
+              className={`px-3 py-1 rounded-full border ${
+                phase === "otp"
+                  ? "bg-emerald-600 text-white border-emerald-600"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
+              }`}
+            >
+              שלב 2: אימות קוד
+            </span>
+          </div>
         </div>
 
         {/* Main User Info */}
@@ -502,11 +584,67 @@ export default function Register() {
           )}
         </div>
 
+        {phase === "otp" && (
+          <div className="p-6 border border-emerald-200 rounded-2xl bg-emerald-50/60 shadow-md space-y-3">
+            <h3 className="text-lg font-bold text-emerald-700 border-b border-emerald-100 pb-1">
+              אימות קוד שנשלח אליך
+            </h3>
+            <p className="text-sm text-emerald-900">
+              קוד האימות נשלח לכתובת{" "}
+              <span className="font-semibold">{pendingEmail || account.email}</span>. יש
+              להקליד אותו כדי להשלים את פתיחת החשבון.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                placeholder="הקלד/י את קוד האימות"
+                className="flex-1 px-3 py-2 border rounded-lg bg-white shadow-inner text-sm focus:ring-2 focus:ring-emerald-400 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleVerifyOtp}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl font-semibold text-white bg-gradient-to-r from-emerald-600 via-green-600 to-teal-500 shadow-md transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg hover:brightness-105 active:scale-[0.98]"
+                disabled={otpLoading}
+              >
+                {otpLoading ? "מאמת..." : "אימות קוד והשלמת הרשמה"}
+              </button>
+            </div>
+            {otpError && (
+              <div className="bg-rose-50 text-rose-700 text-sm rounded-lg p-3 border border-rose-100">
+                {otpError}
+              </div>
+            )}
+            {otpDetails.length > 0 && (
+              <ul className="bg-amber-50 text-amber-800 text-xs rounded-lg p-3 border border-amber-100 space-y-1 list-disc list-inside">
+                {otpDetails.map((detail, idx) => (
+                  <li key={idx}>{detail}</li>
+                ))}
+              </ul>
+            )}
+            {otpSuccess && (
+              <div className="bg-emerald-50 text-emerald-700 text-sm rounded-lg p-3 border border-emerald-100">
+                {otpSuccess}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Submit */}
         {submitError && (
           <div className="bg-rose-50 text-rose-600 text-sm rounded-lg p-3 border border-rose-100">
             {submitError}
           </div>
+        )}
+        {serverDetails.length > 0 && (
+          <ul className="bg-amber-50 text-amber-800 text-xs rounded-lg p-3 border border-amber-100 space-y-1 list-disc list-inside">
+            {serverDetails.map((detail, idx) => (
+              <li key={idx}>{detail}</li>
+            ))}
+          </ul>
         )}
         {submitSuccess && (
           <div className="bg-emerald-50 text-emerald-700 text-sm rounded-lg p-3 border border-emerald-100">
@@ -522,7 +660,11 @@ export default function Register() {
               : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
           }`}
         >
-          {loading ? "שומר..." : "סיום הרשמה"}
+          {loading
+            ? "שומר..."
+            : phase === "otp"
+            ? "שליחת קוד חדש"
+            : "שלח קוד אימות"}
         </button>
       </form>
     </div>

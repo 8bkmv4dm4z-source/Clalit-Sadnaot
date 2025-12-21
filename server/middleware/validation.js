@@ -48,11 +48,10 @@ const validateRegister = celebrate({
     // ✅ 2. FIX: Validate Confirm Password & Strip It
     confirmPassword: Joi.string()
       .valid(Joi.ref("password")) // Must match "password"
-      .required()
+      .optional()
       .strip() // Removes field after validation so it doesn't reach the DB
       .messages({
         "any.only": "Passwords do not match",
-        "any.required": "Confirm password is required",
       }),
 
     phone: Joi.string().trim().pattern(phonePattern).optional(),
@@ -62,6 +61,38 @@ const validateRegister = celebrate({
     familyMembers: Joi.array().items(familyMemberSchema).max(20).optional(),
     role: Joi.string().valid("user").optional(),
   }).unknown(false), // Safe to keep false now that confirmPassword is handled
+});
+
+const validateRegistrationRequest = celebrate({
+  [Segments.BODY]: Joi.object({
+    name: Joi.string().trim().pattern(safeText).max(80).required(),
+    email: Joi.string().email().lowercase().trim().required(),
+    password: Joi.string()
+      .min(8)
+      .max(64)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).+$/)
+      .message("Password must include an uppercase letter, lowercase letter, number, and special character.")
+      .required(),
+    confirmPassword: Joi.string().valid(Joi.ref("password")).optional().strip(),
+    phone: Joi.string().trim().pattern(phonePattern).optional(),
+    city: Joi.string().trim().pattern(safeText).max(60).optional(),
+    idNumber: Joi.string().trim().pattern(idPattern).optional(),
+    birthDate: Joi.date().iso().optional(),
+    canCharge: Joi.boolean().optional(),
+    familyMembers: Joi.array().items(familyMemberSchema).max(20).optional(),
+  }).unknown(false),
+});
+
+const validateRegistrationOtp = celebrate({
+  [Segments.BODY]: Joi.object({
+    email: Joi.string().email().lowercase().trim().required(),
+    otp: Joi.alternatives()
+      .try(
+        Joi.string().length(6).pattern(/^\d+$/),
+        Joi.number().integer().min(100000).max(999999)
+      )
+      .required(),
+  }).unknown(false),
 });
 
 const validateLogin = celebrate({
@@ -445,6 +476,8 @@ const validateProfile = celebrate({
    ============================================================ */
 module.exports = {
   validateRegister,
+  validateRegistrationRequest,
+  validateRegistrationOtp,
   validateLogin,
   validateOTP,
   validatePasswordReset,

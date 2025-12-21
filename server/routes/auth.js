@@ -6,6 +6,8 @@ const { refreshAccessToken, logout } = require("../controllers/authController");
 
 const {
   registerUser,
+  requestRegistration,
+  verifyRegistrationOtp,
   loginUser,
   sendOtp,
   verifyOtp,
@@ -20,6 +22,8 @@ const {
 const {
   validateSendOtp,
   validateRegister,
+  validateRegistrationRequest,
+  validateRegistrationOtp,
   validateLogin,
   validateOTP,
   validatePasswordResetRequest,
@@ -130,6 +134,25 @@ function otpEmailLimiter(req, res, next) {
 // ============================================================
 // 🧩 Auth Routes
 // ============================================================
+
+// 🟢 New: start registration (pending until OTP confirmed)
+router.post(
+  "/register/request",
+  generalAuthLimiter,
+  registrationLimiter,
+  enforceRegistrationVelocity,
+  validateRegistrationRequest,
+  requestRegistration
+);
+
+// 🟢 New: confirm registration OTP
+router.post(
+  "/register/verify",
+  otpLimiter,
+  otpEmailLimiter,
+  validateRegistrationOtp,
+  verifyRegistrationOtp
+);
 
 // 🟢 Register new user
 router.post(

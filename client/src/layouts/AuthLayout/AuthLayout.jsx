@@ -124,6 +124,8 @@ const AuthContext = createContext({
   logout: () => {},
   loginWithPassword: async () => {},
   completeLogin: async () => {},
+  startRegistration: async () => {},
+  confirmRegistration: async () => {},
   registerUser: async () => {},
   sendOtp: async () => {},
   verifyOtp: async () => {},
@@ -330,8 +332,104 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   /* ============================================================
-     📝 Register
+     📝 Register (legacy) + two-step flow
      ============================================================ */
+  const startRegistration = async (payload) => {
+    log("📩 startRegistration called:", payload?.email);
+    try {
+      const res = await apiFetch("/api/auth/register/request", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        const { message: friendly, details } = translateAuthError(
+          "register",
+          res.status,
+          data
+        );
+        publishEvent({
+          type: "error",
+          title: "הרשמה נכשלה",
+          message: friendly,
+          meta: details?.length ? { details } : undefined,
+        });
+        return {
+          success: false,
+          status: res.status,
+          message: friendly,
+          details: details || [],
+        };
+      }
+
+      publishEvent({
+        type: "info",
+        title: "קוד אימות נשלח",
+        message: "שלחנו אליך קוד אימות להשלמת ההרשמה.",
+        ttl: 6000,
+      });
+      return { success: true, data };
+    } catch (err) {
+      const { message: friendly } = translateNetworkError(err);
+      log("❌ startRegistration error:", err.message);
+      publishEvent({
+        type: "error",
+        title: "הרשמה נכשלה",
+        message: friendly,
+      });
+      return { success: false, message: friendly };
+    }
+  };
+
+  const confirmRegistration = async ({ email, otp }) => {
+    log("🔐 confirmRegistration called:", email);
+    try {
+      const res = await apiFetch("/api/auth/register/verify", {
+        method: "POST",
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        const { message: friendly, details } = translateAuthError(
+          "register",
+          res.status,
+          data
+        );
+        publishEvent({
+          type: "error",
+          title: "אימות קוד נכשל",
+          message: friendly,
+          meta: details?.length ? { details } : undefined,
+        });
+        return {
+          success: false,
+          status: res.status,
+          message: friendly,
+          details: details || [],
+        };
+      }
+
+      publishEvent({
+        type: "success",
+        title: "ההרשמה הושלמה",
+        message: "החשבון נוצר בהצלחה! ניתן להתחבר כעת.",
+        ttl: 4000,
+      });
+      return { success: true, data };
+    } catch (err) {
+      const { message: friendly } = translateNetworkError(err);
+      log("❌ confirmRegistration error:", err.message);
+      publishEvent({
+        type: "error",
+        title: "אימות קוד נכשל",
+        message: friendly,
+      });
+      return { success: false, message: friendly };
+    }
+  };
+
   const registerUser = async (payload) => {
     log("📩 registerUser called:", payload?.email);
     try {
@@ -663,6 +761,8 @@ export const AuthProvider = ({ children }) => {
         logout,
         loginWithPassword,
         completeLogin,
+        startRegistration,
+        confirmRegistration,
         registerUser,
         sendOtp,
         verifyOtp,
