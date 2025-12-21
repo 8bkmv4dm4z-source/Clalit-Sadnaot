@@ -1,4 +1,5 @@
 // src/components/ImageSelector.jsx
+/* global File, URL */
 import React, { useRef } from 'react';
 import { WORKSHOP_IMAGES } from '../constants/workshopImages';
 import { Upload } from 'lucide-react';

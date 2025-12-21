@@ -3,6 +3,7 @@
  * -----------------------------------------------------------------------------
  * UPDATED: Includes Hybrid Image Selector (Presets + Custom Uploads).
  */
+/* global File, FormData */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
