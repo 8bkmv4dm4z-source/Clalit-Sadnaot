@@ -376,6 +376,16 @@ async function attachUserIfPresent(req) {
 
 // controllers/workshopController.js
 const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const clampLimit = (value, fallback = 10, max = 100) => {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+};
+const clampSkip = (value = 0) => {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) return 0;
+  return parsed;
+};
 
 // 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
@@ -383,9 +393,15 @@ exports.getAllWorkshops = async (req, res) => {
     await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
     const requesterRole = req.user?.role || "user";
+    const limit = clampLimit(req.query.limit, 10, 100);
+    const skip = clampSkip(req.query.skip);
 
-    const workshops = await Workshop.find({})
-      .populate(
+    const [workshops, total] = await Promise.all([
+      Workshop.find({})
+        .sort({ startDate: 1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate(
   "participants",
   "entityKey name email phone city birthDate idNumber"
 )
@@ -405,7 +421,9 @@ exports.getAllWorkshops = async (req, res) => {
   "waitingList.familyMemberId",
   "entityKey name relation phone city birthDate idNumber"
 )
-      .lean(false);
+        .lean(false),
+      Workshop.countDocuments({}),
+    ]);
 
     const result = workshops.map((w) => {
       const decorated = w.toObject();
@@ -417,7 +435,19 @@ exports.getAllWorkshops = async (req, res) => {
       });
     });
 
-    return res.status(200).json({ data: result });
+    const nextSkip = skip + workshops.length;
+    const hasMore = nextSkip < total;
+
+    return res.status(200).json({
+      data: result,
+      meta: {
+        total,
+        limit,
+        skip,
+        nextSkip,
+        hasMore,
+      },
+    });
   } catch (err) {
     console.error("❌ getAllWorkshops error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -1973,7 +2003,5 @@ exports.searchWorkshops = async (req, res) => {
     });
   }
 };
-
-
 
 

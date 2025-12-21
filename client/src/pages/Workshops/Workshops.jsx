@@ -5,8 +5,9 @@
  * It leverages the WorkshopContext for all data fetching and state management,
  * ensuring a clean separation of concerns and maintainable code.
  */
+/* global IntersectionObserver */
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
@@ -38,6 +39,9 @@ export default function Workshops() {
     fetchAvailableCities,
     selectedWorkshop,
     setSelectedWorkshop,
+    loadMoreWorkshops,
+    loadingMore,
+    pagination,
   } = useWorkshops();
 
   /* ============================================================
@@ -75,6 +79,45 @@ export default function Workshops() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // 🔽 Infinite scroll / swipe-to-load for mobile
+  const loadMoreRef = useRef(null);
+  useEffect(() => {
+    if (!loadMoreRef.current || viewMode !== "all") return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (
+          first.isIntersecting &&
+          pagination?.hasMore &&
+          !loading &&
+          !loadingMore
+        ) {
+          loadMoreWorkshops();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [
+    viewMode,
+    pagination?.hasMore,
+    loadMoreWorkshops,
+    loading,
+    loadingMore,
+  ]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    if (viewMode !== "all") return;
+    if (!pagination?.hasMore) return;
+    if (loading || loadingMore) return;
+    loadMoreWorkshops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -332,31 +375,50 @@ export default function Workshops() {
           </p>
         )
       ) : (
-        <motion.div layout className={`${gridClass} mt-10`}>
-          <AnimatePresence mode="popLayout">
-            {filteredWorkshops.map((w) => (
-              <motion.div
-                key={w._id}
-                layout
-                initial={{ opacity: 0, y: 14, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.98 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
-                className="h-full"
+        <>
+          <motion.div layout className={`${gridClass} mt-10`}>
+            <AnimatePresence mode="popLayout">
+              {filteredWorkshops.map((w) => (
+                <motion.div
+                  key={w._id}
+                  layout
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.98 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="h-full"
+                >
+                  <WorkshopCard
+                    _id={w._id}
+                    isLoggedIn={isLoggedIn}
+                    isAdmin={isAdmin}
+                    searchQuery={searchQuery}
+                    onManageParticipants={() => handleManageParticipants(w._id)}
+                    onEditWorkshop={() => handleEditWorkshop(w._id)}
+                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
+          <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 mt-8">
+            {loadingMore && (
+              <p className="text-sm text-gray-500">⏳ טוען עוד סדנאות...</p>
+            )}
+            {!loading && !loadingMore && pagination?.hasMore && (
+              <button
+                onClick={loadMoreWorkshops}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white shadow hover:bg-indigo-700 transition"
               >
-                <WorkshopCard
-                  _id={w._id}
-                  isLoggedIn={isLoggedIn}
-                  isAdmin={isAdmin}
-                  searchQuery={searchQuery}
-                  onManageParticipants={() => handleManageParticipants(w._id)}
-                  onEditWorkshop={() => handleEditWorkshop(w._id)}
-                  onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-                />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </motion.div>
+                טען עוד סדנאות
+              </button>
+            )}
+            {!loading && !loadingMore && !pagination?.hasMore && (
+              <p className="text-sm text-gray-500">הצגת כל הסדנאות הזמינות</p>
+            )}
+            <div ref={loadMoreRef} className="h-1 w-full" />
+          </div>
+        </>
       )}
 
       {/* 🪟 Participants Modal */}

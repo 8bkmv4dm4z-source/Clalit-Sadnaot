@@ -94,10 +94,17 @@ export const WorkshopProvider = ({ children }) => {
   const [registeredWorkshopIds, setRegisteredWorkshopIds] = useState([]);
 
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
 
   const [viewMode, setViewMode] = useState("all"); // "all" | "mine"
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
+  const [pagination, setPagination] = useState({
+    limit: 10,
+    skip: 0,
+    total: 0,
+    hasMore: true,
+  });
 
   // Derived maps (context-only, never mutated directly)
   const [userWorkshopMap, setUserWorkshopMap] = useState({});   // { [workshopId]: true }
@@ -129,14 +136,39 @@ export const WorkshopProvider = ({ children }) => {
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
-  async function fetchAllWorkshops(force = false) {
-    log(`📡 Fetching all workshops (force=${force})`);
-    dbgCtx("fetchAllWorkshops:start", { force });
-    setLoading(true);
+  async function fetchAllWorkshops(options = {}) {
+    const opts = typeof options === "boolean" ? { force: options } : options;
+    const {
+      force = false,
+      limit = pagination.limit || 10,
+      skip = force ? 0 : pagination.skip || 0,
+      append = false,
+    } = opts;
+
+    log(
+      `📡 Fetching all workshops (force=${force}, limit=${limit}, skip=${skip}, append=${append})`
+    );
+    dbgCtx("fetchAllWorkshops:start", { force, limit, skip, append });
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError(null);
 
+    if (force && !append) {
+      setPagination((prev) => ({
+        ...prev,
+        limit: limit || prev.limit || 10,
+        skip: 0,
+        total: 0,
+        hasMore: true,
+      }));
+    }
+
     try {
-      const res = await apiFetch("/api/workshops");
+      const params = new URLSearchParams();
+      params.set("limit", limit);
+      params.set("skip", skip);
+
+      const res = await apiFetch(`/api/workshops?${params.toString()}`);
       const raw = await res.json();
 
       dbgCtx("fetchAllWorkshops:raw-response", {
@@ -283,22 +315,77 @@ export const WorkshopProvider = ({ children }) => {
           };
         })
         .filter(Boolean); // clean list
+      const mergeLists = (existing = [], incoming = []) => {
+        const seen = new Set();
+        const merged = [];
 
-      log(`✅ Workshops loaded (${normalizedList.length})`);
-      setWorkshops(normalizedList);
-      return normalizedList;
+        for (const w of existing) {
+          const wid = sid(w?._id);
+          if (wid && !seen.has(wid)) {
+            seen.add(wid);
+            merged.push(w);
+          }
+        }
+
+        for (const w of incoming) {
+          const wid = sid(w?._id);
+          if (wid && !seen.has(wid)) {
+            seen.add(wid);
+            merged.push(w);
+          }
+        }
+
+        return merged;
+      };
+
+      let updatedList = normalizedList;
+
+      setWorkshops((prev) => {
+        if (append) {
+          updatedList = mergeLists(prev, normalizedList);
+          return updatedList;
+        }
+        updatedList = normalizedList;
+        return normalizedList;
+      });
+
+      const meta = raw?.meta || raw?.pagination || {};
+      const totalFromMeta =
+        typeof meta.total === "number" ? meta.total : undefined;
+      const nextSkipFromMeta =
+        typeof meta.nextSkip === "number" ? meta.nextSkip : undefined;
+      const hasMoreFromMeta =
+        typeof meta.hasMore === "boolean" ? meta.hasMore : undefined;
+
+      const total =
+        totalFromMeta ??
+        (append ? (updatedList?.length || 0) : normalizedList.length);
+      const nextSkip = nextSkipFromMeta ?? skip + normalizedList.length;
+      const hasMore =
+        hasMoreFromMeta !== undefined ? hasMoreFromMeta : nextSkip < total;
+
+      setPagination({
+        limit,
+        skip: nextSkip,
+        total,
+        hasMore,
+      });
+
+      log(`✅ Workshops loaded (${updatedList.length})`);
+      return updatedList;
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
       setError(err.message);
       return [];
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
   }
 
   /* 👈 NEW: initial fetch on mount (public view works even before auth events) */
   useEffect(() => {
-    fetchAllWorkshops(true);
+    fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
   }, []);
 
   /* ============================================================
@@ -339,10 +426,11 @@ export const WorkshopProvider = ({ children }) => {
     }
   }
 
-  function fetchWorkshops(force = false) {
-    log(`🔁 fetchWorkshops() called | force=${force}`);
-    dbgCtx("fetchWorkshops:call", { force });
-    return fetchAllWorkshops(force);
+  function fetchWorkshops(options = {}) {
+    const opts = typeof options === "boolean" ? { force: options } : options;
+    log(`🔁 fetchWorkshops() called | force=${opts.force === true}`);
+    dbgCtx("fetchWorkshops:call", { opts });
+    return fetchAllWorkshops(opts);
   }
 
   /* ============================================================
@@ -358,15 +446,15 @@ export const WorkshopProvider = ({ children }) => {
       setRegisteredWorkshopIds([]);
       setSelectedWorkshop(null);
       // refetch public list and render it right away
-      fetchAllWorkshops(true)?.then((list) =>
-        setDisplayedWorkshops(list || [])
+      fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 })?.then(
+        (list) => setDisplayedWorkshops(list || [])
       );
     };
 
     const onLoggedIn = () => {
       dbgCtx("event:auth-logged-in");
       // load both public list (for maps) and private registrations
-      fetchAllWorkshops(true);
+      fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       fetchRegisteredWorkshops();
     };
 
@@ -374,7 +462,7 @@ export const WorkshopProvider = ({ children }) => {
       const loggedIn = !!e?.detail?.loggedIn;
       dbgCtx("event:auth-ready", { loggedIn });
       if (loggedIn) {
-        fetchAllWorkshops(true);
+        fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
         fetchRegisteredWorkshops();
       } else {
         onLoggedOut();
@@ -384,7 +472,7 @@ export const WorkshopProvider = ({ children }) => {
     const onUserUpdated = () => {
       dbgCtx("event:auth-user-updated");
       // user/family changed → safe to refetch so maps rebuild
-      fetchAllWorkshops(true);
+      fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       if (viewMode === "mine") fetchRegisteredWorkshops();
     };
 
@@ -542,7 +630,7 @@ export const WorkshopProvider = ({ children }) => {
       if (!res.ok) throw new Error(data.message || "Failed to register");
 
       // Always refresh after modifying workshop state
-      await fetchAllWorkshops(true);
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       await fetchRegisteredWorkshops();
       await fetchProfiles();
 
@@ -581,7 +669,7 @@ export const WorkshopProvider = ({ children }) => {
 
       if (!res.ok) throw new Error(data.message || "Failed to unregister");
 
-      await fetchAllWorkshops(true);
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       await fetchRegisteredWorkshops();
       await fetchProfiles();
 
@@ -620,7 +708,7 @@ export const WorkshopProvider = ({ children }) => {
 
       if (!res.ok) throw new Error(data.message || "Failed to join waitlist");
 
-      await fetchAllWorkshops(true);
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       await fetchRegisteredWorkshops();
       await fetchProfiles();
 
@@ -666,7 +754,7 @@ export const WorkshopProvider = ({ children }) => {
 
       if (!res.ok) throw new Error(data.message || "Failed to leave waitlist");
 
-      await fetchAllWorkshops(true);
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       await fetchRegisteredWorkshops();
       await fetchProfiles();
 
@@ -699,7 +787,7 @@ export const WorkshopProvider = ({ children }) => {
       dbgCtx("deleteWorkshop:raw-response", { ok: res.ok });
       if (!res.ok)
         throw new Error(data.message || "Failed to delete workshop");
-      await fetchAllWorkshops(true); // refresh from server
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 }); // refresh from server
       dbgCtx("deleteWorkshop:success", { id });
       return { success: true, message: "Workshop deleted successfully" };
     } catch (err) {
@@ -723,7 +811,7 @@ export const WorkshopProvider = ({ children }) => {
       });
       if (!res.ok)
         throw new Error(data.message || "Failed to create workshop");
-      await fetchAllWorkshops(true); // refresh
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 }); // refresh
       return { success: true, data };
     } catch (err) {
       console.error("❌ createWorkshop error:", err);
@@ -746,7 +834,7 @@ export const WorkshopProvider = ({ children }) => {
       });
       if (!res.ok)
         throw new Error(data.message || "Failed to update workshop");
-      await fetchAllWorkshops(true);
+      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       return { success: true, data };
     } catch (err) {
       console.error("❌ updateWorkshop error:", err);
@@ -829,6 +917,21 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
+  const loadMoreWorkshops = async () => {
+    dbgCtx("loadMoreWorkshops:call", {
+      loading,
+      loadingMore,
+      hasMore: pagination.hasMore,
+      nextSkip: pagination.skip,
+    });
+    if (loadingMore || loading || !pagination.hasMore) return [];
+    return fetchAllWorkshops({
+      limit: pagination.limit || 10,
+      skip: pagination.skip || workshops.length || 0,
+      append: true,
+    });
+  };
+
   /* ============================================================
      🧠 Provider
      ============================================================ */
@@ -846,6 +949,7 @@ export const WorkshopProvider = ({ children }) => {
         mapsReady,
 
         loading,
+        loadingMore,
         error,
         viewMode,
         setViewMode,
@@ -853,6 +957,7 @@ export const WorkshopProvider = ({ children }) => {
         setSelectedWorkshop,
 
         fetchWorkshops,
+        loadMoreWorkshops,
         fetchRegisteredWorkshops,
 
         deleteWorkshop,
@@ -865,6 +970,7 @@ export const WorkshopProvider = ({ children }) => {
         validateAddress,
 
         exportWorkshop,
+        pagination,
 
         // Admin mutations
         createWorkshop,
