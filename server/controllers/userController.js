@@ -7,6 +7,11 @@ const {
 } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
+const pickFields = (obj = {}, allowed = []) =>
+  allowed.reduce((acc, key) => {
+    if (obj[key] !== undefined) acc[key] = obj[key];
+    return acc;
+  }, {});
 
 
 
@@ -491,12 +496,12 @@ exports.createUser = async (req, res) => {
 exports.updateEntity = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
-    const { entityKey, updates } = req.body;
+    const { entityKey, updates: rawUpdates } = req.body;
     const requester = req.user;
     const isAdmin = requester?.role === "admin";
 
     if (!entityKey) return res.status(400).json({ message: "Missing entityKey" });
-    if (!updates || typeof updates !== "object")
+    if (!rawUpdates || typeof rawUpdates !== "object")
       return res.status(400).json({ message: "Missing updates payload" });
 
     const resolved = await resolveEntityByKey(entityKey);
@@ -511,7 +516,8 @@ exports.updateEntity = async (req, res) => {
     if (resolved.type === "user") {
       assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
 
-      const requestedKeys = Object.keys(updates || {});
+      const updates = pickFields(rawUpdates, userAllowedFields);
+      const requestedKeys = Object.keys(rawUpdates || {});
       const invalidKeys = requestedKeys.filter((key) => !userAllowedFields.includes(key));
       if (invalidKeys.length) {
         return res
@@ -519,9 +525,7 @@ exports.updateEntity = async (req, res) => {
           .json({ message: "Some fields require admin access", fields: invalidKeys });
       }
 
-      for (const key of userAllowedFields) {
-        if (updates[key] !== undefined) resolved.userDoc[key] = updates[key];
-      }
+      Object.assign(resolved.userDoc, updates);
       await resolved.userDoc.save();
       return res.json({
         success: true,
@@ -530,7 +534,8 @@ exports.updateEntity = async (req, res) => {
       });
     }
 
-    const requestedKeys = Object.keys(updates || {});
+    const updates = pickFields(rawUpdates, familyAllowed);
+    const requestedKeys = Object.keys(rawUpdates || {});
     const invalidKeys = requestedKeys.filter((key) => !familyAllowed.includes(key));
     if (invalidKeys.length) {
       return res
@@ -540,9 +545,7 @@ exports.updateEntity = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
     const member = resolved.memberDoc;
-    for (const key of familyAllowed) {
-      if (updates[key] !== undefined) member[key] = updates[key];
-    }
+    Object.assign(member, updates);
 
     await resolved.userDoc.save();
 
@@ -692,4 +695,3 @@ exports.getUserWorkshopsList = async (req, res) => {
       .json({ message: "Server error fetching workshops list", error: err.message });
   }
 };
-

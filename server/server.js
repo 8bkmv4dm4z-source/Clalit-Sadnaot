@@ -31,7 +31,10 @@ const { startAuditScheduler } = require("./services/auditService");
 const { runAllHashAudits } = require("./audit/hashAudit");
 
 const app = express();
-app.set("trust proxy", 1);
+const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS || 1);
+app.set("trust proxy", TRUST_PROXY_HOPS);
+
+const isProd = process.env.NODE_ENV === "production";
 
 /* ----------------------------
  * Helpers
@@ -134,6 +137,28 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginOpenerPolicy: false,
+    hsts: isProd
+      ? {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        }
+      : false,
+    contentSecurityPolicy: isProd
+      ? {
+          useDefaults: true,
+          directives: {
+            "default-src": ["'self'"],
+            "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            "style-src": ["'self'", "'unsafe-inline'"],
+            "img-src": ["'self'", "data:", "https:"],
+            "connect-src": ["'self'", ...ALL_ALLOWED_ORIGINS],
+            "frame-ancestors": ["'none'"],
+          },
+        }
+      : false,
+    referrerPolicy: { policy: "no-referrer" },
+    hidePoweredBy: true,
   })
 );
 

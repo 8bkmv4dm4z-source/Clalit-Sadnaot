@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const { runWorkshopAudit } = require("../services/workshopAuditService");
+const { perUserRateLimit } = require("../middleware/perUserRateLimit");
 
 const {
   authenticate: protect,
@@ -18,6 +19,11 @@ const {
   validateWorkshopUnregister,
   validateWaitlistEntity,
 } = require("../middleware/validation");
+
+const participantActionLimiter = perUserRateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 15,
+});
 
 /* ============================================================
    🟢 STATIC / META ROUTES (MUST BE FIRST)
@@ -81,6 +87,7 @@ router.get("/", workshopController.getAllWorkshops);
 router.post(
   "/:id/register-entity",
   protect,
+  participantActionLimiter,
   validateWorkshopRegistration,
   workshopController.registerEntityToWorkshop
 );
@@ -88,6 +95,7 @@ router.post(
 router.delete(
   "/:id/unregister-entity",
   protect,
+  participantActionLimiter,
   validateWorkshopUnregister,
   workshopController.unregisterEntityFromWorkshop
 );
@@ -96,6 +104,7 @@ router.delete(
 router.post(
   "/:id/waitlist-entity",
   protect,
+  participantActionLimiter,
   validateWaitlistEntity,
   workshopController.addEntityToWaitlist
 );
@@ -103,6 +112,7 @@ router.post(
 router.delete(
   "/:id/waitlist-entity",
   protect,
+  participantActionLimiter,
   validateWaitlistEntity,
   workshopController.removeEntityFromWaitlist
 );
@@ -129,6 +139,7 @@ router.get(
 router.get(
   "/:id/participants",
   protect,
+  authorizeAdmin,
   workshopController.getWorkshopParticipants
 );
 

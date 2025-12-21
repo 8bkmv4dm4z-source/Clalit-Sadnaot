@@ -4,6 +4,7 @@ const express = require('express');
 
 process.env.NODE_ENV = 'test';
 process.env.DEV_ADMIN_SECRET = 'super-secret-key';
+process.env.PUBLIC_ID_SECRET = process.env.PUBLIC_ID_SECRET || 'test-public-id-secret';
 
 const User = require('../models/User');
 

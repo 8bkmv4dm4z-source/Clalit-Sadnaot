@@ -39,6 +39,7 @@ const RegistrationRequestSchema = new mongoose.Schema(
     meta: {
       ip: { type: String, default: "" },
       userAgent: { type: String, default: "" },
+      otpLastSent: { type: Number, default: 0 },
     },
   },
   { timestamps: true }

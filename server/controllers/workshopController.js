@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const Workshop = require("../models/Workshop");
 const User = require("../models/User");
 const ExcelJS = require('exceljs');
@@ -22,6 +23,85 @@ const {
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
 const { normalizeEntity } = require("../services/entities/normalize");
+
+const toEntityKey = (doc, type = "user") => {
+  if (!doc) return null;
+  const source = doc.entityKey || (doc._id ? hashId(type, String(doc._id)) : "");
+  if (!source) return null;
+  const hex = crypto.createHash("sha256").update(String(source)).digest("hex"); // 64 hex chars
+  const uuidish = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  return uuidish;
+  return null;
+};
+
+const formatParticipant = (participant, { adminView = false } = {}) => {
+  const base = {
+    entityKey: toEntityKey(participant, "user"),
+    name: participant.name,
+    email: participant.email || "",
+    phone: participant.phone || "",
+    city: participant.city || "",
+    canCharge: !!participant.canCharge,
+    isFamily: !!participant.isFamily,
+    parentKey: participant.parentKey || null,
+  };
+
+  if (participant.isFamily) {
+    base.relation = participant.relation || "";
+  }
+
+  if (adminView) {
+    // Admin view keeps contact details but omits full PII like idNumber/birthDate
+    return base;
+  }
+
+  // User view strips contact channels for non-owners
+  return {
+    entityKey: base.entityKey,
+    name: base.name,
+    relation: base.relation,
+    isFamily: base.isFamily,
+    parentKey: base.parentKey,
+  };
+};
+
+const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => {
+  const participants = (workshop?.participants || []).map((u) =>
+    formatParticipant(
+      {
+        ...u,
+        isFamily: false,
+      },
+      { adminView }
+    )
+  );
+
+  const familyRegistrations = (workshop?.familyRegistrations || []).map((f) => {
+    const parent = f.parentUser || {};
+    return formatParticipant(
+      {
+        entityKey: toEntityKey(f.familyMemberId, "family"),
+        parentKey: toEntityKey(parent, "user"),
+        name: f.name || "",
+        relation: f.relation || "",
+        email: f.email || parent.email || "",
+        phone: f.phone || parent.phone || "",
+        city: f.city || parent.city || "",
+        isFamily: true,
+        canCharge: !!parent.canCharge,
+      },
+      { adminView }
+    );
+  });
+
+  const all = [...participants, ...familyRegistrations];
+  return {
+    participants: all,
+    participantsCount: all.length,
+    directCount: participants.length,
+    familyCount: familyRegistrations.length,
+  };
+};
 
 /**
  * API + frontend consumer matrix (keep aligned with client WorkshopContext):
@@ -955,6 +1035,10 @@ exports.deleteWorkshop = async (req, res) => {
 // controllers/workshopController.js
 exports.getWorkshopParticipants = async (req, res) => {
   try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const workshopDoc = await loadWorkshopByIdentifier(req.params.id);
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
@@ -970,51 +1054,9 @@ exports.getWorkshopParticipants = async (req, res) => {
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
-    // Normalize direct participants
-    const participants = (workshop.participants || []).map((u) => ({
-      _id: u._id,
-      name: u.name,
-      email: u.email || "",
-      phone: u.phone || "",
-      city: u.city || "",
-      birthDate: u.birthDate || null,
-      idNumber: u.idNumber || "",
-      canCharge: !!u.canCharge,
-      isFamily: false,
-    }));
+    const normalized = normalizeWorkshopParticipants(workshop, { adminView: true });
 
-    // Normalize family registrations
-    const familyRegistrations = (workshop.familyRegistrations || []).map((f) => {
-      const parent = f.parentUser || {};
-      return {
-        _id: f.familyMemberId,
-        familyMemberId: f.familyMemberId,
-        parentId: parent._id || null,
-        parentEmail: parent.email || "",
-        parentPhone: parent.phone || "",
-        name: f.name || "",
-        relation: f.relation || "",
-        email: f.email || parent.email || "",
-        phone: f.phone || parent.phone || "",
-        city: f.city || parent.city || "",
-        idNumber: f.idNumber || "",
-        birthDate: f.birthDate || null,
-        canCharge: !!parent.canCharge,
-        isFamily: true,
-      };
-    });
-
-
-    // ✅ Return unified array (for UI simplicity)
-    const all = [...participants, ...familyRegistrations];
-    const participantsCount = all.length;
-
-    return res.json({
-      participants: all,
-      participantsCount,
-      directCount: participants.length,
-      familyCount: familyRegistrations.length,
-    });
+    return res.json(normalized);
   } catch (err) {
     console.error("❌ getWorkshopParticipants error:", err);
     res.status(500).json({ message: "Server error fetching participants" });
@@ -1053,106 +1095,142 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const parentId = parentUser._id;
     const memberId = member?._id || null;
 
-    // Duplicate check
-    const alreadyRegistered = member
-      ? workshop.familyRegistrations.some(
-          (r) =>
-            String(r.familyMemberId) === String(memberId) &&
-            String(r.parentUser) === String(parentId)
-        )
-      : workshop.participants.some((p) => String(p) === String(parentId));
+    const capacityFilter =
+      workshop.maxParticipants && workshop.maxParticipants > 0
+        ? { participantsCount: { $lt: workshop.maxParticipants } }
+        : {};
 
-    const alreadyQueued = (workshop.waitingList || []).some((w) => {
-      const sameParent = String(w.parentUser) === String(parentId);
-      if (member) {
-        return sameParent && String(w.familyMemberId) === String(memberId);
-      }
-      return sameParent && !w.familyMemberId;
+    const baseFilter = { _id: workshop._id, ...capacityFilter };
+    let updatedWorkshop = null;
+    const registrationEntry = buildRegistrationEntry({
+      parentUser,
+      memberDoc: member,
     });
 
-    if (alreadyRegistered)
-      return res
-        .status(400)
-        .json({ success: false, message: "Entity already registered" });
-
-    if (alreadyQueued)
-      return res
-        .status(400)
-        .json({ success: false, message: "Entity already in waiting list" });
-
-    // Capacity check
-    const hasSpace = workshop.canAddParticipant();
-    const waitingFull =
-      workshop.waitingListMax > 0 &&
-      workshop.waitingList.length >= workshop.waitingListMax;
-
-    // If full → go to canonical waitlist
-    if (!hasSpace) {
-      if (waitingFull) {
-        return res.status(400).json({
-          success: false,
-          message: "Workshop is full and waiting list is full",
-        });
-      }
-
-      // call unified waitlist logic
-      return exports.addEntityToWaitlist(req, res);
+    if (member) {
+      updatedWorkshop = await Workshop.findOneAndUpdate(
+        {
+          ...baseFilter,
+          familyRegistrations: {
+            $not: {
+              $elemMatch: {
+                familyMemberId: memberId,
+                parentUser: parentId,
+              },
+            },
+          },
+        },
+        {
+          $push: {
+            familyRegistrations: {
+              ...registrationEntry,
+              parentUser: parentId,
+              familyMemberId: memberId,
+            },
+          },
+          $inc: { participantsCount: 1 },
+        },
+        { new: true }
+      );
+    } else {
+      updatedWorkshop = await Workshop.findOneAndUpdate(
+        {
+          ...baseFilter,
+          participants: { $ne: parentId },
+        },
+        {
+          $addToSet: { participants: parentId },
+          $inc: { participantsCount: 1 },
+        },
+        { new: true }
+      );
     }
 
-    // ===== NORMAL REGISTRATION =====
-    const workshopObjectId = workshop._id;
-
-    if (member) {
-      // FAMILY REGISTRATION
-      workshop.familyRegistrations.push({
-        parentUser: parentId,
-        familyMemberId: memberId,
-        parentKey: parentUser.entityKey || String(parentId),
-        familyMemberKey: member.entityKey || String(memberId),
-        name: member.name,
-        relation: member.relation,
-        idNumber: member.idNumber,
-        phone: member.phone || parentUser.phone,
-        birthDate: member.birthDate,
-        city: member.city,
-      });
-
-      const mapEntry = parentUser.familyWorkshopMap.find(
-        (f) => String(f.familyMemberId) === String(memberId)
+    if (!updatedWorkshop) {
+      // Re-check to return precise reason
+      const latest = await Workshop.findById(workshop._id).select(
+        "participants familyRegistrations waitingList waitingListMax maxParticipants participantsCount"
       );
 
-      if (mapEntry) {
-        if (
-          !mapEntry.workshops.some(
-            (wid) => String(wid) === String(workshopObjectId)
+      const dupRegistered = member
+        ? latest?.familyRegistrations?.some(
+            (r) =>
+              String(r.familyMemberId) === String(memberId) &&
+              String(r.parentUser) === String(parentId)
           )
-        ) {
-          mapEntry.workshops.push(workshopObjectId);
-        }
-      } else {
-        parentUser.familyWorkshopMap.push({
-          familyMemberId: member._id,
-          workshops: [workshopObjectId],
-        });
-      }
-    } else {
-      // DIRECT REGISTRATION
-      workshop.participants.push(parentId);
+        : latest?.participants?.some((p) => String(p) === String(parentId));
 
-      if (
-        !parentUser.userWorkshopMap.some(
-          (wid) => String(wid) === String(workshopObjectId)
-        )
-      ) {
-        parentUser.userWorkshopMap.push(workshopObjectId);
+      if (dupRegistered) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Entity already registered" });
       }
+
+      const alreadyQueued = (latest?.waitingList || []).some((w) => {
+        const sameParent = String(w.parentUser) === String(parentId);
+        if (member) {
+          return sameParent && String(w.familyMemberId) === String(memberId);
+        }
+        return sameParent && !w.familyMemberId;
+      });
+
+      const noSpace =
+        latest &&
+        latest.maxParticipants > 0 &&
+        latest.participantsCount >= latest.maxParticipants;
+
+      if (noSpace) {
+        const waitingFull =
+          latest.waitingListMax > 0 &&
+          latest.waitingList.length >= latest.waitingListMax;
+        if (waitingFull) {
+          return res.status(400).json({
+            success: false,
+            message: "Workshop is full and waiting list is full",
+          });
+        }
+        if (alreadyQueued) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Entity already in waiting list" });
+        }
+        return exports.addEntityToWaitlist(req, res);
+      }
+
+      return res
+        .status(400)
+        .json({ success: false, message: "Unable to register entity" });
     }
 
-    await workshop.save();
-    await parentUser.save();
+    const workshopObjectId = updatedWorkshop._id;
+
+    if (member) {
+      const mapUpdate = await User.updateOne(
+        { _id: parentId, "familyWorkshopMap.familyMemberId": memberId },
+        { $addToSet: { "familyWorkshopMap.$.workshops": workshopObjectId } }
+      );
+      if (mapUpdate.matchedCount === 0) {
+        await User.updateOne(
+          { _id: parentId },
+          {
+            $push: {
+              familyWorkshopMap: {
+                familyMemberId: memberId,
+                workshops: [workshopObjectId],
+              },
+            },
+          }
+        );
+      }
+    } else {
+      await User.updateOne(
+        { _id: parentId },
+        { $addToSet: { userWorkshopMap: workshopObjectId } }
+      );
+    }
 
     // repopulate complete workshop
-    const populated = await Workshop.findById(workshop._id)
+    const populated = await Workshop.findById(updatedWorkshop._id)
       .populate("participants", "entityKey name")
       .populate(
         "familyRegistrations.familyMemberId",
@@ -1323,36 +1401,61 @@ exports.addEntityToWaitlist = async (req, res) => {
     const parentId = parentUser._id;
     const memberId = member?._id || null;
 
-    // Duplicate detection (canonical)
-    const exists = (workshop.waitingList || []).some((e) => {
-      const sameParent = String(e.parentUser) === String(parentId);
-      if (member) {
-        return sameParent && String(e.familyMemberId) === String(memberId);
+    const capacityFilter =
+      workshop.waitingListMax && workshop.waitingListMax > 0
+        ? { "waitingList.waitingCount": { $lt: workshop.waitingListMax } }
+        : {};
+
+    const entry = buildRegistrationEntry({ parentUser, memberDoc: member });
+
+    const updated = await Workshop.findOneAndUpdate(
+      {
+        _id: workshop._id,
+        ...capacityFilter,
+        waitingList: {
+          $not: {
+            $elemMatch: {
+              parentUser: parentId,
+              ...(member ? { familyMemberId: memberId } : { familyMemberId: { $exists: false } }),
+            },
+          },
+        },
+      },
+      { $push: { waitingList: entry } },
+      { new: true }
+    );
+
+    if (!updated) {
+      const latest = await Workshop.findById(workshop._id).select("waitingList waitingListMax");
+      const exists = (latest?.waitingList || []).some((e) => {
+        const sameParent = String(e.parentUser) === String(parentId);
+        if (member) {
+          return sameParent && String(e.familyMemberId) === String(memberId);
+        }
+        return sameParent && !e.familyMemberId;
+      });
+
+      if (exists) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Already in waiting list" });
       }
-      return sameParent && !e.familyMemberId;
-    });
 
-    if (exists)
-      return res
-        .status(400)
-        .json({ success: false, message: "Already in waiting list" });
+      if (
+        latest?.waitingListMax > 0 &&
+        latest.waitingList.length >= latest.waitingListMax
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Waiting list is full",
+        });
+      }
 
-    // check capacity
-    if (workshop.waitingListMax > 0 && workshop.waitingList.length >= workshop.waitingListMax) {
       return res.status(400).json({
         success: false,
-        message: "Waiting list is full",
+        message: "Unable to add to waiting list",
       });
     }
-
-    // canonical entry
-    const entry = buildRegistrationEntry({
-      parentUser,
-      memberDoc: member,
-    });
-
-    workshop.waitingList.push(entry);
-    await workshop.save();
 
     // repopulate
     const populated = await Workshop.findById(workshop._id)
@@ -1371,7 +1474,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     return res.json({
       success: true,
       message: "Added to waiting list successfully",
-      position: workshop.waitingList.length,
+      position: updated.waitingList.length,
       workshop: formatRegistration({
         workshop: decorated,
         role: req.user?.role || "user",
@@ -1803,6 +1906,12 @@ exports.getAvailableCities = async (req, res) => {
   }
 };
 
+// Test-only exports
+exports.__test = {
+  toEntityKey,
+  normalizeWorkshopParticipants,
+};
+
 // ✅ בודק אם הכתובת שייכת לעיר בעזרת OpenStreetMap (Nominatim)
 exports.validateAddress = async (req, res) => {
   const { city, address } = req.query;
@@ -2003,5 +2112,3 @@ exports.searchWorkshops = async (req, res) => {
     });
   }
 };
-
-
