@@ -266,7 +266,9 @@ export default function Workshops() {
         <h2 className="text-4xl font-extrabold bg-gradient-to-r from-indigo-700 via-blue-700 to-sky-500 bg-clip-text text-transparent mb-2">
           {titleText}
         </h2>
-        <p className="text-gray-600 text-sm md:text-base">{subtitleText}</p>
+<h3 className="text-lg md:text-xl font-semibold text-gray-700 mt-2">
+  {subtitleText}
+</h3>
       </div>
 
       {/* 🔍 Smart Search Bar */}
