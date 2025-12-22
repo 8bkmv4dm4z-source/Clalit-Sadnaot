@@ -250,7 +250,7 @@ export default function Workshops() {
   /* ============================================================
      🖼️ UI
   ============================================================ */
-  const titleText = viewMode === "mine" ? "הסדנאות שלי" : "כלל הסדנאות";
+  const titleText = viewMode === "mine" ? "הסדנאות שלי" : "כל הסדנאות";
   const subtitleText =
     viewMode === "mine"
       ? "צפו בהרשמות שלכם ושל בני המשפחה לפי שם"
