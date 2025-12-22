@@ -21,7 +21,7 @@ export default function Home({ isOpen = true, toggleSidebar }) {
       >
         <div className="px-6 py-8 border-b border-blue-500 text-center text-white">
 <h2 className="text-2xl font-bold tracking-wide bg-gradient-to-b from-blue-900 via-blue-850 via-blue-800 via-blue-700 to-blue-650 bg-clip-text text-transparent">
-  כללית סדנאות
+   סדנאות
 </h2>
         </div>
 
@@ -48,7 +48,7 @@ export default function Home({ isOpen = true, toggleSidebar }) {
         </nav>
 
         <footer className="px-6 py-4 border-t border-blue-500 text-sm text-blue-100 text-center">
-          © {new Date().getFullYear()} כללית סדנאות
+          © {new Date().getFullYear()} סדנאות
         </footer>
       </aside>
     </>
