@@ -171,7 +171,40 @@ const isUuid = (value) => UUID_REGEX.test(String(value || ""));
 const toPlainWorkshop = (workshop) =>
   workshop?.toObject ? workshop.toObject() : { ...(workshop || {}) };
 
-const deriveCounts = (src) => {
+const WORKSHOP_CARD_FIELDS = [
+  "title",
+  "type",
+  "description",
+  "ageGroup",
+  "coach",
+  "city",
+  "address",
+  "studio",
+  "startDate",
+  "endDate",
+  "inactiveDates",
+  "startTime",
+  "time",
+  "durationMinutes",
+  "days",
+  "hour",
+  "price",
+  "image",
+  "available",
+  "maxParticipants",
+  "waitingListMax",
+  "sessionsCount",
+];
+
+const mapWorkshopCardFields = (src = {}) => {
+  const mapped = {};
+  for (const field of WORKSHOP_CARD_FIELDS) {
+    if (src[field] !== undefined) mapped[field] = src[field];
+  }
+  return mapped;
+};
+
+const deriveCounts = (src, { includeArrays = false } = {}) => {
   const participants = Array.isArray(src.participants) ? src.participants : [];
   const familyRegistrations = Array.isArray(src.familyRegistrations)
     ? src.familyRegistrations
@@ -183,14 +216,60 @@ const deriveCounts = (src) => {
       ? src.participantsCount
       : participants.length + familyRegistrations.length;
 
+  const familyRegistrationsCount =
+    typeof src.familyRegistrationsCount === "number"
+      ? src.familyRegistrationsCount
+      : familyRegistrations.length;
+
+  const waitingListCount =
+    typeof src.waitingListCount === "number" ? src.waitingListCount : waitingList.length;
+
+  const counts = {
+    participantsCount,
+    familyRegistrationsCount,
+    waitingListCount,
+  };
+
+  if (!includeArrays) return counts;
+
   return {
+    ...counts,
     participants,
     familyRegistrations,
     waitingList,
-    participantsCount,
-    familyRegistrationsCount: familyRegistrations.length,
-    waitingListCount: waitingList.length,
   };
+};
+
+const buildUserRegistrationMaps = (userDoc) => {
+  if (!userDoc) {
+    return {
+      userKey: null,
+      userId: null,
+      directWorkshopIds: new Set(),
+      familyWorkshopMap: new Map(),
+    };
+  }
+
+  const userKey = normalizeEntityKey(userDoc.entityKey);
+  const userId = userDoc._id ? String(userDoc._id) : null;
+
+  const directWorkshopIds = new Set(
+    (userDoc.userWorkshopMap || []).map((id) => String(id))
+  );
+
+  const familyWorkshopMap = new Map();
+  for (const entry of userDoc.familyWorkshopMap || []) {
+    const familyMemberId = entry.familyMemberId;
+    if (!familyMemberId) continue;
+    const memberKey = hashId("family", String(familyMemberId));
+    for (const wid of entry.workshops || []) {
+      const widStr = String(wid);
+      if (!familyWorkshopMap.has(widStr)) familyWorkshopMap.set(widStr, []);
+      familyWorkshopMap.get(widStr).push(memberKey);
+    }
+  }
+
+  return { userKey, userId, directWorkshopIds, familyWorkshopMap };
 };
 
 const normalizeWaitlistEntry = (entry, { adminView = false } = {}) => {
@@ -236,28 +315,7 @@ const toPublicWorkshop = (workshop) => {
 
   return {
     workshopKey,
-    title: src.title,
-    type: src.type,
-    description: src.description,
-    ageGroup: src.ageGroup,
-    coach: src.coach,
-    city: src.city,
-    address: src.address,
-    studio: src.studio,
-    startDate: src.startDate,
-    endDate: src.endDate,
-    inactiveDates: src.inactiveDates,
-    startTime: src.startTime,
-    time: src.time,
-    durationMinutes: src.durationMinutes,
-    days: src.days,
-    hour: src.hour,
-    price: src.price,
-    image: src.image,
-    available: src.available,
-    maxParticipants: src.maxParticipants,
-    waitingListMax: src.waitingListMax,
-    sessionsCount: src.sessionsCount,
+    ...mapWorkshopCardFields(src),
     participantsCount,
     waitingListCount,
     familyRegistrationsCount,
@@ -307,27 +365,24 @@ const toUserWorkshop = (workshop, user = null) => {
 
   const src = toPlainWorkshop(workshop);
   const base = toPublicWorkshop(src);
-  const {
-    participants,
-    familyRegistrations,
-    waitingList,
-  } = deriveCounts(src);
+  const { waitingList } = deriveCounts(src, { includeArrays: true });
 
   const userKey = normalizeEntityKey(user?.entityKey || src.__ownerKey);
   const userId = user?._id ? String(user._id) : normalizeEntityKey(src.__ownerId);
 
-  const isDirectParticipant = participants.some((p) =>
-    matchesUserIdentity(p, { userKey, userId })
-  );
+  const directMap = src.__userRegistrationMap || new Set();
+  const familyMap = src.__familyRegistrationMap || new Map();
 
-  const hasFamilyRegistration = familyRegistrations.some(
-    (fr) =>
-      matchesUserIdentity(fr.parentUser, { userKey, userId }) ||
-      matchesUserIdentity(fr.parentKey, { userKey, userId })
-  );
+  const workshopId = src._id ? String(src._id) : null;
+
+  const isDirectParticipant = workshopId ? directMap.has(workshopId) : false;
+
+  const familyEntries = workshopId ? familyMap.get(workshopId) || [] : [];
+  const hasFamilyRegistration = familyEntries.length > 0;
+  const myFamilyCountInWorkshop = familyEntries.length;
 
   const waitlisted = waitingList.some((wl) =>
-    matchesUserIdentity(wl.parentUser || wl.parentKey, { userKey, userId })
+    matchesUserIdentity(wl.parentKey || wl.parentUser, { userKey, userId })
   );
 
   const isUserRegistered = isDirectParticipant || hasFamilyRegistration || !!src.isUserRegistered;
@@ -342,32 +397,52 @@ const toUserWorkshop = (workshop, user = null) => {
     registrationStatus,
     isUserRegistered,
     isUserInWaitlist: waitlisted,
+    myFamilyCountInWorkshop,
+    isRegisteredDirect: isDirectParticipant,
+    isRegisteredFamily: hasFamilyRegistration,
   };
 };
 
-const toAdminWorkshop = (workshop) => {
+const sanitizeWaitingListEntry = (entry) => {
+  return {
+    entityKey: normalizeEntityKey(entry?.familyMemberKey || entry?.parentKey || entry?.entityKey),
+    parentKey: normalizeEntityKey(entry?.parentKey),
+    familyMemberKey: normalizeEntityKey(entry?.familyMemberKey),
+    name: entry?.name || entry?.familyMemberId?.name || "",
+    relation: entry?.relation || entry?.familyMemberId?.relation || "",
+    phone: entry?.phone || entry?.familyMemberId?.phone || entry?.parentUser?.phone || "",
+    email: entry?.email || entry?.familyMemberId?.email || entry?.parentUser?.email || "",
+    city: entry?.city || entry?.familyMemberId?.city || entry?.parentUser?.city || "",
+  };
+};
+
+const toAdminWorkshop = (workshop, { includeParticipantDetails = false } = {}) => {
   if (!workshop) return null;
 
   const src = toPlainWorkshop(workshop);
   const base = toPublicWorkshop(src);
-  const participantBundle = normalizeWorkshopParticipants(src, { adminView: true });
-  const waitingList = (src.waitingList || []).map((wl) =>
-    normalizeWaitlistEntry(wl, { adminView: true })
-  );
-
-  return {
+  const counts = deriveCounts(src, { includeArrays: includeParticipantDetails });
+  const payload = {
     ...base,
-    _id: src._id,
-    description: src.description,
-    participants: participantBundle.participants,
-    familyRegistrations: src.familyRegistrations || [],
-    waitingList,
+    participantsCount: counts.participantsCount,
+    waitingListCount: counts.waitingListCount,
+    familyRegistrationsCount: counts.familyRegistrationsCount,
     stats: {
-      participantsTotal: participantBundle.participantsCount ?? base.participantsCount,
-      waitingListCount: base.waitingListCount,
-      familyRegistrationsCount: base.familyRegistrationsCount,
+      participantsTotal: counts.participantsCount,
+      waitingListCount: counts.waitingListCount,
+      familyRegistrationsCount: counts.familyRegistrationsCount,
     },
   };
+
+  if (includeParticipantDetails) {
+    const participantBundle = normalizeWorkshopParticipants(src, { adminView: true });
+    payload.participants = participantBundle.participants;
+    payload.waitingList = (counts.waitingList || []).map((wl) =>
+      sanitizeWaitingListEntry(wl)
+    );
+  }
+
+  return payload;
 };
 
 const resolveAccessScope = (req) => {
@@ -376,8 +451,8 @@ const resolveAccessScope = (req) => {
   return { scope: "public", principal: null };
 };
 
-const selectWorkshopView = (workshop, { scope, principal }) => {
-  if (scope === "admin") return toAdminWorkshop(workshop);
+const selectWorkshopView = (workshop, { scope, principal }, options = {}) => {
+  if (scope === "admin") return toAdminWorkshop(workshop, options);
   if (scope === "user") return toUserWorkshop(workshop, principal);
   return toPublicWorkshop(workshop);
 };
@@ -551,20 +626,89 @@ exports.getAllWorkshops = async (req, res) => {
     const limit = clampLimit(req.query.limit, 10, 100);
     const skip = clampSkip(req.query.skip);
 
+    const isUserScope = access.scope === "user";
+    const isAdminScope = access.scope === "admin";
+
+    let registrationMaps = {
+      userKey: null,
+      userId: null,
+      directWorkshopIds: new Set(),
+      familyWorkshopMap: new Map(),
+    };
+
+    if (isUserScope) {
+      const userDoc = await User.findById(access.principal?._id).select(
+        "_id entityKey userWorkshopMap familyWorkshopMap"
+      );
+      registrationMaps = buildUserRegistrationMaps(userDoc);
+    }
+
+    const baseSelectFields = [
+      "_id",
+      "workshopKey",
+      "title",
+      "type",
+      "ageGroup",
+      "city",
+      "address",
+      "studio",
+      "coach",
+      "days",
+      "hour",
+      "available",
+      "description",
+      "price",
+      "image",
+      "time",
+      "startTime",
+      "durationMinutes",
+      "maxParticipants",
+      "waitingListMax",
+      "sessionsCount",
+      "startDate",
+      "endDate",
+      "inactiveDates",
+      "participantsCount",
+    ];
+
+    baseSelectFields.push(
+      "familyRegistrations.parentKey",
+      "familyRegistrations.familyMemberKey"
+    );
+
+    if (isUserScope || isAdminScope) {
+      baseSelectFields.push("waitingList.parentKey", "waitingList.familyMemberKey");
+    } else {
+      baseSelectFields.push("waitingList.parentKey", "waitingList.familyMemberKey");
+    }
+
+    const selectClause = baseSelectFields.join(" ");
+
     const [workshops, total] = await Promise.all([
       Workshop.find({})
         .sort({ startDate: 1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .select(
-          "_id title type ageGroup city address studio coach days hour available description price image maxParticipants waitingListMax sessionsCount startDate endDate inactiveDates participants familyRegistrations waitingList participantsCount workshopKey"
-        )
+        .select(selectClause)
         .lean(),
       Workshop.countDocuments({}),
     ]);
 
-    const result = workshops.map((w) =>
-      selectWorkshopView(w, access)
+    const decorated = workshops.map((w) => {
+      if (isUserScope) {
+        return {
+          ...w,
+          __ownerKey: registrationMaps.userKey,
+          __ownerId: registrationMaps.userId,
+          __userRegistrationMap: registrationMaps.directWorkshopIds,
+          __familyRegistrationMap: registrationMaps.familyWorkshopMap,
+        };
+      }
+      return w;
+    });
+
+    const result = decorated.map((w) =>
+      selectWorkshopView(w, access, { includeParticipantDetails: false })
     );
 
     const nextSkip = skip + workshops.length;
@@ -717,7 +861,9 @@ exports.getWorkshopById = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    const normalized = selectWorkshopView(workshop, access);
+    const normalized = selectWorkshopView(workshop, access, {
+      includeParticipantDetails: access.scope === "admin",
+    });
 
     const stats = normalized?.stats || {};
 
@@ -884,7 +1030,9 @@ exports.updateWorkshop = async (req, res) => {
       .populate("waitingList.parentUser", "name email")
       .lean();
 
-    const normalizedSource = selectWorkshopView(ws, access) || {};
+    const normalizedSource = selectWorkshopView(ws, access, {
+      includeParticipantDetails: access.scope === "admin",
+    }) || {};
     const normalized = {
       ...normalizedSource,
       address: normalizedSource.address || "",
@@ -1027,7 +1175,9 @@ exports.createWorkshop = async (req, res) => {
     /* ============================================================
        📦 Normalize & respond
        ============================================================ */
-    const normalizedSource = selectWorkshopView(ws, access) || {};
+    const normalizedSource = selectWorkshopView(ws, access, {
+      includeParticipantDetails: access.scope === "admin",
+    }) || {};
     const normalized = {
       ...normalizedSource,
       address: normalizedSource.address || "",
@@ -1318,7 +1468,9 @@ exports.registerEntityToWorkshop = async (req, res) => {
 
     return res.json({
       success: true,
-      workshop: selectWorkshopView(decorated, access),
+      workshop: selectWorkshopView(decorated, access, {
+        includeParticipantDetails: access.scope === "admin",
+      }),
     });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
@@ -1428,7 +1580,9 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
       success: true,
       changed,
       message: "Entity unregistered successfully",
-      workshop: selectWorkshopView(decorated, access),
+      workshop: selectWorkshopView(decorated, access, {
+        includeParticipantDetails: access.scope === "admin",
+      }),
     });
   } catch (err) {
     console.error("❌ unregisterEntityFromWorkshop error:", err);
@@ -1568,7 +1722,9 @@ exports.addEntityToWaitlist = async (req, res) => {
       success: true,
       message: "Added to waiting list successfully",
       position: updated.waitingList.length,
-      workshop: selectWorkshopView(decorated, access),
+      workshop: selectWorkshopView(decorated, access, {
+        includeParticipantDetails: access.scope === "admin",
+      }),
     });
   } catch (err) {
     console.error("🔥 addEntityToWaitlist error:", err);
@@ -1647,7 +1803,9 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     return res.json({
       success: true,
       message: "Removed from waiting list successfully",
-      workshop: selectWorkshopView(decorated, access),
+      workshop: selectWorkshopView(decorated, access, {
+        includeParticipantDetails: access.scope === "admin",
+      }),
     });
   } catch (err) {
     console.error("🔥 removeEntityFromWaitlist error:", err);
@@ -2200,7 +2358,9 @@ exports.searchWorkshops = async (req, res) => {
     }
     console.groupEnd();
 
-    const scoped = filtered.slice(0, limit).map((doc) => selectWorkshopView(doc, access));
+    const scoped = filtered
+      .slice(0, limit)
+      .map((doc) => selectWorkshopView(doc, access, { includeParticipantDetails: false }));
     return res.json(scoped);
   } catch (err) {
     console.error("❌ [searchWorkshops] Error:", err);

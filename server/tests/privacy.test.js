@@ -70,8 +70,10 @@ test('toPublicWorkshop strips internal identifiers and relational arrays', () =>
 test('toUserWorkshop reports registration state without exposing other entities', () => {
   const user = { _id: '507f1f77bcf86cd799439099', entityKey: 'owner-key' };
   const workshop = {
+    _id: '507f1f77bcf86cd799439200',
     workshopKey: '22222222-2222-4222-8222-222222222222',
-    participants: [user._id, '507f1f77bcf86cd799439097'],
+    __userRegistrationMap: new Set(['507f1f77bcf86cd799439200']),
+    __familyRegistrationMap: new Map(),
     waitingList: [
       {
         parentUser: '507f1f77bcf86cd799439000',
@@ -108,13 +110,15 @@ test('toAdminWorkshop retains participant linkage and waitlist contact data', ()
     ],
   };
 
-  const scoped = toAdminWorkshop(workshop);
+  const scoped = toAdminWorkshop(workshop, { includeParticipantDetails: true });
   assert.ok(Array.isArray(scoped.participants));
   assert.equal(scoped.participants[0].email, 'user@example.com');
-  assert.equal(scoped.familyRegistrations.length, 1);
+  assert.equal(scoped.familyRegistrationsCount, 1);
   assert.equal(scoped.waitingList.length, 1);
   assert.equal(scoped.waitingList[0].phone, '999');
   assert.equal(scoped.waitingList[0].email, 'p@example.com');
+  assert.ok(!('_id' in scoped));
+  assert.ok(!('_id' in scoped.waitingList[0]));
 });
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
@@ -171,4 +175,61 @@ test('toPublicWorkshop strips internal identifiers', () => {
   assert.ok(!('_id' in formatted));
   assert.ok(!('hashedId' in formatted));
   assert.ok(!('mongoId' in formatted));
+});
+
+test('Public and User workshop DTOs omit forbidden fields', () => {
+  const workshop = {
+    _id: '507f1f77bcf86cd799439099',
+    workshopKey: '55555555-5555-4555-8555-555555555555',
+    participants: [{ _id: '1', entityKey: 'user-1' }],
+    familyRegistrations: [{ familyMemberId: '2', parentUser: '3', idNumber: '321', birthDate: '2000-01-01' }],
+    waitingList: [{ parentUser: '3', familyMemberId: '2', idNumber: '123', birthDate: '2010-01-01' }],
+    participantsCount: 2,
+  };
+
+  const userMaps = {
+    __userRegistrationMap: new Set(['507f1f77bcf86cd799439099']),
+    __familyRegistrationMap: new Map(),
+  };
+
+  const forbidden = ["_id", "participants", "familyRegistrations", "waitingList", "parentUser", "familyMemberId", "idNumber", "birthDate"];
+
+  const publicDto = toPublicWorkshop(workshop);
+  forbidden.forEach((key) => assert.equal(key in publicDto, false));
+  assert.equal(publicDto.workshopKey, workshop.workshopKey);
+
+  const userDto = toUserWorkshop({ ...workshop, ...userMaps }, { _id: '3', entityKey: 'user-3' });
+  forbidden.forEach((key) => assert.equal(key in userDto, false));
+  assert.equal(userDto.workshopKey, workshop.workshopKey);
+});
+
+test('Admin DTO and participant normalization avoid Mongo IDs and PII', () => {
+  const workshop = {
+    workshopKey: '66666666-6666-4666-8666-666666666666',
+    participants: [{ _id: '1', name: 'Admin', idNumber: '123', birthDate: '2000-01-01' }],
+    familyRegistrations: [
+      { parentUser: { _id: '10', entityKey: 'parent-key', phone: '123' }, familyMemberId: { _id: '11', entityKey: 'child-key', idNumber: '987', birthDate: '2012-01-01' }, phone: '555' },
+    ],
+    waitingList: [
+      { parentKey: 'parent-key', familyMemberKey: 'child-key', idNumber: '999', birthDate: '2013-01-01', phone: '444' },
+    ],
+  };
+
+  const scoped = toAdminWorkshop(workshop, { includeParticipantDetails: true });
+  assert.ok(Array.isArray(scoped.participants));
+  scoped.participants.forEach((p) => {
+    assert.equal(p._id, undefined);
+    assert.equal(p.idNumber, undefined);
+    assert.equal(p.birthDate, undefined);
+  });
+
+  assert.ok(Array.isArray(scoped.waitingList));
+  scoped.waitingList.forEach((wl) => {
+    assert.equal(wl.parentUser, undefined);
+    assert.equal(wl.familyMemberId, undefined);
+    assert.equal(wl.idNumber, undefined);
+    assert.equal(wl.birthDate, undefined);
+  });
+
+  assert.equal(scoped.workshopKey, workshop.workshopKey);
 });
