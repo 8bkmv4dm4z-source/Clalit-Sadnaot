@@ -51,6 +51,7 @@ import MyWorkshopsSimpleGcal from '../../pages/MyWorkshops/MyWorkshopsSimpleGcal
 import ForgotPassword from "../../pages/ForgotPassword";
 import ResetPassword from "../../pages/ResetPassword";
 import { useWorkshops } from "../../layouts/WorkshopContext";   
+import AdminHub from "../../pages/AdminHub/AdminHub";
 
 // 🧭 Layouts
 import AppShell from "../../layouts/AppShell";
@@ -89,6 +90,7 @@ export default function AppRoutes() {
               <Route path="/editworkshop" element={<EditWorkshop />} />
               <Route path="/editworkshop/:id" element={<EditWorkshop />} />
               <Route path="/editworkshop/new" element={<EditWorkshop />} />
+              <Route path="/admin/hub" element={<AdminHub />} />
             </>
           )}
         </Route>

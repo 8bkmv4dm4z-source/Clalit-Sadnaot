@@ -115,6 +115,15 @@ export default function Header() {
             </NavLink>
 
             <NavLink
+              to="/admin/hub"
+              className={`${linkBase} ${
+                navIsActive("/admin/hub") ? linkActive : linkIdle
+              }`}
+            >
+              <span>Admin Hub</span>
+            </NavLink>
+
+            <NavLink
               to="/editworkshop"
               onClick={() => localStorage.removeItem("editingWorkshopId")}
               className={`${linkBase} ${

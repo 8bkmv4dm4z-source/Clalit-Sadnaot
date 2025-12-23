@@ -26,11 +26,8 @@ const { normalizeEntity } = require("../services/entities/normalize");
 
 const toEntityKey = (doc, type = "user") => {
   if (!doc) return null;
-  const source = doc.entityKey || (doc._id ? hashId(type, String(doc._id)) : "");
-  if (!source) return null;
-  const hex = crypto.createHash("sha256").update(String(source)).digest("hex"); // 64 hex chars
-  const uuidish = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-  return uuidish;
+  if (doc.entityKey) return doc.entityKey;
+  if (doc._id) return hashId(type, String(doc._id));
   return null;
 };
 
@@ -102,6 +99,9 @@ const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => 
     familyCount: familyRegistrations.length,
   };
 };
+
+const { safeAuditLog } = require("../services/SafeAuditLog");
+const { AuditEventTypes } = require("../services/AuditEventRegistry");
 
 /**
  * API + frontend consumer matrix (keep aligned with client WorkshopContext):
@@ -412,9 +412,31 @@ async function autoPromoteFromWaitlist(workshop) {
           phone: entry.phone,
           birthDate: entry.birthDate,
         });
+        await safeAuditLog({
+          eventType: AuditEventTypes.WORKSHOP_WAITLIST_PROMOTED,
+          subjectType: "workshop",
+          subjectKey: workshop.workshopKey || workshop.hashedId || null,
+          actorKey: null,
+          metadata: {
+            participantType: "familyMember",
+            participantKey: entry.familyMemberKey || entry.parentKey || "",
+            action: "waitlist_promoted",
+          },
+        });
       } else {
         // Otherwise treat as a main user registration
         workshop.participants.push(entry.parentUser);
+        await safeAuditLog({
+          eventType: AuditEventTypes.WORKSHOP_WAITLIST_PROMOTED,
+          subjectType: "workshop",
+          subjectKey: workshop.workshopKey || workshop.hashedId || null,
+          actorKey: null,
+          metadata: {
+            participantType: "user",
+            participantKey: entry.parentKey || "",
+            action: "waitlist_promoted",
+          },
+        });
       }
       promoted = true;
     }
@@ -1022,6 +1044,13 @@ exports.deleteWorkshop = async (req, res) => {
 
     const ws = await Workshop.findByIdAndDelete(workshopDoc._id);
     if (!ws) return res.status(404).json({ message: "Workshop not found" });
+    await safeAuditLog({
+      eventType: AuditEventTypes.SECURITY,
+      subjectType: "workshop",
+      subjectKey: workshopDoc.workshopKey || workshopDoc.hashedId || null,
+      actorKey: req.user?.entityKey,
+      metadata: { action: "workshop_delete" },
+    });
     res.json({ message: "Workshop deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting workshop:", err);
@@ -1243,6 +1272,18 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const decorated = populated.toObject();
     decorated.__ownerKey = req.user?.entityKey || null;
 
+    await safeAuditLog({
+      eventType: AuditEventTypes.WORKSHOP_REGISTRATION,
+      subjectType: "workshop",
+      subjectKey: workshop.workshopKey || workshop.hashedId || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        participantType: member ? "familyMember" : "user",
+        participantKey: member ? member.entityKey : parentUser.entityKey,
+        action: "join",
+      },
+    });
+
     return res.json({
       success: true,
       workshop: formatRegistration({
@@ -1339,6 +1380,20 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
 
     const decorated = populated.toObject();
     decorated.__ownerKey = req.user?.entityKey || null;
+
+    if (changed) {
+      await safeAuditLog({
+        eventType: AuditEventTypes.WORKSHOP_UNREGISTER,
+        subjectType: "workshop",
+        subjectKey: workshop.workshopKey || workshop.hashedId || null,
+        actorKey: req.user?.entityKey,
+        metadata: {
+          participantType: member ? "familyMember" : "user",
+          participantKey: member ? member.entityKey : parentUser.entityKey,
+          action: "unregister",
+        },
+      });
+    }
 
     return res.json({
       success: true,
@@ -1470,6 +1525,18 @@ exports.addEntityToWaitlist = async (req, res) => {
 
     const decorated = populated.toObject();
     decorated.__ownerKey = req.user?.entityKey || null;
+
+    await safeAuditLog({
+      eventType: AuditEventTypes.WORKSHOP_WAITLIST_ADD,
+      subjectType: "workshop",
+      subjectKey: workshop.workshopKey || workshop.hashedId || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        participantType: member ? "familyMember" : "user",
+        participantKey: member ? member.entityKey : parentUser.entityKey,
+        action: "waitlist_add",
+      },
+    });
 
     return res.json({
       success: true,
@@ -1749,6 +1816,13 @@ exports.exportWorkshopExcel = async (req, res) => {
     });
 
     if (result.success) {
+      await safeAuditLog({
+        eventType: AuditEventTypes.SECURITY,
+        subjectType: "workshop",
+        subjectKey: workshop.workshopKey || workshop.hashedId || null,
+        actorKey: admin.entityKey,
+        metadata: { action: "workshop_export" },
+      });
       return res.json({ success: true, message: "Excel sent successfully via Email Service" });
     } else {
       throw new Error(result.error || "Email service returned failure");
@@ -1759,6 +1833,9 @@ exports.exportWorkshopExcel = async (req, res) => {
     res.status(500).json({ success: false, message: "Error sending report: " + err.message });
   }
 };
+
+exports.autoPromoteFromWaitlist = autoPromoteFromWaitlist;
+exports.__test = { autoPromoteFromWaitlist };
 
 // ------------------------------------------------------------
 // 🟣 GET /api/workshops/:id/waitlist — Admin only
