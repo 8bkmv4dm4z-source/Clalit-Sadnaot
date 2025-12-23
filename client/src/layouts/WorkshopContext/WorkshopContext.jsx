@@ -110,6 +110,7 @@ export const WorkshopProvider = ({ children }) => {
   const [userWorkshopMap, setUserWorkshopMap] = useState({});   // { [workshopId]: true }
   const [familyWorkshopMap, setFamilyWorkshopMap] = useState({}); // { [workshopId]: [familyId,...] }
   const [mapsReady, setMapsReady] = useState(false);
+  const [serverMapsLoaded, setServerMapsLoaded] = useState(false);
 
   /* ───────────────────────── Derived user/family info ───────────────────────── */
 
@@ -414,6 +415,55 @@ export const WorkshopProvider = ({ children }) => {
         throw new Error(regIds.message || "Failed to load registrations");
       }
 
+      // New payload shape: { userWorkshopMap: [uuid...], familyWorkshopMap: { [workshop]: [familyEntityKey...] } }
+      if (!Array.isArray(regIds) && regIds && typeof regIds === "object") {
+        const userMapArr = Array.isArray(regIds.userWorkshopMap)
+          ? regIds.userWorkshopMap
+          : [];
+        const famMapObj =
+          regIds.familyWorkshopMap && typeof regIds.familyWorkshopMap === "object"
+            ? regIds.familyWorkshopMap
+            : {};
+
+        const userMap = {};
+        const parsedUser = [];
+        userMapArr.forEach((id) => {
+          const key = sid(id?.workshopKey ?? id);
+          if (!key) return;
+          userMap[key] = true;
+          parsedUser.push(key);
+        });
+
+        const famMap = {};
+        Object.entries(famMapObj).forEach(([wid, list]) => {
+          const widStr = sid(wid);
+          const members = Array.isArray(list)
+            ? Array.from(new Set(list.map((m) => sid(m)).filter(Boolean)))
+            : [];
+          if (widStr && members.length) {
+            famMap[widStr] = members;
+          }
+        });
+
+        log(
+          `✅ Registered workshops loaded (user=${parsedUser.length}, familyPairs=${Object.keys(
+            famMap
+          ).length})`
+        );
+        dbgCtx("fetchRegisteredWorkshops:parsed:maps", {
+          userCount: parsedUser.length,
+          familyKeys: Object.keys(famMap).slice(0, 3),
+        });
+
+        setRegisteredWorkshopIds(parsedUser);
+        setUserWorkshopMap(userMap);
+        setFamilyWorkshopMap(famMap);
+        setServerMapsLoaded(true);
+        setMapsReady(true);
+        return { userWorkshopMap: userMap, familyWorkshopMap: famMap };
+      }
+
+      // Legacy array fallback (just self registrations)
       const parsed = (Array.isArray(regIds) ? regIds : []).map((v) =>
         typeof v === "string" ? v : String(v?.workshopKey ?? v ?? "")
       );
@@ -423,10 +473,12 @@ export const WorkshopProvider = ({ children }) => {
         sample: parsed.slice(0, 5),
       });
       setRegisteredWorkshopIds(parsed);
+      setServerMapsLoaded(false);
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchRegisteredWorkshops error:", err);
       setError(err.message);
       dbgCtx("fetchRegisteredWorkshops:error", { message: err.message });
+      setServerMapsLoaded(false);
     } finally {
       setLoading(false);
       dbgCtx("fetchRegisteredWorkshops:done");
@@ -449,6 +501,7 @@ export const WorkshopProvider = ({ children }) => {
       setUserWorkshopMap({});
       setFamilyWorkshopMap({});
       setMapsReady(false);
+      setServerMapsLoaded(false);
       setViewMode("all");
       setRegisteredWorkshopIds([]);
       setSelectedWorkshop(null);
@@ -508,11 +561,17 @@ export const WorkshopProvider = ({ children }) => {
       setFamilyWorkshopMap({});
       setDisplayedWorkshops([]);
       setMapsReady(false);
+      setServerMapsLoaded(false);
     }
   }, [userKey, familyMembersSignature]);
 
   // Derived maps: built from current normalized list + current user
   useEffect(() => {
+    if (serverMapsLoaded) {
+      setMapsReady(true);
+      return;
+    }
+
     // Clear before recompute to avoid one-frame stale view
     setMapsReady(false);
     setUserWorkshopMap({});
@@ -589,6 +648,7 @@ export const WorkshopProvider = ({ children }) => {
     workshopsSignature,
     workshops,
     familyMembersList,
+    serverMapsLoaded,
   ]);
 
   // Filter displayedWorkshops when viewMode === "mine"

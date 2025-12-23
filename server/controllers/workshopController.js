@@ -590,41 +590,92 @@ exports.getAllWorkshops = async (req, res) => {
 /* ------------------------------------------------------------
    🧩 GET /api/workshops/registered
    ------------------------------------------------------------
-   Returns an array of workshop IDs for which the authenticated user
-   is directly registered.  Previously this endpoint also returned
-   workshops where a family member was registered, which led the
-   frontend to incorrectly mark the user as registered for workshops
-   they were not actually enrolled in.  To avoid this confusion
-   the logic now only checks the participants array.  Family
-   registrations remain accessible via the `userFamilyRegistrations`
-   field returned from the `getAllWorkshops` endpoint.
+   Returns compact workshop maps for the authenticated user:
+   - userWorkshopMap: [workshopUuid,...] for self registrations
+   - familyWorkshopMap: { [workshopUuid]: [familyEntityUuid,...] }
+
+   The maps are derived from User.userWorkshopMap/familyWorkshopMap so
+   we never need to expose full participant/familyRegistration rows in
+   the general workshops list, keeping payloads smaller and more private.
 ------------------------------------------------------------ */
 exports.getRegisteredWorkshops = async (req, res) => {
   try {
-    // Ensure the request is authenticated.  The auth middleware
-    // attaches `req.user`; if it is missing then the user is
-    // unauthorized.
     const userId = req.user?._id?.toString();
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // Only select workshops where the user is a direct participant.
-    // Do not include workshops where the user only has a family
-    // member registered.  This prevents the frontend from treating
-    // those workshops as if the user themself were registered.
-    const list = await Workshop.find({ participants: userId }).select(
-      "workshopKey"
+    // Fetch compact user + family workshop maps so the frontend can highlight
+    // registrations without needing full participant lists.
+    const userDoc = await User.findById(userId).select(
+      "entityKey userWorkshopMap familyWorkshopMap familyMembers"
     );
-    const ids = list
-      .map((w) => w.workshopKey)
-      .filter((key) => isUuid(key));
-    return res.json(ids);
+
+    if (!userDoc) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Map family Mongo _id -> hashed entityKey
+    const familyIdToKey = new Map(
+      (userDoc.familyMembers || []).map((member) => [
+        String(member._id),
+        toEntityKey(member, "family"),
+      ])
+    );
+
+    const allWorkshopIds = [
+      ...new Set([
+        ...(userDoc.userWorkshopMap || []).map((id) => String(id)),
+        ...(userDoc.familyWorkshopMap || []).flatMap((entry) =>
+          (entry.workshops || []).map((wid) => String(wid))
+        ),
+      ]),
+    ];
+
+    const workshopKeyById = new Map();
+
+    if (allWorkshopIds.length > 0) {
+      const workshops = await Workshop.find({ _id: { $in: allWorkshopIds } })
+        .select("_id workshopKey")
+        .lean();
+
+      workshops.forEach((w) => {
+        const key = isUuid(w.workshopKey)
+          ? w.workshopKey
+          : hashId("workshop", String(w._id));
+        workshopKeyById.set(String(w._id), key);
+      });
+    }
+
+    // Direct user registrations
+    const userWorkshopMap = [];
+    for (const wid of userDoc.userWorkshopMap || []) {
+      const wk = workshopKeyById.get(String(wid));
+      if (wk) userWorkshopMap.push(wk);
+    }
+
+    // Family registrations keyed by workshop UUID
+    const familyWorkshopMap = {};
+    for (const entry of userDoc.familyWorkshopMap || []) {
+      const memberKey = familyIdToKey.get(String(entry.familyMemberId));
+      if (!memberKey) continue;
+
+      for (const wid of entry.workshops || []) {
+        const wk = workshopKeyById.get(String(wid));
+        if (!wk) continue;
+        if (!familyWorkshopMap[wk]) familyWorkshopMap[wk] = [];
+        if (!familyWorkshopMap[wk].includes(memberKey)) {
+          familyWorkshopMap[wk].push(memberKey);
+        }
+      }
+    }
+
+    return res.json({
+      userWorkshopMap: [...new Set(userWorkshopMap)],
+      familyWorkshopMap,
+    });
   } catch (err) {
-    console.error(
-      "❌ Error fetching registered workshops (participants only):",
-      err
-    );
+    console.error("❌ Error fetching registered workshops (maps):", err);
     return res
       .status(500)
       .json({ message: "Server error fetching registrations" });
