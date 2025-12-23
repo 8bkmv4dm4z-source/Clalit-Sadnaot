@@ -1,20 +1,29 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AdminHubProvider, useAdminHub } from "../../context/AdminHubContext";
 import { groupLogsByCategory } from "../../utils/adminHubClient";
 
-const EVENT_TYPES = [
-  "",
-  "security",
-  "user.registered",
-  "workshop.registration",
-  "workshop.unregister",
-  "workshop.waitlist.add",
-  "workshop.waitlist.promoted",
-  "workshop.maxed",
-  "user.stale.detected",
-];
+const TAB_CONFIG = {
+  registrations: {
+    label: "Registrations",
+    category: "REGISTRATIONS",
+  },
+  security: {
+    label: "Security",
+    category: "SECURITY",
+  },
+  notices: {
+    label: "Notices",
+    category: "NOTICES",
+  },
+};
 
-const SUBJECT_TYPES = ["", "user", "familyMember", "workshop"];
+const TAB_KEYS = Object.keys(TAB_CONFIG);
+
+const resolveTabForLog = (log) => {
+  if (!log?.category) return null;
+  const found = TAB_KEYS.find((key) => TAB_CONFIG[key].category === log.category);
+  return found || null;
+};
 
 const Section = ({ title, children }) => (
   <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -23,106 +32,10 @@ const Section = ({ title, children }) => (
   </section>
 );
 
-const Filters = () => {
-  const { adminPassword, setAdminPassword, filters, setFilters, refreshLogs } = useAdminHub();
+const LogsTable = ({ filteredLogs }) => {
+  const { loading, error } = useAdminHub();
 
-  const updateFilter = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  return (
-    <Section title="Filters">
-      <div className="grid gap-3 md:grid-cols-3">
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          Admin password (in-memory only)
-          <input
-            type="password"
-            value={adminPassword}
-            onChange={(e) => setAdminPassword(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-            placeholder="Required for Admin Hub"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          Event type
-          <select
-            value={filters.eventType}
-            onChange={(e) => updateFilter("eventType", e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-          >
-            {EVENT_TYPES.map((v) => (
-              <option key={v || "any"} value={v}>
-                {v || "Any"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          Subject type
-          <select
-            value={filters.subjectType}
-            onChange={(e) => updateFilter("subjectType", e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-          >
-            {SUBJECT_TYPES.map((v) => (
-              <option key={v || "any"} value={v}>
-                {v || "Any"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          Subject key
-          <input
-            type="text"
-            value={filters.subjectKey}
-            onChange={(e) => updateFilter("subjectKey", e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-            placeholder="entityKey"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          From (ISO date)
-          <input
-            type="date"
-            value={filters.from}
-            onChange={(e) => updateFilter("from", e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-          To (ISO date)
-          <input
-            type="date"
-            value={filters.to}
-            onChange={(e) => updateFilter("to", e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
-          />
-        </label>
-      </div>
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          onClick={() => refreshLogs({ page: 1 })}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-white shadow hover:bg-blue-700"
-        >
-          Apply filters
-        </button>
-        <p className="text-xs text-gray-500">
-          Password is held only in memory and cleared on refresh. Do not store it in the browser.
-        </p>
-      </div>
-    </Section>
-  );
-};
-
-const LogsTable = () => {
-  const { logs, loading, error, filters, setFilters } = useAdminHub();
-
-  const grouped = useMemo(() => groupLogsByCategory(logs), [logs]);
-
-  const changePage = (delta) => {
-    setFilters((prev) => ({ ...prev, page: Math.max(1, (prev.page || 1) + delta) }));
-  };
+  const grouped = useMemo(() => groupLogsByCategory(filteredLogs), [filteredLogs]);
 
   if (error) {
     return (
@@ -134,26 +47,8 @@ const LogsTable = () => {
 
   return (
     <Section title="Audit events">
-      <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-        <span>Page {filters.page || 1}</span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => changePage(-1)}
-            className="rounded border border-gray-200 px-3 py-1 text-gray-700 hover:bg-gray-50"
-            disabled={(filters.page || 1) <= 1}
-          >
-            Prev
-          </button>
-          <button
-            onClick={() => changePage(1)}
-            className="rounded border border-gray-200 px-3 py-1 text-gray-700 hover:bg-gray-50"
-          >
-            Next
-          </button>
-        </div>
-      </div>
       {loading && <p className="text-sm text-gray-600">Loading…</p>}
-      {!loading && logs.length === 0 && (
+      {!loading && filteredLogs.length === 0 && (
         <p className="text-sm text-gray-500">No events match the current filters.</p>
       )}
       <div className="space-y-4">
@@ -186,51 +81,140 @@ const LogsTable = () => {
   );
 };
 
-const AlertsPanel = () => {
-  const { alerts, staleUsers } = useAdminHub();
-  return (
-    <Section title="Capacity & Hygiene">
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-gray-700">Maxed workshops</h3>
-          {alerts.length === 0 && <p className="text-xs text-gray-500">No alerts.</p>}
-          <ul className="space-y-1">
-            {alerts.map((a, idx) => (
-              <li key={`${a.workshopId}-${idx}`} className="text-sm text-gray-800">
-                <span className="font-medium">{a.title}</span> · {a.participantsCount}/
-                {a.maxParticipants} ({a.workshopId})
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-gray-700">Stale users</h3>
-          {staleUsers.length === 0 && <p className="text-xs text-gray-500">No stale users.</p>}
-          <ul className="space-y-1">
-            {staleUsers.map((u, idx) => (
-              <li key={`${u.entityKey}-${idx}`} className="text-sm text-gray-800">
-                <span className="font-medium">{u.name || "User"}</span> · {u.entityKey}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </Section>
-  );
-};
-
-const AdminHubContent = () => (
-  <div className="mx-auto flex max-w-6xl flex-col gap-4">
-    <Filters />
-    <AlertsPanel />
-    <LogsTable />
+const AdminTabs = ({ activeTab, onSelectTab }) => (
+  <div className="flex flex-wrap gap-3">
+    {TAB_KEYS.map((key) => {
+      const isActive = activeTab === key;
+      return (
+        <button
+          key={key}
+          onClick={() => onSelectTab(key)}
+          className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+            isActive ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700"
+          }`}
+        >
+          <span>{TAB_CONFIG[key].label}</span>
+        </button>
+      );
+    })}
   </div>
 );
 
+const AdminHubContent = () => {
+  const { logs, refreshLogs } = useAdminHub();
+  const [activeTab, setActiveTab] = useState("registrations");
+
+  useEffect(() => {
+    refreshLogs({ page: 1 });
+  }, [refreshLogs]);
+
+  const filteredLogs = useMemo(() => {
+    const category = TAB_CONFIG[activeTab]?.category;
+    if (!category) return [];
+    return logs.filter((log) => log?.category === category);
+  }, [activeTab, logs]);
+
+  const handleSelectTab = (tabKey) => {
+    setActiveTab(tabKey);
+  };
+
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-gray-500">Admin Hub</p>
+            <h1 className="text-lg font-semibold text-gray-800">Choose what you want to review</h1>
+          </div>
+          <AdminTabs activeTab={activeTab} onSelectTab={handleSelectTab} />
+          <p className="text-sm text-gray-600">Logs are shown per server-provided category only.</p>
+        </div>
+      </div>
+      <LogsTable filteredLogs={filteredLogs} />
+    </div>
+  );
+};
+
+const AdminHubGate = ({ onUnlock }) => {
+  const { setAdminPassword } = useAdminHub();
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!password.trim()) {
+      setError("Please provide the admin password.");
+      return;
+    }
+    setAdminPassword(password.trim());
+    setPromptOpen(false);
+    setError("");
+    onUnlock();
+  };
+
+  const handleCancel = () => {
+    setPromptOpen(false);
+    setPassword("");
+    setError("");
+  };
+
+  return (
+    <div className="mx-auto flex max-w-xl flex-col gap-4 rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+      <div>
+        <h1 className="text-xl font-semibold text-gray-800">Secure access</h1>
+        <p className="mt-1 text-sm text-gray-600">
+          Open the Admin Hub with your in-memory admin password. Nothing is stored beyond this session.
+        </p>
+      </div>
+      {!promptOpen && (
+        <button
+          onClick={() => setPromptOpen(true)}
+          className="mx-auto w-full max-w-sm rounded-lg bg-blue-600 px-4 py-2 text-white shadow hover:bg-blue-700"
+        >
+          Open Admin Hub
+        </button>
+      )}
+      {promptOpen && (
+        <form className="mx-auto flex w-full max-w-sm flex-col gap-3 text-left" onSubmit={handleSubmit}>
+          <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
+            Admin password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-gray-900"
+              placeholder="Enter admin password"
+            />
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
+            >
+              Unlock
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+};
+
 export default function AdminHub() {
+  const [unlocked, setUnlocked] = useState(false);
+
   return (
     <AdminHubProvider>
-      <AdminHubContent />
+      {unlocked ? <AdminHubContent /> : <AdminHubGate onUnlock={() => setUnlocked(true)} />}
     </AdminHubProvider>
   );
 }
