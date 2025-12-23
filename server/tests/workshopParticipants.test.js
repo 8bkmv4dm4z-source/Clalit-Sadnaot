@@ -34,7 +34,7 @@ test('normalizeWorkshopParticipants returns only entity keys (no raw ids)', () =
         relation: 'child',
       },
     ],
-  });
+  }, { adminView: true });
 
   const participant = normalized.participants.find((p) => p.isFamily === false);
   const family = normalized.participants.find((p) => p.isFamily === true);
@@ -56,4 +56,14 @@ test('normalizeWorkshopParticipants returns only entity keys (no raw ids)', () =
   assert.equal(family.parentId, undefined);
   assert.equal(family.idNumber, undefined);
   assert.equal(family.birthDate, undefined);
+});
+
+test('normalizeWorkshopParticipants hides participant arrays for non-admin views', () => {
+  const normalized = normalizeWorkshopParticipants({
+    participants: [{ _id: '1', name: 'Hidden' }],
+    familyRegistrations: [{ familyMemberId: { _id: '2' }, parentUser: { _id: '3' } }],
+  });
+
+  assert.equal(normalized.participants, undefined);
+  assert.equal(typeof normalized.participantsCount, 'number');
 });

@@ -22,44 +22,93 @@ const {
   hydrateParentFields,
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
-const { normalizeEntity } = require("../services/entities/normalize");
 
 const toEntityKey = (doc, type = "user") => {
   if (!doc) return null;
+  if (typeof doc === "string") return doc;
   if (doc.entityKey) return doc.entityKey;
   if (doc._id) return hashId(type, String(doc._id));
   return null;
 };
 
+const pickFields = (src = {}, allowlist = []) =>
+  allowlist.reduce((acc, field) => {
+    if (src[field] !== undefined) acc[field] = src[field];
+    return acc;
+  }, {});
+
+const PUBLIC_PARTICIPANT_FIELDS = [
+  "entityKey",
+  "name",
+  "isFamily",
+  "parentKey",
+  "relation",
+  "status",
+];
+
+const ADMIN_PARTICIPANT_FIELDS = [
+  ...PUBLIC_PARTICIPANT_FIELDS,
+  "canCharge",
+  "city",
+  "email",
+  "phone",
+];
+
 const formatParticipant = (participant, { adminView = false } = {}) => {
+  const isFamily = !!participant.isFamily;
+  const entityKey = toEntityKey(
+    isFamily ? participant.entityKey || participant.familyMemberId : participant,
+    isFamily ? "family" : "user"
+  );
+
+  const parentKey = isFamily
+    ? toEntityKey(
+        participant.parentKey || participant.parentUser || participant.parent,
+        "user"
+      )
+    : null;
+
   const base = {
-    entityKey: toEntityKey(participant, "user"),
-    name: participant.name,
+    entityKey,
+    name: participant.name || "",
+    isFamily,
+    parentKey,
+    relation: participant.relation || (isFamily ? "" : "self"),
+    status: participant.status || "registered",
+    canCharge: !!participant.canCharge,
+    city: participant.city || "",
     email: participant.email || "",
     phone: participant.phone || "",
-    city: participant.city || "",
-    canCharge: !!participant.canCharge,
-    isFamily: !!participant.isFamily,
-    parentKey: participant.parentKey || null,
   };
-
-  if (participant.isFamily) {
-    base.relation = participant.relation || "";
-  }
 
   if (adminView) {
-    // Admin view keeps contact details but omits full PII like idNumber/birthDate
-    return base;
+    return pickFields(base, ADMIN_PARTICIPANT_FIELDS);
   }
 
-  // User view strips contact channels for non-owners
-  return {
-    entityKey: base.entityKey,
-    name: base.name,
-    relation: base.relation,
-    isFamily: base.isFamily,
-    parentKey: base.parentKey,
+  return pickFields(base, PUBLIC_PARTICIPANT_FIELDS);
+};
+
+const formatWaitlistEntry = (entry = {}, { adminView = false } = {}) => {
+  const parentKey = toEntityKey(entry.parentKey || entry.parentUser, "user");
+  const familyKey = toEntityKey(
+    entry.familyMemberKey || entry.familyMemberId,
+    "family"
+  );
+
+  const dto = {
+    entityKey: familyKey || parentKey || null,
+    name: entry.name || entry.familyMemberId?.name || "",
+    isFamily: !!(familyKey || entry.isFamily),
+    parentKey,
+    relation: entry.relation || entry.familyMemberId?.relation || "",
+    status: "waitlist",
+    canCharge: !!(entry.parentUser?.canCharge || entry.canCharge),
+    city: entry.city || entry.familyMemberId?.city || entry.parentUser?.city || "",
+    email: entry.email || entry.familyMemberId?.email || entry.parentUser?.email || "",
+    phone: entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "",
   };
+
+  return pickFields(dto, adminView ? ADMIN_PARTICIPANT_FIELDS : PUBLIC_PARTICIPANT_FIELDS);
 };
 
 const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => {
@@ -68,6 +117,7 @@ const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => 
       {
         ...u,
         isFamily: false,
+        status: "registered",
       },
       { adminView }
     )
@@ -86,17 +136,24 @@ const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => 
         city: f.city || parent.city || "",
         isFamily: true,
         canCharge: !!parent.canCharge,
+        status: "registered",
       },
       { adminView }
     );
   });
 
   const all = [...participants, ...familyRegistrations];
-  return {
-    participants: all,
+  const bundle = {
     participantsCount: all.length,
     directCount: participants.length,
     familyCount: familyRegistrations.length,
+  };
+
+  if (!adminView) return bundle;
+
+  return {
+    ...bundle,
+    participants: all,
   };
 };
 
@@ -272,36 +329,6 @@ const buildUserRegistrationMaps = (userDoc) => {
   return { userKey, userId, directWorkshopIds, familyWorkshopMap };
 };
 
-const normalizeWaitlistEntry = (entry, { adminView = false } = {}) => {
-  const parentKey = normalizeEntityKey(
-    entry?.parentUser?.entityKey || entry?.parentKey || entry?.parentUser
-  );
-  const familyMemberKey = normalizeEntityKey(
-    entry?.familyMemberId?.entityKey || entry?.familyMemberKey || entry?.familyMemberId
-  );
-
-  const base = {
-    entityKey: familyMemberKey || parentKey || null,
-    parentKey,
-    familyMemberKey,
-    name: entry?.familyMemberId?.name || entry?.name || "",
-    relation: entry?.familyMemberId?.relation || entry?.relation || "",
-  };
-
-  if (!adminView) return base;
-
-  return {
-    ...base,
-    parentUser: entry?.parentUser || null,
-    familyMemberId: entry?.familyMemberId || null,
-    phone: entry?.phone || entry?.familyMemberId?.phone || entry?.parentUser?.phone || "",
-    idNumber: entry?.idNumber || entry?.familyMemberId?.idNumber || "",
-    birthDate: entry?.birthDate || entry?.familyMemberId?.birthDate || null,
-    email: entry?.email || entry?.familyMemberId?.email || entry?.parentUser?.email || "",
-    city: entry?.city || entry?.familyMemberId?.city || entry?.parentUser?.city || "",
-  };
-};
-
 const toPublicWorkshop = (workshop) => {
   if (!workshop) return null;
 
@@ -403,18 +430,16 @@ const toUserWorkshop = (workshop, user = null) => {
   };
 };
 
-const sanitizeWaitingListEntry = (entry) => {
-  return {
-    entityKey: normalizeEntityKey(entry?.familyMemberKey || entry?.parentKey || entry?.entityKey),
-    parentKey: normalizeEntityKey(entry?.parentKey),
-    familyMemberKey: normalizeEntityKey(entry?.familyMemberKey),
-    name: entry?.name || entry?.familyMemberId?.name || "",
-    relation: entry?.relation || entry?.familyMemberId?.relation || "",
-    phone: entry?.phone || entry?.familyMemberId?.phone || entry?.parentUser?.phone || "",
-    email: entry?.email || entry?.familyMemberId?.email || entry?.parentUser?.email || "",
-    city: entry?.city || entry?.familyMemberId?.city || entry?.parentUser?.city || "",
-  };
-};
+const sanitizeWaitingListEntry = (entry, { adminView = false } = {}) =>
+  formatWaitlistEntry(
+    {
+      ...entry,
+      parentKey: normalizeEntityKey(entry?.parentKey || entry?.parentUser),
+      familyMemberKey: normalizeEntityKey(entry?.familyMemberKey),
+      isFamily: !!entry?.familyMemberKey || !!entry?.familyMemberId,
+    },
+    { adminView }
+  );
 
 const toAdminWorkshop = (workshop, { includeParticipantDetails = false } = {}) => {
   if (!workshop) return null;
@@ -438,7 +463,7 @@ const toAdminWorkshop = (workshop, { includeParticipantDetails = false } = {}) =
     const participantBundle = normalizeWorkshopParticipants(src, { adminView: true });
     payload.participants = participantBundle.participants;
     payload.waitingList = (counts.waitingList || []).map((wl) =>
-      sanitizeWaitingListEntry(wl)
+      sanitizeWaitingListEntry(wl, { adminView: true })
     );
   }
 
@@ -862,7 +887,7 @@ exports.getWorkshopById = async (req, res) => {
     }
 
     const normalized = selectWorkshopView(workshop, access, {
-      includeParticipantDetails: access.scope === "admin",
+      includeParticipantDetails: false,
     });
 
     const stats = normalized?.stats || {};
@@ -1031,7 +1056,7 @@ exports.updateWorkshop = async (req, res) => {
       .lean();
 
     const normalizedSource = selectWorkshopView(ws, access, {
-      includeParticipantDetails: access.scope === "admin",
+      includeParticipantDetails: false,
     }) || {};
     const normalized = {
       ...normalizedSource,
@@ -1176,7 +1201,7 @@ exports.createWorkshop = async (req, res) => {
        📦 Normalize & respond
        ============================================================ */
     const normalizedSource = selectWorkshopView(ws, access, {
-      includeParticipantDetails: access.scope === "admin",
+      includeParticipantDetails: false,
     }) || {};
     const normalized = {
       ...normalizedSource,
@@ -1250,19 +1275,56 @@ exports.getWorkshopParticipants = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
+    const limit = clampLimit(req.query.limit, 25, 100);
+    const skip = clampSkip(req.query.skip);
+
     const workshop = await Workshop.findById(workshopDoc._id)
-      .populate("participants", "name email phone city birthDate idNumber canCharge")
-      .populate("familyRegistrations.parentUser", "name email phone city canCharge _id")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate email city _id")
-      .populate("waitingList.parentUser", "name email phone")
-      .populate("waitingList.familyMemberId", "name relation")
+      .populate("participants", "name email phone city canCharge entityKey")
+      .populate(
+        "familyRegistrations.parentUser",
+        "name email phone city canCharge entityKey"
+      )
+      .populate(
+        "familyRegistrations.familyMemberId",
+        "name relation phone email city entityKey"
+      )
       .lean();
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
     const normalized = normalizeWorkshopParticipants(workshop, { adminView: true });
+    const total = normalized.participantsCount || 0;
+    const participants = (normalized.participants || []).slice(
+      skip,
+      Math.min(skip + limit, total)
+    );
 
-    return res.json(normalized);
+    await safeAuditLog({
+      eventType: AuditEventTypes.SECURITY,
+      subjectType: "workshop",
+      subjectKey: workshopDoc.workshopKey || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "workshop_participants_view",
+        limit,
+        skip,
+      },
+    });
+
+    return res.json({
+      success: true,
+      participants,
+      participantsCount: total,
+      directCount: normalized.directCount,
+      familyCount: normalized.familyCount,
+      meta: {
+        limit,
+        skip,
+        nextSkip: skip + participants.length,
+        hasMore: skip + limit < total,
+        total,
+      },
+    });
   } catch (err) {
     console.error("❌ getWorkshopParticipants error:", err);
     res.status(500).json({ message: "Server error fetching participants" });
@@ -2019,7 +2081,13 @@ exports.__test = { autoPromoteFromWaitlist };
 // ------------------------------------------------------------
 exports.getWaitlist = async (req, res) => {
   try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const { id } = req.params;
+    const limit = clampLimit(req.query.limit, 25, 100);
+    const skip = clampSkip(req.query.skip);
 
     // 1️⃣ Resolve workshopKey (UUID-only)
     const workshopDoc = await loadWorkshopByIdentifier(id);
@@ -2029,44 +2097,43 @@ exports.getWaitlist = async (req, res) => {
     }
 
     // 2️⃣ Load lean workshop document
-    const workshop = await Workshop.findById(workshopDoc._id).lean().exec();
+    const workshop = await Workshop.findById(workshopDoc._id)
+      .populate("waitingList.parentUser", "name email phone city canCharge entityKey")
+      .populate("waitingList.familyMemberId", "name relation email phone city entityKey")
+      .lean();
     if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    // 3️⃣ Resolve each waitlist entry as a FULL ENTITY
-    const waitingList = await Promise.all(
-      (workshop.waitingList || []).map(async (w) => {
-        const key = w.familyMemberKey || w.parentKey;
-        if (!key) return null;
-
-        const resolved = await resolveEntityByKey(key);
-        if (!resolved) return null;
-
-        // Convert resolved entity to a plain object for normalization
-        let flat;
-        if (resolved.type === "user") {
-          flat = resolved.userDoc._doc || resolved.userDoc;
-        } else if (resolved.type === "familyMember") {
-          flat = {
-            ...(resolved.userDoc._doc || resolved.userDoc),
-            ...(resolved.memberDoc._doc || resolved.memberDoc),
-            isFamily: true,
-          };
-        } else {
-          return null;
-        }
-
-        return normalizeEntity(flat);
-      })
+    const normalized = (workshop.waitingList || []).map((entry) =>
+      formatWaitlistEntry(entry, { adminView: true })
     );
+    const total = normalized.length;
+    const waitingList = normalized.slice(skip, Math.min(skip + limit, total));
 
-    const cleaned = waitingList.filter(Boolean);
+    await safeAuditLog({
+      eventType: AuditEventTypes.SECURITY,
+      subjectType: "workshop",
+      subjectKey: workshopDoc.workshopKey || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "workshop_waitlist_view",
+        limit,
+        skip,
+      },
+    });
 
     return res.json({
       success: true,
-      count: cleaned.length,
-      waitingList: cleaned,
+      count: total,
+      waitingList,
+      meta: {
+        limit,
+        skip,
+        nextSkip: skip + waitingList.length,
+        hasMore: skip + limit < total,
+        total,
+      },
     });
 
   } catch (err) {
