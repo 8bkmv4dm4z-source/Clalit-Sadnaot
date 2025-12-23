@@ -1469,7 +1469,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     return res.json({
       success: true,
       workshop: selectWorkshopView(decorated, access, {
-        includeParticipantDetails: access.scope === "admin",
+        includeParticipantDetails: false,
       }),
     });
   } catch (err) {
@@ -1581,7 +1581,7 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
       changed,
       message: "Entity unregistered successfully",
       workshop: selectWorkshopView(decorated, access, {
-        includeParticipantDetails: access.scope === "admin",
+        includeParticipantDetails: false,
       }),
     });
   } catch (err) {
@@ -1723,7 +1723,7 @@ exports.addEntityToWaitlist = async (req, res) => {
       message: "Added to waiting list successfully",
       position: updated.waitingList.length,
       workshop: selectWorkshopView(decorated, access, {
-        includeParticipantDetails: access.scope === "admin",
+        includeParticipantDetails: false,
       }),
     });
   } catch (err) {
@@ -1804,7 +1804,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
       success: true,
       message: "Removed from waiting list successfully",
       workshop: selectWorkshopView(decorated, access, {
-        includeParticipantDetails: access.scope === "admin",
+        includeParticipantDetails: false,
       }),
     });
   } catch (err) {
