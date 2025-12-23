@@ -4,6 +4,8 @@ const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const { refreshAccessToken, logout } = require("../controllers/authController");
 const { perUserRateLimit } = require("../middleware/perUserRateLimit");
+const { safeAuditLog } = require("../services/SafeAuditLog");
+const { AuditEventTypes } = require("../services/AuditEventRegistry");
 
 const {
   registerUser,
@@ -47,6 +49,15 @@ const perUserOtpLimiter = perUserRateLimit({
   limit: 5,
 });
 
+const auditSecurityEvent = (reason, req) =>
+  safeAuditLog({
+    eventType: AuditEventTypes.SECURITY,
+    subjectType: "user",
+    subjectKey: req.user?.entityKey || req.body?.entityKey || req.body?.parentKey || "anonymous",
+    actorKey: req.user?.entityKey || undefined,
+    metadata: { reason },
+  });
+
 // ============================================================
 // 🚦 Rate Limiters (final tuned version)
 // ============================================================
@@ -60,6 +71,7 @@ const generalAuthLimiter = rateLimit({
     process.env.NODE_ENV === "loadtest" ||
     ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip),
   handler: (req, res) => {
+    auditSecurityEvent("auth_rate_limited", req);
     console.warn("[LIMITER] hit", {
       type: "auth-general",
       ip: req.ip,
@@ -78,6 +90,7 @@ const otpLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV === "loadtest", // disable only in loadtest
   handler: (req, res) => {
+    auditSecurityEvent("otp_ip_rate_limited", req);
     console.warn("[LIMITER] OTP limit hit", req.ip);
     res.status(429).json({ message: "Too many OTP requests" });
   },
@@ -92,6 +105,7 @@ const registrationLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => process.env.NODE_ENV === "loadtest",
   handler: (req, res) => {
+    auditSecurityEvent("registration_ip_rate_limited", req);
     console.warn("[LIMITER] registration IP cap reached", req.ip);
     res
       .status(429)
@@ -112,6 +126,7 @@ function enforceRegistrationVelocity(req, res, next) {
   registrationVelocity.set(key, recent);
 
   if (recent.length > maxAttempts) {
+    auditSecurityEvent("registration_velocity_block", req);
     console.warn("[LIMITER] registration velocity blocked", { ip: req.ip, email });
     return res.status(429).json({
       message: "Registration attempts are temporarily blocked for this address.",
@@ -136,6 +151,7 @@ function otpEmailLimiter(req, res, next) {
   otpRequests.set(email, recent);
 
   if (recent.length > max) {
+    auditSecurityEvent("otp_email_rate_limited", req);
     return res.status(429).json({ message: "Too many OTP requests for this email" });
   }
 

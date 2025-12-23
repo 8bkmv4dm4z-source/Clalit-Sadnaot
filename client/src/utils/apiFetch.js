@@ -15,7 +15,10 @@
  *   user to login.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
+  (typeof globalThis !== "undefined" && globalThis.process?.env?.VITE_API_URL) ||
+  "";
 
 const ACCESS_TOKEN_KEY = "accessToken";
 

@@ -14,6 +14,9 @@ const { Resend } = require("resend");
 const User = require("../models/User");
 const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
+const { safeAuditLog } = require("../services/SafeAuditLog");
+const { hashId } = require("../utils/hashId");
+const { AuditEventTypes } = require("../services/AuditEventRegistry");
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
 const safeAuthLog = (message) => {
@@ -258,7 +261,16 @@ function sanitizeUserForResponse(user, loggedInUser) {
   delete u.passwordResetTokenExpires;
   delete u.refreshTokens;
   delete u.__v;
-  
+  const entityKey = u.entityKey || u.hashedId || (u._id ? hashId("user", String(u._id)) : undefined);
+  if (entityKey) {
+    u.id = entityKey;
+    u.entityKey = entityKey;
+  }
+  if (u._id) {
+    u.legacyMongoId = u._id;
+    delete u._id;
+  }
+
   return u;
 }
 
@@ -434,6 +446,14 @@ exports.registerUser = async (req, res) => {
       hasPassword: !!payload.password,
       temporaryPassword: false,
       role,
+    });
+
+    await safeAuditLog({
+      eventType: AuditEventTypes.USER_REGISTERED,
+      subjectType: "user",
+      subjectKey: user.entityKey,
+      actorKey: user.entityKey,
+      metadata: { source: "self_signup" },
     });
 
     safeAuthLog("registerUser succeeded");
@@ -664,10 +684,10 @@ exports.loginUser = async (req, res) => {
     const match = await bcrypt.compare(password, user.passwordHash || "");
     if (!match) return res.status(400).json({ message: "Invalid email or password" });
 
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
-    await user.save();
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken(user);
+  recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
+  await user.save();
     setRefreshCookie(res, refreshToken);
 
     safeAuthLog("loginUser succeeded");
@@ -703,7 +723,19 @@ exports.sendOtp = async (req, res) => {
     }
 
     const now = Date.now();
+    const subjectKey =
+      user.entityKey || (user._id ? hashId("user", String(user._id)) : null);
+
     if (user.otpLockUntil && user.otpLockUntil > now) {
+      if (subjectKey) {
+        await safeAuditLog({
+          eventType: AuditEventTypes.SECURITY,
+          subjectType: "user",
+          subjectKey,
+          actorKey: subjectKey,
+          metadata: { reason: "otp_lockout_active" },
+        });
+      }
       return res.status(429).json({ message: "Too many OTP attempts. Try again later." });
     }
 
@@ -803,6 +835,15 @@ exports.verifyOtp = async (req, res) => {
         user.otpLockUntil = now + OTP_LOCK_MS;
         user.otpCode = null;
         user.otpExpires = null;
+        if (subjectKey) {
+          await safeAuditLog({
+            eventType: AuditEventTypes.SECURITY,
+            subjectType: "user",
+            subjectKey,
+            actorKey: subjectKey,
+            metadata: { reason: "otp_lockout", attempts: user.otpAttempts },
+          });
+        }
       }
       await user.save();
       await enumerationDelay();
@@ -822,15 +863,16 @@ exports.verifyOtp = async (req, res) => {
 
     setRefreshCookie(res, refreshToken);
 
-    return res.json({
-      accessToken,
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        name: user.name,
-      },
-    });
+  return res.json({
+    accessToken,
+    user: {
+      id: user.entityKey || user.hashedId || user._id,
+      legacyMongoId: user._id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    },
+  });
   } catch (e) {
     console.error("❌ verifyOtp error:", e);
     res.status(500).json({ message: "Server error verifying code." });

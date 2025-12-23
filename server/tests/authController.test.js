@@ -169,6 +169,9 @@ test('verifyOtp accepts OTP with trailing whitespace', async () => {
     userDoc.refreshTokens[0].token,
     res.cookies.refreshToken?.value
   );
+  assert.equal(res.jsonData.user._id, undefined);
+  assert.equal(res.jsonData.user.id, userDoc.entityKey || userDoc._id);
+  assert.equal(res.jsonData.user.legacyMongoId, userDoc._id);
 });
 
 test('sendOtp returns generic success for unknown email', async () => {

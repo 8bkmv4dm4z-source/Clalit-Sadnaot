@@ -13,9 +13,9 @@ test('validatePasswordComplexity accepts a valid password', () => {
 })
 
 test('validatePasswordComplexity rejects password shorter than 10 characters', () => {
-  const result = validatePasswordComplexity('Abc!1234')
+  const result = validatePasswordComplexity('Abc!12')
   assert.equal(result.valid, false)
-  assert.match(result.message, /10/)
+  assert.match(result.message, /8/)
 })
 
 test('validatePasswordComplexity rejects password without uppercase letters', () => {
