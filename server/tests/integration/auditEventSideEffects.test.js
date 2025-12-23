@@ -50,7 +50,7 @@ test("registerEntityToWorkshop emits audit event on success", async () => {
 
   const workshopDoc = {
     _id: "workshop-1",
-    workshopKey: "wk-1",
+    workshopKey: "11111111-1111-4111-8111-111111111111",
     hashedId: "hashed-1",
     maxParticipants: 10,
     participantsCount: 0,
@@ -127,7 +127,7 @@ test("registerEntityToWorkshop emits audit event on success", async () => {
   const controller = require(controllerPath);
 
   const req = {
-    params: { id: "wk-1" },
+    params: { id: "11111111-1111-4111-8111-111111111111" },
     body: {},
     user: { _id: "user-1", role: "user", entityKey: "actor-1" },
   };
@@ -139,7 +139,7 @@ test("registerEntityToWorkshop emits audit event on success", async () => {
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].eventType, "workshop.registration");
   assert.equal(recorded[0].subjectType, "workshop");
-  assert.equal(recorded[0].subjectKey, "wk-1");
+  assert.equal(recorded[0].subjectKey, "11111111-1111-4111-8111-111111111111");
   assert.equal(recorded[0].actorKey, "actor-1");
   assert.deepEqual(recorded[0].metadata, {
     participantType: "user",
@@ -155,7 +155,7 @@ test("addEntityToWaitlist emits audit event on success", async () => {
 
   const workshopDoc = {
     _id: "workshop-2",
-    workshopKey: "wk-2",
+    workshopKey: "22222222-2222-4222-8222-222222222222",
     hashedId: "hashed-2",
     waitingList: [],
     waitingListMax: 0,
@@ -225,7 +225,7 @@ test("addEntityToWaitlist emits audit event on success", async () => {
   const controller = require(controllerPath);
 
   const req = {
-    params: { id: "wk-2" },
+    params: { id: "22222222-2222-4222-8222-222222222222" },
     body: {},
     user: { _id: "user-2", role: "user", entityKey: "actor-2" },
   };
@@ -237,7 +237,7 @@ test("addEntityToWaitlist emits audit event on success", async () => {
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].eventType, "workshop.waitlist.add");
   assert.equal(recorded[0].subjectType, "workshop");
-  assert.equal(recorded[0].subjectKey, "wk-2");
+  assert.equal(recorded[0].subjectKey, "22222222-2222-4222-8222-222222222222");
   assert.equal(recorded[0].actorKey, "actor-2");
   assert.deepEqual(recorded[0].metadata, {
     participantType: "user",
@@ -253,7 +253,7 @@ test("addEntityToWaitlist does not emit audit event when unchanged", async () =>
 
   const workshopDoc = {
     _id: "workshop-4",
-    workshopKey: "wk-4",
+    workshopKey: "44444444-4444-4444-8444-444444444444",
     hashedId: "hashed-4",
     waitingList: [{ parentUser: "user-4" }],
     waitingListMax: 1,
@@ -315,7 +315,7 @@ test("addEntityToWaitlist does not emit audit event when unchanged", async () =>
   const controller = require(controllerPath);
 
   const req = {
-    params: { id: "wk-4" },
+    params: { id: "44444444-4444-4444-8444-444444444444" },
     body: {},
     user: { _id: "user-4", role: "user", entityKey: "actor-4" },
   };
@@ -382,7 +382,7 @@ test("unregisterEntityFromWorkshop emits audit event when state changes", async 
 
   const workshopDoc = {
     _id: "workshop-3",
-    workshopKey: "wk-3",
+    workshopKey: "33333333-3333-4333-8333-333333333333",
     hashedId: "hashed-3",
     participants: ["user-3"],
     familyRegistrations: [],
@@ -444,7 +444,7 @@ test("unregisterEntityFromWorkshop emits audit event when state changes", async 
 
   const controller = require(controllerPath);
   const req = {
-    params: { id: "wk-3" },
+    params: { id: "33333333-3333-4333-8333-333333333333" },
     body: { entityKey: "entity-333" },
     user: { _id: "user-3", role: "user", entityKey: "actor-3" },
   };
@@ -456,7 +456,7 @@ test("unregisterEntityFromWorkshop emits audit event when state changes", async 
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].eventType, "workshop.unregister");
   assert.equal(recorded[0].subjectType, "workshop");
-  assert.equal(recorded[0].subjectKey, "wk-3");
+  assert.equal(recorded[0].subjectKey, "33333333-3333-4333-8333-333333333333");
   assert.equal(recorded[0].actorKey, "actor-3");
   assert.deepEqual(recorded[0].metadata, {
     participantType: "user",
@@ -482,7 +482,7 @@ test("autoPromoteFromWaitlist emits waitlist.promoted audit event", async () => 
   const autoPromote = controller.autoPromoteFromWaitlist || controller.__test?.autoPromoteFromWaitlist;
 
   const workshopDoc = {
-    workshopKey: "wk-4",
+    workshopKey: "44444444-4444-4444-8444-444444444444",
     hashedId: "hashed-4",
     participants: [],
     familyRegistrations: [],
@@ -551,7 +551,7 @@ test("registerEntityToWorkshop does not emit audit event when no state change", 
 
   const workshopDoc = {
     _id: "workshop-3",
-    workshopKey: "wk-3",
+    workshopKey: "33333333-3333-4333-8333-333333333333",
     hashedId: "hashed-3",
     participantsCount: 1,
     participants: ["user-3"],
@@ -622,7 +622,7 @@ test("registerEntityToWorkshop does not emit audit event when no state change", 
   const controller = require(controllerPath);
 
   const req = {
-    params: { id: "wk-3" },
+    params: { id: "33333333-3333-4333-8333-333333333333" },
     body: {},
     user: { _id: "user-3", role: "user", entityKey: "actor-3" },
   };

@@ -165,37 +165,57 @@ function resolveWorkshopObjectId() {
 }
 
 exports.resolveWorkshopObjectId = resolveWorkshopObjectId;
-const ensureHashedWorkshop = (workshop) => {
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUuid = (value) => UUID_REGEX.test(String(value || ""));
+
+const toPublicWorkshop = (workshop) => {
   if (!workshop) return null;
 
-  const obj = workshop.toObject ? workshop.toObject() : { ...workshop };
+  const src = workshop.toObject ? workshop.toObject() : { ...workshop };
+  const workshopKey = isUuid(src.workshopKey) ? src.workshopKey : null;
 
-  const hashed =
-    obj.hashedId || (obj._id ? hashId("workshop", obj._id.toString()) : null);
-  if (hashed) {
-    obj.hashedId = hashed;
-    obj.workshopKey = obj.workshopKey || hashed;
-    obj.mongoId = obj._id ? obj._id.toString() : undefined;
-
-    // 🔥 override external _id to always be hashed for the client
-    obj._id = hashed;
-  }
-
-  return obj;
+  return {
+    workshopKey,
+    title: src.title,
+    type: src.type,
+    description: src.description,
+    ageGroup: src.ageGroup,
+    coach: src.coach,
+    city: src.city,
+    address: src.address,
+    studio: src.studio,
+    startDate: src.startDate,
+    endDate: src.endDate,
+    inactiveDates: src.inactiveDates,
+    startTime: src.startTime,
+    time: src.time,
+    durationMinutes: src.durationMinutes,
+    days: src.days,
+    hour: src.hour,
+    price: src.price,
+    image: src.image,
+    available: src.available,
+    maxParticipants: src.maxParticipants,
+    waitingListMax: src.waitingListMax,
+    sessionsCount: src.sessionsCount,
+    participants: src.participants,
+    familyRegistrations: src.familyRegistrations,
+    waitingList: src.waitingList,
+    participantsCount: src.participantsCount,
+    isUserRegistered: src.isUserRegistered,
+    __ownerKey: src.__ownerKey,
+    __ownerId: src.__ownerId,
+  };
 };
 
 async function loadWorkshopByIdentifier(identifier) {
   if (!identifier) return null;
   const id = String(identifier).trim();
 
-  // 🔒 STRICT: Only allow lookup by public keys (hashedId or workshopKey)
-  // We explicitly do NOT check _id here to prevent enumeration or direct object access.
-  const candidates = [
-    { hashedId: id },
-    { workshopKey: id },
-  ];
+  // 🔒 STRICT: Only allow lookup by UUID workshopKey
+  if (!isUuid(id)) return null;
 
-  return Workshop.findOne({ $or: candidates });
+  return Workshop.findOne({ workshopKey: id });
 }
 
 exports.loadWorkshopByIdentifier = loadWorkshopByIdentifier;
@@ -217,15 +237,12 @@ const normalizeEntityKey = (entity) => {
 };
 
 const formatRegistration = ({ workshop, role = "user", includeSensitive = false }) => {
-  // Always ensure the workshop carries a stable hashed id + workshopKey
-  const w = ensureHashedWorkshop(workshop) || {};
+  // Always ensure the workshop carries a stable public identifier
+  const w = toPublicWorkshop(workshop) || {};
 
   const isAdmin = includeSensitive || role === "admin";
   const ownerKey = normalizeEntityKey(w.__ownerKey);
   const ownerId = w.__ownerId ? String(w.__ownerId) : null;
-
-  // hashed ID (hashedId is guaranteed by ensureHashedWorkshop)
-  const hashedId = w.hashedId || "";
 
   const participantsRaw = Array.isArray(w.participants) ? w.participants : [];
   const participantIds = participantsRaw
@@ -312,10 +329,7 @@ const formatRegistration = ({ workshop, role = "user", includeSensitive = false 
     .map(wl => wl.familyMemberKey);
 
   return {
-    _id: hashedId,
-    hashedId,
-    workshopKey: w.workshopKey || hashedId,
-    mongoId: w.mongoId,
+    workshopKey: w.workshopKey,
 
     title: w.title,
     type: w.type,
@@ -446,7 +460,7 @@ async function autoPromoteFromWaitlist(workshop) {
         await safeAuditLog({
           eventType: AuditEventTypes.WORKSHOP_WAITLIST_PROMOTED,
           subjectType: "workshop",
-          subjectKey: workshop.workshopKey || workshop.hashedId || null,
+          subjectKey: workshop.workshopKey || null,
           actorKey: null,
           metadata: {
             participantType: "familyMember",
@@ -460,7 +474,7 @@ async function autoPromoteFromWaitlist(workshop) {
         await safeAuditLog({
           eventType: AuditEventTypes.WORKSHOP_WAITLIST_PROMOTED,
           subjectType: "workshop",
-          subjectKey: workshop.workshopKey || workshop.hashedId || null,
+          subjectKey: workshop.workshopKey || null,
           actorKey: null,
           metadata: {
             participantType: "user",
@@ -536,7 +550,7 @@ exports.getAllWorkshops = async (req, res) => {
         .skip(skip)
         .limit(limit)
         .select(
-          "_id title type ageGroup city address studio coach days hour available description price image maxParticipants waitingListMax sessionsCount startDate endDate inactiveDates participants familyRegistrations waitingList participantsCount hashedId workshopKey"
+          "_id title type ageGroup city address studio coach days hour available description price image maxParticipants waitingListMax sessionsCount startDate endDate inactiveDates participants familyRegistrations waitingList participantsCount workshopKey"
         )
         .lean(),
       Workshop.countDocuments({}),
@@ -600,11 +614,11 @@ exports.getRegisteredWorkshops = async (req, res) => {
     // member registered.  This prevents the frontend from treating
     // those workshops as if the user themself were registered.
     const list = await Workshop.find({ participants: userId }).select(
-      "_id hashedId"
+      "workshopKey"
     );
-    const ids = list.map((w) =>
-      w.hashedId || hashId("workshop", w._id.toString())
-    );
+    const ids = list
+      .map((w) => w.workshopKey)
+      .filter((key) => isUuid(key));
     return res.json(ids);
   } catch (err) {
     console.error(
@@ -643,7 +657,7 @@ exports.getWorkshopById = async (req, res) => {
        ------------------------------------------------- */
     const workshop = await Workshop.findById(workshopDoc._id)
       .select(
-        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount hashedId workshopKey mongoId"
+        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount workshopKey"
       )
       .lean();
 
@@ -710,7 +724,7 @@ exports.updateWorkshop = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1. Strict Lookup (Returns 404 if id is not a valid hashedId/key)
+    // 1. Strict Lookup (Returns 404 if id is not a valid workshop UUID)
     const existing = await loadWorkshopByIdentifier(id);
     if (!existing) {
       return res.status(404).json({ message: "Workshop not found" });
@@ -827,7 +841,7 @@ exports.updateWorkshop = async (req, res) => {
       .populate("waitingList.parentUser", "name email")
       .lean();
 
-    const normalizedSource = ensureHashedWorkshop(ws);
+    const normalizedSource = toPublicWorkshop(ws);
     const normalized = {
       ...normalizedSource,
       address: normalizedSource?.address || "",
@@ -969,7 +983,7 @@ exports.createWorkshop = async (req, res) => {
     /* ============================================================
        📦 Normalize & respond
        ============================================================ */
-    const normalizedSource = ensureHashedWorkshop(ws);
+    const normalizedSource = toPublicWorkshop(ws);
     const normalized = {
       ...normalizedSource,
       address: normalizedSource?.address || "",
@@ -1016,7 +1030,7 @@ exports.deleteWorkshop = async (req, res) => {
     await safeAuditLog({
       eventType: AuditEventTypes.SECURITY,
       subjectType: "workshop",
-      subjectKey: workshopDoc.workshopKey || workshopDoc.hashedId || null,
+      subjectKey: workshopDoc.workshopKey || null,
       actorKey: req.user?.entityKey,
       metadata: { action: "workshop_delete" },
     });
@@ -1248,7 +1262,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     await safeAuditLog({
       eventType: AuditEventTypes.WORKSHOP_REGISTRATION,
       subjectType: "workshop",
-      subjectKey: workshop.workshopKey || workshop.hashedId || null,
+      subjectKey: workshop.workshopKey || null,
       actorKey: req.user?.entityKey,
       metadata: {
         participantType: member ? "familyMember" : "user",
@@ -1358,7 +1372,7 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
       await safeAuditLog({
         eventType: AuditEventTypes.WORKSHOP_UNREGISTER,
         subjectType: "workshop",
-        subjectKey: workshop.workshopKey || workshop.hashedId || null,
+        subjectKey: workshop.workshopKey || null,
         actorKey: req.user?.entityKey,
         metadata: {
           participantType: member ? "familyMember" : "user",
@@ -1502,7 +1516,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     await safeAuditLog({
       eventType: AuditEventTypes.WORKSHOP_WAITLIST_ADD,
       subjectType: "workshop",
-      subjectKey: workshop.workshopKey || workshop.hashedId || null,
+      subjectKey: workshop.workshopKey || null,
       actorKey: req.user?.entityKey,
       metadata: {
         participantType: member ? "familyMember" : "user",
@@ -1656,8 +1670,8 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     if (!workshopDoc) return res.status(404).json({ message: "Workshop not found" });
 
-    // (Assuming ensureHashedWorkshop is available in scope)
-    const workshop = ensureHashedWorkshop(workshopDoc);
+    // (Assuming toPublicWorkshop is available in scope)
+    const workshop = toPublicWorkshop(workshopDoc);
 
     // 2. Setup Excel Logic (Preserved from your code)
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
@@ -1792,7 +1806,7 @@ exports.exportWorkshopExcel = async (req, res) => {
       await safeAuditLog({
         eventType: AuditEventTypes.SECURITY,
         subjectType: "workshop",
-        subjectKey: workshop.workshopKey || workshop.hashedId || null,
+        subjectKey: workshop.workshopKey || null,
         actorKey: admin.entityKey,
         metadata: { action: "workshop_export" },
       });
@@ -1818,7 +1832,7 @@ exports.getWaitlist = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Resolve hashedId/ObjectId
+    // 1️⃣ Resolve workshopKey (UUID-only)
     const workshopDoc = await loadWorkshopByIdentifier(id);
 
     if (!workshopDoc) {
