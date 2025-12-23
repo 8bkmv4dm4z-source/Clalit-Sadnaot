@@ -25,6 +25,11 @@ const participantActionLimiter = perUserRateLimit({
   limit: 15,
 });
 
+const adminParticipantViewLimiter = perUserRateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+});
+
 /* ============================================================
    🟢 STATIC / META ROUTES (MUST BE FIRST)
    ============================================================ */
@@ -129,6 +134,7 @@ router.get(
   "/:id/waitlist",
   protect,
   authorizeAdmin,
+  adminParticipantViewLimiter,
   workshopController.getWaitlist
 );
 
@@ -140,6 +146,7 @@ router.get(
   "/:id/participants",
   protect,
   authorizeAdmin,
+  adminParticipantViewLimiter,
   workshopController.getWorkshopParticipants
 );
 
