@@ -212,6 +212,7 @@ const normalizeEntityKey = (entity) => {
   if (!entity) return null;
   if (typeof entity === "string") return entity;
   if (entity.entityKey) return entity.entityKey;
+  if (entity._id) return String(entity._id);
   return null;
 };
 
@@ -220,65 +221,87 @@ const formatRegistration = ({ workshop, role = "user", includeSensitive = false 
   const w = ensureHashedWorkshop(workshop) || {};
 
   const isAdmin = includeSensitive || role === "admin";
+  const ownerKey = normalizeEntityKey(w.__ownerKey);
+  const ownerId = w.__ownerId ? String(w.__ownerId) : null;
 
   // hashed ID (hashedId is guaranteed by ensureHashedWorkshop)
   const hashedId = w.hashedId || "";
 
-  // owner key
-  const ownerKey = normalizeEntityKey(w.__ownerKey);
-
-  // Participants: populated user objects → extract entityKey
-  const participants = (w.participants || [])
-    .map(u => normalizeEntityKey(u.entityKey || u))
+  const participantsRaw = Array.isArray(w.participants) ? w.participants : [];
+  const participantIds = participantsRaw
+    .map((p) => (p?._id ? String(p._id) : String(p)))
     .filter(Boolean);
+  const isOwnerParticipant = ownerId
+    ? participantIds.includes(ownerId)
+    : false;
+
+  // Participants are intentionally not exposed; only echo the owner record (if any)
+  const participants = isOwnerParticipant && ownerKey ? [ownerKey] : [];
 
   // Family registrations
-  const familyRegistrations = (w.familyRegistrations || []).map(fr => {
-    const parentKey = normalizeEntityKey(fr.parentUser?.entityKey || fr.parentKey);
-    const memberKey = normalizeEntityKey(fr.familyMemberId?.entityKey || fr.familyMemberKey);
+  const familyRegistrationsRaw = Array.isArray(w.familyRegistrations)
+    ? w.familyRegistrations
+    : [];
+  const familyRegistrations = familyRegistrationsRaw
+    .map((fr) => {
+      const parentKey = normalizeEntityKey(
+        fr.parentUser?.entityKey || fr.parentKey
+      );
+      const memberKey = normalizeEntityKey(
+        fr.familyMemberId?.entityKey || fr.familyMemberKey
+      );
 
-    return {
-      entityKey: memberKey || parentKey || null,
-      parentKey,
-      familyMemberKey: memberKey,
-      name: fr.familyMemberId?.name || fr.name || "",
-      relation: fr.familyMemberId?.relation || fr.relation || "",
-    };
-  });
+      return {
+        entityKey: memberKey || parentKey || null,
+        parentKey,
+        familyMemberKey: memberKey,
+        name: fr.familyMemberId?.name || fr.name || "",
+        relation: fr.familyMemberId?.relation || fr.relation || "",
+      };
+    })
+    // Only return entries connected to the requester to avoid leaking other users
+    .filter((fr) => ownerKey && (fr.parentKey === ownerKey || fr.familyMemberKey === ownerKey));
 
   // Waiting list
-  const waitingList = (w.waitingList || []).map(w => {
-    const parentKey = normalizeEntityKey(w.parentUser?.entityKey || w.parentKey);
-    const memberKey = normalizeEntityKey(w.familyMemberId?.entityKey || w.familyMemberKey);
+  const waitingListRaw = Array.isArray(w.waitingList) ? w.waitingList : [];
+  const waitingList = waitingListRaw
+    .map((entry) => {
+      const parentKey = normalizeEntityKey(
+        entry.parentUser?.entityKey || entry.parentKey
+      );
+      const memberKey = normalizeEntityKey(
+        entry.familyMemberId?.entityKey || entry.familyMemberKey
+      );
 
-    const base = {
-      entityKey: memberKey || parentKey || null,
-      parentKey,
-      familyMemberKey: memberKey,
-      name: w.familyMemberId?.name || w.name,
-      relation: w.familyMemberId?.relation || w.relation || "",
-    };
+      const base = {
+        entityKey: memberKey || parentKey || null,
+        parentKey,
+        familyMemberKey: memberKey,
+        name: entry.familyMemberId?.name || entry.name,
+        relation: entry.familyMemberId?.relation || entry.relation || "",
+      };
 
-    if (!isAdmin) return base;
+      if (!isAdmin) return base;
 
-    return {
-      ...base,
-      phone: w.phone || w.familyMemberId?.phone || w.parentUser?.phone || "",
-      idNumber: w.idNumber || w.familyMemberId?.idNumber || "",
-      birthDate: w.birthDate || w.familyMemberId?.birthDate || null,
-      email: w.email || w.familyMemberId?.email || w.parentUser?.email || "",
-      city: w.city || w.familyMemberId?.city || w.parentUser?.city || "",
-    };
-  });
+      return {
+        ...base,
+        phone: entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "",
+        idNumber: entry.idNumber || entry.familyMemberId?.idNumber || "",
+        birthDate: entry.birthDate || entry.familyMemberId?.birthDate || null,
+        email: entry.email || entry.familyMemberId?.email || entry.parentUser?.email || "",
+        city: entry.city || entry.familyMemberId?.city || entry.parentUser?.city || "",
+      };
+    })
+    // Only return entries connected to the requester to avoid leaking other users
+    .filter((wl) => ownerKey && (wl.parentKey === ownerKey || wl.familyMemberKey === ownerKey));
 
   // find user family registrations
   const familyKeysForUser = familyRegistrations
-    .filter(fr => fr.parentKey && ownerKey === fr.parentKey)
     .map(fr => fr.familyMemberKey)
     .filter(Boolean);
 
   const isUserRegistered =
-    participants.includes(ownerKey) || familyKeysForUser.length > 0;
+    participants.includes(ownerKey) || familyKeysForUser.length > 0 || !!w.isUserRegistered;
 
   const isUserInWaitlist = waitingList.some(
     wl => wl.parentKey === ownerKey && !wl.familyMemberKey
@@ -327,7 +350,15 @@ const formatRegistration = ({ workshop, role = "user", includeSensitive = false 
 
     participantsCount:
       w.participantsCount ??
-      participants.length + familyRegistrations.length,
+      participantsRaw.length + familyRegistrationsRaw.length,
+
+    stats: {
+      participantsTotal:
+        w.participantsCount ??
+        participantsRaw.length + familyRegistrationsRaw.length,
+      waitingListCount: waitingListRaw.length,
+      familyRegistrationsCount: familyRegistrationsRaw.length,
+    },
   };
 };
 exports.formatRegistration = formatRegistration;
@@ -468,7 +499,7 @@ async function attachUserIfPresent(req) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id || decoded.userId;
     if (!userId) return;
-    const user = await User.findById(userId).select("_id role name email");
+    const user = await User.findById(userId).select("_id role name email entityKey");
     if (user) req.user = user;
   } catch (err) {
   }
@@ -494,6 +525,7 @@ exports.getAllWorkshops = async (req, res) => {
   try {
     await attachUserIfPresent(req);
     const ownerKey = req.user?.entityKey || null;
+    const ownerId = req.user?._id ? String(req.user._id) : null;
     const requesterRole = req.user?.role || "user";
     const limit = clampLimit(req.query.limit, 10, 100);
     const skip = clampSkip(req.query.skip);
@@ -503,33 +535,17 @@ exports.getAllWorkshops = async (req, res) => {
         .sort({ startDate: 1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate(
-  "participants",
-  "entityKey name email phone city birthDate idNumber"
-)
-.populate(
-  "familyRegistrations.familyMemberId",
-  "entityKey name relation phone city birthDate idNumber"
-)
-.populate(
-  "familyRegistrations.parentUser",
-  "entityKey name email phone city birthDate idNumber"
-)
-.populate(
-  "waitingList.parentUser",
-  "entityKey name email phone city birthDate idNumber"
-)
-.populate(
-  "waitingList.familyMemberId",
-  "entityKey name relation phone city birthDate idNumber"
-)
-        .lean(false),
+        .select(
+          "_id title type ageGroup city address studio coach days hour available description price image maxParticipants waitingListMax sessionsCount startDate endDate inactiveDates participants familyRegistrations waitingList participantsCount hashedId workshopKey"
+        )
+        .lean(),
       Workshop.countDocuments({}),
     ]);
 
     const result = workshops.map((w) => {
-      const decorated = w.toObject();
+      const decorated = { ...w };
       decorated.__ownerKey = ownerKey;
+      decorated.__ownerId = ownerId;
       return formatRegistration({
         workshop: decorated,
         role: requesterRole,
@@ -625,95 +641,48 @@ exports.getWorkshopById = async (req, res) => {
     /* -------------------------------------------------
        3️⃣ Reload clean document (ALWAYS re-fetch)
        ------------------------------------------------- */
-    workshopDoc = await Workshop.findById(workshopDoc._id)
-      .populate("participants", "entityKey name email idNumber phone city")
-      .populate("familyRegistrations.parentUser", "entityKey name email idNumber phone city")
-      .populate("familyRegistrations.familyMemberId", "entityKey name relation idNumber phone birthDate city")
-      .populate("waitingList.parentUser", "entityKey name email phone")
-      .populate("waitingList.familyMemberId", "entityKey name relation");
+    const workshop = await Workshop.findById(workshopDoc._id)
+      .select(
+        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount hashedId workshopKey mongoId"
+      )
+      .lean();
 
-    if (!workshopDoc) {
+    if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    const workshop = workshopDoc.toObject();
-
-    /* -------------------------------------------------
-       4️⃣ Add hashed keys
-       ------------------------------------------------- */
-    const hashed = ensureHashedWorkshop({
+    const decorated = {
       ...workshop,
       __ownerKey: req.user?.entityKey || null,
+      __ownerId: req.user?._id ? String(req.user._id) : null,
+    };
+
+    const normalized = formatRegistration({
+      workshop: decorated,
+      role: req.user?.role || "user",
+      includeSensitive: req.user?.role === "admin",
     });
 
-    /* -------------------------------------------------
-       5️⃣ NORMALIZE waitingList
-       ------------------------------------------------- */
-    if (Array.isArray(hashed.waitingList)) {
-      hashed.waitingList = hashed.waitingList.map(w => ({
-        parentKey: w.parentUser?._id
-          ? String(w.parentUser._id)
-          : String(w.parentKey || ""),
+    const stats = normalized.stats || {};
 
-        familyMemberKey: w.familyMemberId?._id
-          ? String(w.familyMemberId._id)
-          : (w.familyMemberKey ? String(w.familyMemberKey) : null),
-
-        name: w.familyMemberId?.name || w.name || "",
-        relation: w.familyMemberId?.relation || w.relation || "",
-      }));
-    }
-
-    /* -------------------------------------------------
-       6️⃣ NORMALIZE familyRegistrations
-       ------------------------------------------------- */
-    if (Array.isArray(hashed.familyRegistrations)) {
-      hashed.familyRegistrations = hashed.familyRegistrations.map(fr => ({
-        parentKey: fr.parentUser?._id
-          ? String(fr.parentUser._id)
-          : String(fr.parentKey || ""),
-
-        familyMemberKey: fr.familyMemberId?._id
-          ? String(fr.familyMemberId._id)
-          : (fr.familyMemberKey ? String(fr.familyMemberKey) : null),
-
-        name: fr.familyMemberId?.name || fr.name || "",
-        relation: fr.familyMemberId?.relation || fr.relation || "",
-      }));
-    }
-
-    /* -------------------------------------------------
-       7️⃣ NORMALIZE participants
-       ------------------------------------------------- */
-    if (Array.isArray(hashed.participants)) {
-      hashed.participants = hashed.participants.map(p =>
-        typeof p === "object" && p?._id ? String(p._id) : String(p)
-      );
-    }
-
-    /* -------------------------------------------------
-       8️⃣ Compose final response
-       ------------------------------------------------- */
-    const normalized = {
-      ...hashed,
-      address: hashed.address || "",
-      city: hashed.city || "",
-      studio: hashed.studio || "",
-      coach: hashed.coach || "",
+    const response = {
+      ...normalized,
+      address: normalized.address || "",
+      city: normalized.city || "",
+      studio: normalized.studio || "",
+      coach: normalized.coach || "",
       participantsCount:
-        hashed.participantsCount ??
-        ((hashed.participants?.length || 0) +
-        (hashed.familyRegistrations?.length || 0)),
+        normalized.participantsCount ??
+        (stats.participantsTotal ?? 0),
       meta: {
         totalParticipants:
-          (hashed.participants?.length || 0) +
-          (hashed.familyRegistrations?.length || 0),
-        waitingListCount: hashed.waitingList?.length || 0,
-        isAvailable: !!hashed.available,
+          stats.participantsTotal ?? normalized.participantsCount ?? 0,
+        waitingListCount: stats.waitingListCount ?? 0,
+        isAvailable: !!normalized.available,
       },
     };
 
-    return res.json({ success: true, data: normalized });
+    return res.json({ success: true, data: response });
 
   } catch (err) {
     console.error("❌ [getWorkshopById] Error:", err.message);
@@ -1271,6 +1240,10 @@ exports.registerEntityToWorkshop = async (req, res) => {
 
     const decorated = populated.toObject();
     decorated.__ownerKey = req.user?.entityKey || null;
+    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
+    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
+    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
+    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
 
     await safeAuditLog({
       eventType: AuditEventTypes.WORKSHOP_REGISTRATION,

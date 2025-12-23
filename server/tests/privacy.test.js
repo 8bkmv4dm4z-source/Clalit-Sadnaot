@@ -57,6 +57,7 @@ test('formatRegistration omits sensitive waitlist fields for users', () => {
         birthDate: '1990-01-01',
       },
     ],
+    __ownerKey: 'parent-key',
   };
 
   const formatted = formatRegistration({ workshop, role: 'user' });
@@ -82,6 +83,7 @@ test('formatRegistration includes sensitive waitlist fields for admins', () => {
         birthDate: '1990-01-01',
       },
     ],
+    __ownerKey: 'parent-key',
   };
 
   const formatted = formatRegistration({ workshop, role: 'admin' });
@@ -91,6 +93,42 @@ test('formatRegistration includes sensitive waitlist fields for admins', () => {
   assert.equal(waitlistEntry.email, 'secret@example.com');
   assert.equal(waitlistEntry.idNumber, '789');
   assert.equal(waitlistEntry.birthDate, '1990-01-01');
+});
+
+test('formatRegistration hides unrelated waitlist entries even for admins', () => {
+  const workshop = {
+    _id: '507f1f77bcf86cd799439015',
+    waitingList: [
+      {
+        parentKey: 'another-parent',
+        name: 'Hidden Child',
+        relation: 'child',
+        phone: '123',
+      },
+    ],
+    __ownerKey: 'parent-key',
+  };
+
+  const formatted = formatRegistration({ workshop, role: 'admin' });
+  assert.equal(formatted.waitingList.length, 0);
+});
+
+test('formatRegistration only echoes the requester in participants while keeping counts', () => {
+  const ownerId = '507f1f77bcf86cd799439099';
+  const workshop = {
+    _id: '507f1f77bcf86cd799439098',
+    participants: [
+      ownerId,
+      '507f1f77bcf86cd799439097',
+    ],
+    participantsCount: 4,
+    __ownerId: ownerId,
+    __ownerKey: 'owner-entity-key',
+  };
+
+  const formatted = formatRegistration({ workshop, role: 'user' });
+  assert.deepEqual(formatted.participants, ['owner-entity-key']);
+  assert.equal(formatted.participantsCount, 4);
 });
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
