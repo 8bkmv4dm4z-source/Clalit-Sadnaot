@@ -4,7 +4,12 @@ const assert = require('node:assert/strict');
 process.env.PUBLIC_ID_SECRET = process.env.PUBLIC_ID_SECRET || 'test-public-id-secret';
 
 const { sanitizeUserForResponse } = require('../utils/sanitizeUser');
-const { formatRegistration } = require('../controllers/workshopController');
+const {
+  toPublicWorkshop,
+  toUserWorkshop,
+  toAdminWorkshop,
+  loadWorkshopByIdentifier,
+} = require('../controllers/workshopController');
 const Workshop = require('../models/Workshop');
 
 
@@ -43,96 +48,76 @@ test('sanitization includes PII for admin family responses', () => {
   assert.equal(child.idNumber, '321');
 });
 
-test('formatRegistration omits sensitive waitlist fields for users', () => {
+test('toPublicWorkshop strips internal identifiers and relational arrays', () => {
   const workshop = {
     _id: '507f1f77bcf86cd799439012',
+    workshopKey: '11111111-1111-4111-8111-111111111111',
+    participants: [{ _id: '1', entityKey: 'user-1' }],
+    familyRegistrations: [{ _id: '2', entityKey: 'family-1' }],
+    waitingList: [{ _id: '3', entityKey: 'wl-1' }],
+    participantsCount: 3,
+  };
+
+  const scoped = toPublicWorkshop(workshop);
+  assert.equal(scoped.workshopKey, workshop.workshopKey);
+  assert.ok(!('_id' in scoped));
+  assert.equal(scoped.participants, undefined);
+  assert.equal(scoped.familyRegistrations, undefined);
+  assert.equal(scoped.waitingList, undefined);
+  assert.equal(scoped.participantsCount, 3);
+});
+
+test('toUserWorkshop reports registration state without exposing other entities', () => {
+  const user = { _id: '507f1f77bcf86cd799439099', entityKey: 'owner-key' };
+  const workshop = {
+    workshopKey: '22222222-2222-4222-8222-222222222222',
+    participants: [user._id, '507f1f77bcf86cd799439097'],
     waitingList: [
       {
-        parentKey: 'parent-key',
-        name: 'Child',
-        relation: 'child',
+        parentUser: '507f1f77bcf86cd799439000',
         phone: '123',
         email: 'secret@example.com',
-        idNumber: '789',
-        birthDate: '1990-01-01',
       },
     ],
-    __ownerKey: 'parent-key',
   };
 
-  const formatted = formatRegistration({ workshop, role: 'user' });
-  const waitlistEntry = formatted.waitingList[0];
-  assert.ok(waitlistEntry);
-  assert.equal(waitlistEntry.phone, undefined);
-  assert.equal(waitlistEntry.email, undefined);
-  assert.equal(waitlistEntry.idNumber, undefined);
-  assert.equal(waitlistEntry.birthDate, undefined);
+  const scoped = toUserWorkshop(workshop, user);
+  assert.equal(scoped.registrationStatus, 'registered');
+  assert.equal(scoped.isUserRegistered, true);
+  assert.equal(scoped.isUserInWaitlist, false);
+  assert.equal(scoped.waitingListCount, 1);
+  assert.equal(scoped.waitingList, undefined);
 });
 
-test('formatRegistration includes sensitive waitlist fields for admins', () => {
+test('toAdminWorkshop retains participant linkage and waitlist contact data', () => {
   const workshop = {
-    _id: '507f1f77bcf86cd799439013',
+    workshopKey: '33333333-3333-4333-8333-333333333333',
+    participants: [{ entityKey: 'user-key', name: 'User', email: 'user@example.com', phone: '123' }],
+    familyRegistrations: [
+      {
+        parentUser: { entityKey: 'parent-key' },
+        familyMemberId: { entityKey: 'child-key', name: 'Child', relation: 'child' },
+      },
+    ],
     waitingList: [
       {
-        parentKey: 'parent-key',
-        name: 'Child',
-        relation: 'child',
-        phone: '123',
-        email: 'secret@example.com',
-        idNumber: '789',
-        birthDate: '1990-01-01',
+        parentUser: { entityKey: 'parent-key', phone: '321', email: 'p@example.com' },
+        familyMemberId: { entityKey: 'child-key', name: 'Child' },
+        phone: '999',
       },
     ],
-    __ownerKey: 'parent-key',
   };
 
-  const formatted = formatRegistration({ workshop, role: 'admin' });
-  const waitlistEntry = formatted.waitingList[0];
-  assert.ok(waitlistEntry);
-  assert.equal(waitlistEntry.phone, '123');
-  assert.equal(waitlistEntry.email, 'secret@example.com');
-  assert.equal(waitlistEntry.idNumber, '789');
-  assert.equal(waitlistEntry.birthDate, '1990-01-01');
-});
-
-test('formatRegistration hides unrelated waitlist entries even for admins', () => {
-  const workshop = {
-    _id: '507f1f77bcf86cd799439015',
-    waitingList: [
-      {
-        parentKey: 'another-parent',
-        name: 'Hidden Child',
-        relation: 'child',
-        phone: '123',
-      },
-    ],
-    __ownerKey: 'parent-key',
-  };
-
-  const formatted = formatRegistration({ workshop, role: 'admin' });
-  assert.equal(formatted.waitingList.length, 0);
-});
-
-test('formatRegistration only echoes the requester in participants while keeping counts', () => {
-  const ownerId = '507f1f77bcf86cd799439099';
-  const workshop = {
-    _id: '507f1f77bcf86cd799439098',
-    participants: [
-      ownerId,
-      '507f1f77bcf86cd799439097',
-    ],
-    participantsCount: 4,
-    __ownerId: ownerId,
-    __ownerKey: 'owner-entity-key',
-  };
-
-  const formatted = formatRegistration({ workshop, role: 'user' });
-  assert.deepEqual(formatted.participants, ['owner-entity-key']);
-  assert.equal(formatted.participantsCount, 4);
+  const scoped = toAdminWorkshop(workshop);
+  assert.ok(Array.isArray(scoped.participants));
+  assert.equal(scoped.participants[0].email, 'user@example.com');
+  assert.equal(scoped.familyRegistrations.length, 1);
+  assert.equal(scoped.waitingList.length, 1);
+  assert.equal(scoped.waitingList[0].phone, '999');
+  assert.equal(scoped.waitingList[0].email, 'p@example.com');
 });
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
-  const { loadWorkshopByIdentifier } = require('../controllers/workshopController');
   const identifier = '11111111-1111-4111-8111-111111111111';
   const calls = [];
   const originalFindOne = Workshop.findOne;
@@ -153,7 +138,6 @@ test('loadWorkshopByIdentifier only queries public identifiers', async () => {
 });
 
 test('loadWorkshopByIdentifier rejects non-uuid values', async () => {
-  const { loadWorkshopByIdentifier } = require('../controllers/workshopController');
   const calls = [];
   const originalFindOne = Workshop.findOne;
 
@@ -172,9 +156,7 @@ test('loadWorkshopByIdentifier rejects non-uuid values', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('formatRegistration strips internal identifiers', () => {
-  const { formatRegistration } = require('../controllers/workshopController');
-
+test('toPublicWorkshop strips internal identifiers', () => {
   const workshop = {
     _id: '507f1f77bcf86cd799439014',
     workshopKey: '22222222-2222-4222-8222-222222222222',
@@ -184,7 +166,7 @@ test('formatRegistration strips internal identifiers', () => {
     waitingList: [],
   };
 
-  const formatted = formatRegistration({ workshop, role: 'user' });
+  const formatted = toPublicWorkshop(workshop);
   assert.equal(formatted.workshopKey, workshop.workshopKey);
   assert.ok(!('_id' in formatted));
   assert.ok(!('hashedId' in formatted));

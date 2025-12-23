@@ -168,10 +168,70 @@ exports.resolveWorkshopObjectId = resolveWorkshopObjectId;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
 
+const toPlainWorkshop = (workshop) =>
+  workshop?.toObject ? workshop.toObject() : { ...(workshop || {}) };
+
+const deriveCounts = (src) => {
+  const participants = Array.isArray(src.participants) ? src.participants : [];
+  const familyRegistrations = Array.isArray(src.familyRegistrations)
+    ? src.familyRegistrations
+    : [];
+  const waitingList = Array.isArray(src.waitingList) ? src.waitingList : [];
+
+  const participantsCount =
+    typeof src.participantsCount === "number"
+      ? src.participantsCount
+      : participants.length + familyRegistrations.length;
+
+  return {
+    participants,
+    familyRegistrations,
+    waitingList,
+    participantsCount,
+    familyRegistrationsCount: familyRegistrations.length,
+    waitingListCount: waitingList.length,
+  };
+};
+
+const normalizeWaitlistEntry = (entry, { adminView = false } = {}) => {
+  const parentKey = normalizeEntityKey(
+    entry?.parentUser?.entityKey || entry?.parentKey || entry?.parentUser
+  );
+  const familyMemberKey = normalizeEntityKey(
+    entry?.familyMemberId?.entityKey || entry?.familyMemberKey || entry?.familyMemberId
+  );
+
+  const base = {
+    entityKey: familyMemberKey || parentKey || null,
+    parentKey,
+    familyMemberKey,
+    name: entry?.familyMemberId?.name || entry?.name || "",
+    relation: entry?.familyMemberId?.relation || entry?.relation || "",
+  };
+
+  if (!adminView) return base;
+
+  return {
+    ...base,
+    parentUser: entry?.parentUser || null,
+    familyMemberId: entry?.familyMemberId || null,
+    phone: entry?.phone || entry?.familyMemberId?.phone || entry?.parentUser?.phone || "",
+    idNumber: entry?.idNumber || entry?.familyMemberId?.idNumber || "",
+    birthDate: entry?.birthDate || entry?.familyMemberId?.birthDate || null,
+    email: entry?.email || entry?.familyMemberId?.email || entry?.parentUser?.email || "",
+    city: entry?.city || entry?.familyMemberId?.city || entry?.parentUser?.city || "",
+  };
+};
+
 const toPublicWorkshop = (workshop) => {
   if (!workshop) return null;
 
-  const src = workshop.toObject ? workshop.toObject() : { ...workshop };
+  const src = toPlainWorkshop(workshop);
+  const {
+    participantsCount,
+    familyRegistrationsCount,
+    waitingListCount,
+  } = deriveCounts(src);
   const workshopKey = isUuid(src.workshopKey) ? src.workshopKey : null;
 
   return {
@@ -198,13 +258,9 @@ const toPublicWorkshop = (workshop) => {
     maxParticipants: src.maxParticipants,
     waitingListMax: src.waitingListMax,
     sessionsCount: src.sessionsCount,
-    participants: src.participants,
-    familyRegistrations: src.familyRegistrations,
-    waitingList: src.waitingList,
-    participantsCount: src.participantsCount,
-    isUserRegistered: src.isUserRegistered,
-    __ownerKey: src.__ownerKey,
-    __ownerId: src.__ownerId,
+    participantsCount,
+    waitingListCount,
+    familyRegistrationsCount,
   };
 };
 
@@ -236,146 +292,99 @@ const normalizeEntityKey = (entity) => {
   return null;
 };
 
-const formatRegistration = ({ workshop, role = "user", includeSensitive = false }) => {
-  // Always ensure the workshop carries a stable public identifier
-  const w = toPublicWorkshop(workshop) || {};
-
-  const isAdmin = includeSensitive || role === "admin";
-  const ownerKey = normalizeEntityKey(w.__ownerKey);
-  const ownerId = w.__ownerId ? String(w.__ownerId) : null;
-
-  const participantsRaw = Array.isArray(w.participants) ? w.participants : [];
-  const participantIds = participantsRaw
-    .map((p) => (p?._id ? String(p._id) : String(p)))
-    .filter(Boolean);
-  const isOwnerParticipant = ownerId
-    ? participantIds.includes(ownerId)
-    : false;
-
-  // Participants are intentionally not exposed; only echo the owner record (if any)
-  const participants = isOwnerParticipant && ownerKey ? [ownerKey] : [];
-
-  // Family registrations
-  const familyRegistrationsRaw = Array.isArray(w.familyRegistrations)
-    ? w.familyRegistrations
-    : [];
-  const familyRegistrations = familyRegistrationsRaw
-    .map((fr) => {
-      const parentKey = normalizeEntityKey(
-        fr.parentUser?.entityKey || fr.parentKey
-      );
-      const memberKey = normalizeEntityKey(
-        fr.familyMemberId?.entityKey || fr.familyMemberKey
-      );
-
-      return {
-        entityKey: memberKey || parentKey || null,
-        parentKey,
-        familyMemberKey: memberKey,
-        name: fr.familyMemberId?.name || fr.name || "",
-        relation: fr.familyMemberId?.relation || fr.relation || "",
-      };
-    })
-    // Only return entries connected to the requester to avoid leaking other users
-    .filter((fr) => ownerKey && (fr.parentKey === ownerKey || fr.familyMemberKey === ownerKey));
-
-  // Waiting list
-  const waitingListRaw = Array.isArray(w.waitingList) ? w.waitingList : [];
-  const waitingList = waitingListRaw
-    .map((entry) => {
-      const parentKey = normalizeEntityKey(
-        entry.parentUser?.entityKey || entry.parentKey
-      );
-      const memberKey = normalizeEntityKey(
-        entry.familyMemberId?.entityKey || entry.familyMemberKey
-      );
-
-      const base = {
-        entityKey: memberKey || parentKey || null,
-        parentKey,
-        familyMemberKey: memberKey,
-        name: entry.familyMemberId?.name || entry.name,
-        relation: entry.familyMemberId?.relation || entry.relation || "",
-      };
-
-      if (!isAdmin) return base;
-
-      return {
-        ...base,
-        phone: entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "",
-        idNumber: entry.idNumber || entry.familyMemberId?.idNumber || "",
-        birthDate: entry.birthDate || entry.familyMemberId?.birthDate || null,
-        email: entry.email || entry.familyMemberId?.email || entry.parentUser?.email || "",
-        city: entry.city || entry.familyMemberId?.city || entry.parentUser?.city || "",
-      };
-    })
-    // Only return entries connected to the requester to avoid leaking other users
-    .filter((wl) => ownerKey && (wl.parentKey === ownerKey || wl.familyMemberKey === ownerKey));
-
-  // find user family registrations
-  const familyKeysForUser = familyRegistrations
-    .map(fr => fr.familyMemberKey)
-    .filter(Boolean);
-
-  const isUserRegistered =
-    participants.includes(ownerKey) || familyKeysForUser.length > 0 || !!w.isUserRegistered;
-
-  const isUserInWaitlist = waitingList.some(
-    wl => wl.parentKey === ownerKey && !wl.familyMemberKey
+const matchesUserIdentity = (candidate, { userKey, userId }) => {
+  if (!candidate) return false;
+  const normalized = normalizeEntityKey(candidate);
+  const candidateId = candidate?._id ? String(candidate._id) : normalizeEntityKey(candidate);
+  return (
+    (!!userKey && normalized && normalized === userKey) ||
+    (!!userId && candidateId && candidateId === userId)
   );
+};
 
-  const familyMembersInWaitlist = waitingList
-    .filter(wl => wl.parentKey === ownerKey && wl.familyMemberKey)
-    .map(wl => wl.familyMemberKey);
+const toUserWorkshop = (workshop, user = null) => {
+  if (!workshop) return null;
 
-  return {
-    workshopKey: w.workshopKey,
-
-    title: w.title,
-    type: w.type,
-    description: w.description,
-    ageGroup: w.ageGroup,
-    coach: w.coach,
-    city: w.city,
-    address: w.address,
-    studio: w.studio,
-    startDate: w.startDate,
-    endDate: w.endDate,
-    inactiveDates: w.inactiveDates,
-    startTime: w.startTime,
-    time: w.time,
-    durationMinutes: w.durationMinutes,
-    days: w.days,
-    hour: w.hour,
-    price: w.price,
-    image: w.image,
-    available: w.available,
-    maxParticipants: w.maxParticipants,
-    waitingListMax: w.waitingListMax,
-    sessionsCount: w.sessionsCount,
-
+  const src = toPlainWorkshop(workshop);
+  const base = toPublicWorkshop(src);
+  const {
     participants,
     familyRegistrations,
-    userFamilyRegistrations: familyKeysForUser,
     waitingList,
+  } = deriveCounts(src);
+
+  const userKey = normalizeEntityKey(user?.entityKey || src.__ownerKey);
+  const userId = user?._id ? String(user._id) : normalizeEntityKey(src.__ownerId);
+
+  const isDirectParticipant = participants.some((p) =>
+    matchesUserIdentity(p, { userKey, userId })
+  );
+
+  const hasFamilyRegistration = familyRegistrations.some(
+    (fr) =>
+      matchesUserIdentity(fr.parentUser, { userKey, userId }) ||
+      matchesUserIdentity(fr.parentKey, { userKey, userId })
+  );
+
+  const waitlisted = waitingList.some((wl) =>
+    matchesUserIdentity(wl.parentUser || wl.parentKey, { userKey, userId })
+  );
+
+  const isUserRegistered = isDirectParticipant || hasFamilyRegistration || !!src.isUserRegistered;
+  const registrationStatus = isUserRegistered
+    ? "registered"
+    : waitlisted
+      ? "waitlisted"
+      : "not_registered";
+
+  return {
+    ...base,
+    registrationStatus,
     isUserRegistered,
-    isUserInWaitlist,
-    familyMembersInWaitlist,
+    isUserInWaitlist: waitlisted,
+  };
+};
 
-    participantsCount:
-      w.participantsCount ??
-      participantsRaw.length + familyRegistrationsRaw.length,
+const toAdminWorkshop = (workshop) => {
+  if (!workshop) return null;
 
+  const src = toPlainWorkshop(workshop);
+  const base = toPublicWorkshop(src);
+  const participantBundle = normalizeWorkshopParticipants(src, { adminView: true });
+  const waitingList = (src.waitingList || []).map((wl) =>
+    normalizeWaitlistEntry(wl, { adminView: true })
+  );
+
+  return {
+    ...base,
+    _id: src._id,
+    description: src.description,
+    participants: participantBundle.participants,
+    familyRegistrations: src.familyRegistrations || [],
+    waitingList,
     stats: {
-      participantsTotal:
-        w.participantsCount ??
-        participantsRaw.length + familyRegistrationsRaw.length,
-      waitingListCount: waitingListRaw.length,
-      familyRegistrationsCount: familyRegistrationsRaw.length,
+      participantsTotal: participantBundle.participantsCount ?? base.participantsCount,
+      waitingListCount: base.waitingListCount,
+      familyRegistrationsCount: base.familyRegistrationsCount,
     },
   };
 };
-exports.formatRegistration = formatRegistration;
+
+const resolveAccessScope = (req) => {
+  if (req?.user?.role === "admin") return { scope: "admin", principal: req.user };
+  if (req?.user) return { scope: "user", principal: req.user };
+  return { scope: "public", principal: null };
+};
+
+const selectWorkshopView = (workshop, { scope, principal }) => {
+  if (scope === "admin") return toAdminWorkshop(workshop);
+  if (scope === "user") return toUserWorkshop(workshop, principal);
+  return toPublicWorkshop(workshop);
+};
+
+exports.toPublicWorkshop = toPublicWorkshop;
+exports.toUserWorkshop = toUserWorkshop;
+exports.toAdminWorkshop = toAdminWorkshop;
 
 
 /* ============================================================
@@ -538,9 +547,7 @@ const clampSkip = (value = 0) => {
 exports.getAllWorkshops = async (req, res) => {
   try {
     await attachUserIfPresent(req);
-    const ownerKey = req.user?.entityKey || null;
-    const ownerId = req.user?._id ? String(req.user._id) : null;
-    const requesterRole = req.user?.role || "user";
+    const access = resolveAccessScope(req);
     const limit = clampLimit(req.query.limit, 10, 100);
     const skip = clampSkip(req.query.skip);
 
@@ -556,16 +563,9 @@ exports.getAllWorkshops = async (req, res) => {
       Workshop.countDocuments({}),
     ]);
 
-    const result = workshops.map((w) => {
-      const decorated = { ...w };
-      decorated.__ownerKey = ownerKey;
-      decorated.__ownerId = ownerId;
-      return formatRegistration({
-        workshop: decorated,
-        role: requesterRole,
-        includeSensitive: requesterRole === "admin",
-      });
-    });
+    const result = workshops.map((w) =>
+      selectWorkshopView(w, access)
+    );
 
     const nextSkip = skip + workshops.length;
     const hasMore = nextSkip < total;
@@ -642,6 +642,7 @@ exports.getRegisteredWorkshops = async (req, res) => {
 exports.getWorkshopById = async (req, res) => {
   try {
     await attachUserIfPresent(req);
+    const access = resolveAccessScope(req);
     const { id } = req.params;
 
     /* -------------------------------------------------
@@ -665,19 +666,9 @@ exports.getWorkshopById = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
-    const decorated = {
-      ...workshop,
-      __ownerKey: req.user?.entityKey || null,
-      __ownerId: req.user?._id ? String(req.user._id) : null,
-    };
+    const normalized = selectWorkshopView(workshop, access);
 
-    const normalized = formatRegistration({
-      workshop: decorated,
-      role: req.user?.role || "user",
-      includeSensitive: req.user?.role === "admin",
-    });
-
-    const stats = normalized.stats || {};
+    const stats = normalized?.stats || {};
 
     const response = {
       ...normalized,
@@ -691,7 +682,7 @@ exports.getWorkshopById = async (req, res) => {
       meta: {
         totalParticipants:
           stats.participantsTotal ?? normalized.participantsCount ?? 0,
-        waitingListCount: stats.waitingListCount ?? 0,
+        waitingListCount: stats.waitingListCount ?? normalized.waitingListCount ?? 0,
         isAvailable: !!normalized.available,
       },
     };
@@ -722,6 +713,7 @@ exports.getWorkshopById = async (req, res) => {
   */
 exports.updateWorkshop = async (req, res) => {
   try {
+    const access = resolveAccessScope(req);
     const { id } = req.params;
 
     // 1. Strict Lookup (Returns 404 if id is not a valid workshop UUID)
@@ -841,13 +833,13 @@ exports.updateWorkshop = async (req, res) => {
       .populate("waitingList.parentUser", "name email")
       .lean();
 
-    const normalizedSource = toPublicWorkshop(ws);
+    const normalizedSource = selectWorkshopView(ws, access) || {};
     const normalized = {
       ...normalizedSource,
-      address: normalizedSource?.address || "",
-      city: normalizedSource?.city || "",
-      studio: normalizedSource?.studio || "",
-      coach: normalizedSource?.coach || "",
+      address: normalizedSource.address || "",
+      city: normalizedSource.city || "",
+      studio: normalizedSource.studio || "",
+      coach: normalizedSource.coach || "",
     };
 
     const meta = {
@@ -886,6 +878,7 @@ exports.updateWorkshop = async (req, res) => {
  */
 exports.createWorkshop = async (req, res) => {
   try {
+    const access = resolveAccessScope(req);
     const data = { ...req.body };
 
     // 🧩 Required field check
@@ -983,13 +976,13 @@ exports.createWorkshop = async (req, res) => {
     /* ============================================================
        📦 Normalize & respond
        ============================================================ */
-    const normalizedSource = toPublicWorkshop(ws);
+    const normalizedSource = selectWorkshopView(ws, access) || {};
     const normalized = {
       ...normalizedSource,
-      address: normalizedSource?.address || "",
-      city: normalizedSource?.city || "",
-      studio: normalizedSource?.studio || "",
-      coach: normalizedSource?.coach || "",
+      address: normalizedSource.address || "",
+      city: normalizedSource.city || "",
+      studio: normalizedSource.studio || "",
+      coach: normalizedSource.coach || "",
     };
 
     const meta = {
@@ -1085,6 +1078,7 @@ exports.getWorkshopParticipants = async (req, res) => {
 exports.registerEntityToWorkshop = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
+    const access = resolveAccessScope(req);
 
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
@@ -1273,11 +1267,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
 
     return res.json({
       success: true,
-      workshop: formatRegistration({
-        workshop: decorated,
-        role: req.user?.role || "user",
-        includeSensitive: req.user?.role === "admin",
-      }),
+      workshop: selectWorkshopView(decorated, access),
     });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
@@ -1302,6 +1292,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
 exports.unregisterEntityFromWorkshop = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
+    const access = resolveAccessScope(req);
 
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
@@ -1386,11 +1377,7 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
       success: true,
       changed,
       message: "Entity unregistered successfully",
-      workshop: formatRegistration({
-        workshop: decorated,
-        role: req.user?.role || "user",
-        includeSensitive: req.user?.role === "admin",
-      }),
+      workshop: selectWorkshopView(decorated, access),
     });
   } catch (err) {
     console.error("❌ unregisterEntityFromWorkshop error:", err);
@@ -1423,6 +1410,7 @@ const workshop = await loadWorkshopByIdentifier(workshopKey);
 exports.addEntityToWaitlist = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
+    const access = resolveAccessScope(req);
 
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
@@ -1529,11 +1517,7 @@ exports.addEntityToWaitlist = async (req, res) => {
       success: true,
       message: "Added to waiting list successfully",
       position: updated.waitingList.length,
-      workshop: formatRegistration({
-        workshop: decorated,
-        role: req.user?.role || "user",
-        includeSensitive: req.user?.role === "admin",
-      }),
+      workshop: selectWorkshopView(decorated, access),
     });
   } catch (err) {
     console.error("🔥 addEntityToWaitlist error:", err);
@@ -1552,6 +1536,7 @@ exports.addEntityToWaitlist = async (req, res) => {
 exports.removeEntityFromWaitlist = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
+    const access = resolveAccessScope(req);
 
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
@@ -1611,11 +1596,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     return res.json({
       success: true,
       message: "Removed from waiting list successfully",
-      workshop: formatRegistration({
-        workshop: decorated,
-        role: req.user?.role || "user",
-        includeSensitive: req.user?.role === "admin",
-      }),
+      workshop: selectWorkshopView(decorated, access),
     });
   } catch (err) {
     console.error("🔥 removeEntityFromWaitlist error:", err);
@@ -1670,8 +1651,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     if (!workshopDoc) return res.status(404).json({ message: "Workshop not found" });
 
-    // (Assuming toPublicWorkshop is available in scope)
-    const workshop = toPublicWorkshop(workshopDoc);
+    const workshop = toAdminWorkshop(workshopDoc);
 
     // 2. Setup Excel Logic (Preserved from your code)
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
@@ -2018,6 +1998,8 @@ exports.validateAddress = async (req, res) => {
    ============================================================ */
 exports.searchWorkshops = async (req, res) => {
   try {
+    await attachUserIfPresent(req);
+    const access = resolveAccessScope(req);
     // Normalize query
     const raw = (req.query.q || "").trim();
     if (!raw) return res.json([]);
@@ -2167,7 +2149,8 @@ exports.searchWorkshops = async (req, res) => {
     }
     console.groupEnd();
 
-    return res.json(filtered.slice(0, limit));
+    const scoped = filtered.slice(0, limit).map((doc) => selectWorkshopView(doc, access));
+    return res.json(scoped);
   } catch (err) {
     console.error("❌ [searchWorkshops] Error:", err);
     res.status(500).json({

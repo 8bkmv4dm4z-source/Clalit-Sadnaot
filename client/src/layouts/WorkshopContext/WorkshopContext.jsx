@@ -210,6 +210,10 @@ export const WorkshopProvider = ({ children }) => {
             return null;
           }
 
+          const registrationStatus =
+            w.registrationStatus || (w.isUserRegistered ? "registered" : "not_registered");
+          const isUserInWaitlist = !!w.isUserInWaitlist || registrationStatus === "waitlisted";
+
           /* ---------------- participants: true entities ---------------- */
           const participantsRaw = Array.isArray(w.participants)
             ? w.participants
@@ -299,6 +303,7 @@ export const WorkshopProvider = ({ children }) => {
 
           /* ---------------- isUserRegistered ---------------- */
           const isUserRegistered =
+            registrationStatus === "registered" ||
             !!w.isUserRegistered ||
             (userKey &&
               participants.some((p) => sid(p.entityKey) === userKey));
@@ -312,6 +317,8 @@ export const WorkshopProvider = ({ children }) => {
             userFamilyRegistrations,
             familyRegistrations,
             isUserRegistered,
+            isUserInWaitlist,
+            registrationStatus,
           };
         })
         .filter(Boolean); // clean list
@@ -528,9 +535,10 @@ export const WorkshopProvider = ({ children }) => {
 
     for (const w of list) {
       const wid = sid(w?.workshopKey || w?._id || w?.id);
+      const regStatus = w?.registrationStatus;
 
       /* ---- user map ---- */
-      if (w?.isUserRegistered) {
+      if (w?.isUserRegistered || regStatus === "registered") {
         uMap[wid] = true;
       } else if (Array.isArray(w?.participants)) {
         if (w.participants.some((p) => sid(p.entityKey) === currentUserId)) {
