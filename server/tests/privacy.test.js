@@ -133,7 +133,7 @@ test('formatRegistration only echoes the requester in participants while keeping
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
   const { loadWorkshopByIdentifier } = require('../controllers/workshopController');
-  const identifier = '507f1f77bcf86cd799439014';
+  const identifier = '11111111-1111-4111-8111-111111111111';
   const calls = [];
   const originalFindOne = Workshop.findOne;
 
@@ -149,10 +149,44 @@ test('loadWorkshopByIdentifier only queries public identifiers', async () => {
   }
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], {
-    $or: [
-      { hashedId: identifier },
-      { workshopKey: identifier },
-    ],
-  });
+  assert.deepEqual(calls[0], { workshopKey: identifier });
+});
+
+test('loadWorkshopByIdentifier rejects non-uuid values', async () => {
+  const { loadWorkshopByIdentifier } = require('../controllers/workshopController');
+  const calls = [];
+  const originalFindOne = Workshop.findOne;
+
+  Workshop.findOne = async (query) => {
+    calls.push(query);
+    return null;
+  };
+
+  try {
+    const result = await loadWorkshopByIdentifier('507f1f77bcf86cd799439014');
+    assert.equal(result, null);
+  } finally {
+    Workshop.findOne = originalFindOne;
+  }
+
+  assert.equal(calls.length, 0);
+});
+
+test('formatRegistration strips internal identifiers', () => {
+  const { formatRegistration } = require('../controllers/workshopController');
+
+  const workshop = {
+    _id: '507f1f77bcf86cd799439014',
+    workshopKey: '22222222-2222-4222-8222-222222222222',
+    hashedId: 'internal-hash',
+    participants: [],
+    familyRegistrations: [],
+    waitingList: [],
+  };
+
+  const formatted = formatRegistration({ workshop, role: 'user' });
+  assert.equal(formatted.workshopKey, workshop.workshopKey);
+  assert.ok(!('_id' in formatted));
+  assert.ok(!('hashedId' in formatted));
+  assert.ok(!('mongoId' in formatted));
 });
