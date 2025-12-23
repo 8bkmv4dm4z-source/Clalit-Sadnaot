@@ -124,6 +124,10 @@ export default function WorkshopCard({
     waitingList = [],
     waitingListMax = 0,
     participantsCount: participantsCountRaw,
+    waitingListCount = 0,
+    familyRegistrationsCount = 0,
+    registrationStatus = "not_registered",
+    isUserInWaitlist = false,
     maxParticipants: maxParticipantsRaw,
     startDate,
     endDate,
@@ -200,11 +204,12 @@ export default function WorkshopCard({
   // -------- true self waitlist logic --------
   const selfOnWaitlist = useMemo(
     () =>
-      !!userKey &&
-      waitRows.some(
-        (e) => e.parentKey === userKey && e.entityKey === userKey
-      ),
-    [waitRows, userKey]
+      isUserInWaitlist ||
+      (!!userKey &&
+        waitRows.some(
+          (e) => e.parentKey === userKey && e.entityKey === userKey
+        )),
+    [waitRows, userKey, isUserInWaitlist]
   );
 
   const isWorkshopFull =
@@ -214,6 +219,7 @@ export default function WorkshopCard({
   const isSelfRegistered = useMemo(() => {
     if (!userKey || !wid) return false;
 
+    if (registrationStatus === "registered") return true;
     if (registeredWorkshopIds?.includes(wid)) return true;
     if (userWorkshopMap?.[wid] === true) return true;
     if (workshop?.isUserRegistered) return true;
@@ -226,6 +232,7 @@ export default function WorkshopCard({
     userWorkshopMap,
     workshop,
     participantIdSet,
+    registrationStatus,
   ]);
 
   // -------- family registered set (entityKey-based) --------
