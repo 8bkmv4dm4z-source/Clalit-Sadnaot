@@ -149,7 +149,11 @@ function QuickEdit({ person, onClose, onSaved }) {
 }
 
 /** 🔹 Main Modal */
-export default function WorkshopParticipantsModal({ workshop, onClose }) {
+export default function WorkshopParticipantsModal({
+  workshop,
+  onClose,
+  accessScope = "public",
+}) {
   // Pull helpers from WorkshopContext.  We deliberately avoid
   // performing workshop mutations via direct apiFetch calls so that
   // the context can refetch and rebuild registration maps after each
@@ -351,7 +355,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 
       setMessage("🚫 בוטל בהצלחה");
       await fetchAll();
-      await fetchWorkshops();
+      await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
       alert("❌ " + e.message);
     }
@@ -384,7 +388,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
 
       setMessage("✅ הועבר בהצלחה מרשימת המתנה לרשומים");
       await fetchAll();
-      await fetchWorkshops();
+      await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
       alert("❌ " + e.message);
     }
@@ -499,7 +503,7 @@ export default function WorkshopParticipantsModal({ workshop, onClose }) {
   };
 
   const handleClose = async () => {
-    await fetchWorkshops();
+    await fetchWorkshops({ force: true, scope: accessScope });
     if (typeof setSelectedWorkshop === "function") {
       setSelectedWorkshop(null);
     }
