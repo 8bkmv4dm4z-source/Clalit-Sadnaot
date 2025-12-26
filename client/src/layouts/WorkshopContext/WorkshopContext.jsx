@@ -86,7 +86,7 @@ const sid = (x) => String(x ?? "");
 /* ================================================================== */
 
 export const WorkshopProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isAdmin, isLoggedIn } = useAuth();
   const { fetchProfiles } = useProfiles();
 
   const [workshops, setWorkshops] = useState([]);
@@ -105,6 +105,7 @@ export const WorkshopProvider = ({ children }) => {
     total: 0,
     hasMore: true,
   });
+  const [accessScope, setAccessScope] = useState("public");
 
   // Derived maps (context-only, never mutated directly)
   const [userWorkshopMap, setUserWorkshopMap] = useState({});   // { [workshopId]: true }
@@ -144,10 +145,15 @@ export const WorkshopProvider = ({ children }) => {
       limit = pagination.limit || 10,
       skip = force ? 0 : pagination.skip || 0,
       append = false,
+      scope = accessScope || "public",
     } = opts;
 
+    const effectiveScope = scope || "public";
+
+    setAccessScope((prev) => (prev === effectiveScope ? prev : effectiveScope));
+
     log(
-      `📡 Fetching all workshops (force=${force}, limit=${limit}, skip=${skip}, append=${append})`
+      `📡 Fetching all workshops (force=${force}, limit=${limit}, skip=${skip}, append=${append}, scope=${effectiveScope})`
     );
     dbgCtx("fetchAllWorkshops:start", { force, limit, skip, append });
     if (append) setLoadingMore(true);
@@ -168,6 +174,7 @@ export const WorkshopProvider = ({ children }) => {
       const params = new URLSearchParams();
       params.set("limit", limit);
       params.set("skip", skip);
+      if (effectiveScope) params.set("scope", effectiveScope);
 
       const res = await apiFetch(`/api/workshops?${params.toString()}`);
       const raw = await res.json();
@@ -391,10 +398,27 @@ export const WorkshopProvider = ({ children }) => {
     }
   }
 
-  /* 👈 NEW: initial fetch on mount (public view works even before auth events) */
+  /* 👈 NEW: refetch when auth scope changes so DTOs match access level */
   useEffect(() => {
-    fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
-  }, []);
+    const nextScope = isAdmin ? "admin" : isLoggedIn ? "user" : "public";
+    setAccessScope((prev) => (prev === nextScope ? prev : nextScope));
+  }, [isAdmin, isLoggedIn]);
+
+  useEffect(() => {
+    fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0, scope: accessScope });
+
+    if (accessScope === "public") {
+      setRegisteredWorkshopIds([]);
+      setUserWorkshopMap({});
+      setFamilyWorkshopMap({});
+      setServerMapsLoaded(false);
+      setMapsReady(false);
+      return;
+    }
+
+    fetchRegisteredWorkshops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessScope]);
 
   /* ============================================================
      📡 Fetch registered workshops (IDs only)
@@ -997,6 +1021,7 @@ export const WorkshopProvider = ({ children }) => {
       limit: pagination.limit || 10,
       skip: pagination.skip || workshops.length || 0,
       append: true,
+      scope: accessScope,
     });
   };
 
@@ -1039,6 +1064,8 @@ export const WorkshopProvider = ({ children }) => {
 
         exportWorkshop,
         pagination,
+        accessScope,
+        setAccessScope,
 
         // Admin mutations
         createWorkshop,

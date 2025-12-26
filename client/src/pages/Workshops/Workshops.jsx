@@ -42,6 +42,8 @@ export default function Workshops() {
     loadMoreWorkshops,
     loadingMore,
     pagination,
+    accessScope,
+    setAccessScope,
   } = useWorkshops();
 
   /* ============================================================
@@ -79,6 +81,11 @@ export default function Workshops() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    const scope = isAdmin ? "admin" : isLoggedIn ? "user" : "public";
+    if (typeof setAccessScope === "function") setAccessScope(scope);
+  }, [isAdmin, isLoggedIn, setAccessScope]);
 
   // 🔽 Infinite scroll / swipe-to-load for mobile
   const loadMoreRef = useRef(null);
@@ -244,7 +251,7 @@ export default function Workshops() {
 
   const handleModalClose = async () => {
     setSelectedWorkshop(null);
-    await fetchWorkshops();
+    await fetchWorkshops({ force: true, scope: accessScope });
   };
 
   /* ============================================================
@@ -429,6 +436,7 @@ export default function Workshops() {
           workshop={selectedWorkshop}
           onClose={handleModalClose}
           refreshWorkshops={fetchWorkshops}
+          accessScope={accessScope}
         />
       )}
     </div>
