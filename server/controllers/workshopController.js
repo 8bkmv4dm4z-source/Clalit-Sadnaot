@@ -54,7 +54,17 @@ const ADMIN_PARTICIPANT_FIELDS = [
   "phone",
 ];
 
-const formatParticipant = (participant, { adminView = false } = {}) => {
+const SENSITIVE_PARTICIPANT_FIELDS = ["idNumber", "birthDate"];
+
+const withAllowlist = (allowlist = [], includeSensitiveFields = false) => {
+  if (!includeSensitiveFields) return allowlist;
+  return [...new Set([...allowlist, ...SENSITIVE_PARTICIPANT_FIELDS])];
+};
+
+const formatParticipant = (
+  participant,
+  { adminView = false, includeSensitiveFields = false } = {}
+) => {
   const isFamily = !!participant.isFamily;
   const entityKey = toEntityKey(
     isFamily ? participant.entityKey || participant.familyMemberId : participant,
@@ -81,14 +91,22 @@ const formatParticipant = (participant, { adminView = false } = {}) => {
     phone: participant.phone || "",
   };
 
-  if (adminView) {
-    return pickFields(base, ADMIN_PARTICIPANT_FIELDS);
+  if (includeSensitiveFields) {
+    base.idNumber = participant.idNumber || "";
+    base.birthDate = participant.birthDate || "";
   }
 
-  return pickFields(base, PUBLIC_PARTICIPANT_FIELDS);
+  if (adminView) {
+    return pickFields(base, withAllowlist(ADMIN_PARTICIPANT_FIELDS, includeSensitiveFields));
+  }
+
+  return pickFields(base, withAllowlist(PUBLIC_PARTICIPANT_FIELDS, includeSensitiveFields));
 };
 
-const formatWaitlistEntry = (entry = {}, { adminView = false } = {}) => {
+const formatWaitlistEntry = (
+  entry = {},
+  { adminView = false, includeSensitiveFields = false } = {}
+) => {
   const parentKey = toEntityKey(entry.parentKey || entry.parentUser, "user");
   const familyKey = toEntityKey(
     entry.familyMemberKey || entry.familyMemberId,
@@ -108,10 +126,23 @@ const formatWaitlistEntry = (entry = {}, { adminView = false } = {}) => {
     phone: entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "",
   };
 
-  return pickFields(dto, adminView ? ADMIN_PARTICIPANT_FIELDS : PUBLIC_PARTICIPANT_FIELDS);
+  if (includeSensitiveFields) {
+    dto.idNumber = entry.idNumber || entry.familyMemberId?.idNumber || "";
+    dto.birthDate = entry.birthDate || entry.familyMemberId?.birthDate || "";
+  }
+
+  return pickFields(
+    dto,
+    adminView
+      ? withAllowlist(ADMIN_PARTICIPANT_FIELDS, includeSensitiveFields)
+      : withAllowlist(PUBLIC_PARTICIPANT_FIELDS, includeSensitiveFields)
+  );
 };
 
-const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => {
+const normalizeWorkshopParticipants = (
+  workshop,
+  { adminView = false, includeSensitiveFields = false } = {}
+) => {
   const participants = (workshop?.participants || []).map((u) =>
     formatParticipant(
       {
@@ -119,7 +150,7 @@ const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => 
         isFamily: false,
         status: "registered",
       },
-      { adminView }
+      { adminView, includeSensitiveFields }
     )
   );
 
@@ -134,11 +165,13 @@ const normalizeWorkshopParticipants = (workshop, { adminView = false } = {}) => 
         email: f.email || parent.email || "",
         phone: f.phone || parent.phone || "",
         city: f.city || parent.city || "",
+        idNumber: f.idNumber || f.familyMemberId?.idNumber || parent.idNumber || "",
+        birthDate: f.birthDate || f.familyMemberId?.birthDate || parent.birthDate || "",
         isFamily: true,
         canCharge: !!parent.canCharge,
         status: "registered",
       },
-      { adminView }
+      { adminView, includeSensitiveFields }
     );
   });
 
@@ -430,7 +463,10 @@ const toUserWorkshop = (workshop, user = null) => {
   };
 };
 
-const sanitizeWaitingListEntry = (entry, { adminView = false } = {}) =>
+const sanitizeWaitingListEntry = (
+  entry,
+  { adminView = false, includeSensitiveFields = false } = {}
+) =>
   formatWaitlistEntry(
     {
       ...entry,
@@ -438,10 +474,13 @@ const sanitizeWaitingListEntry = (entry, { adminView = false } = {}) =>
       familyMemberKey: normalizeEntityKey(entry?.familyMemberKey),
       isFamily: !!entry?.familyMemberKey || !!entry?.familyMemberId,
     },
-    { adminView }
+    { adminView, includeSensitiveFields }
   );
 
-const toAdminWorkshop = (workshop, { includeParticipantDetails = false } = {}) => {
+const toAdminWorkshop = (
+  workshop,
+  { includeParticipantDetails = false, includeSensitiveFields = false } = {}
+) => {
   if (!workshop) return null;
 
   const src = toPlainWorkshop(workshop);
@@ -460,10 +499,13 @@ const toAdminWorkshop = (workshop, { includeParticipantDetails = false } = {}) =
   };
 
   if (includeParticipantDetails) {
-    const participantBundle = normalizeWorkshopParticipants(src, { adminView: true });
+    const participantBundle = normalizeWorkshopParticipants(src, {
+      adminView: true,
+      includeSensitiveFields,
+    });
     payload.participants = participantBundle.participants;
     payload.waitingList = (counts.waitingList || []).map((wl) =>
-      sanitizeWaitingListEntry(wl, { adminView: true })
+      sanitizeWaitingListEntry(wl, { adminView: true, includeSensitiveFields })
     );
   }
 
@@ -1918,11 +1960,15 @@ exports.exportWorkshopExcel = async (req, res) => {
       .populate("familyRegistrations.parentUser", "name email phone city canCharge")
       .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
       .populate("waitingList.parentUser", "name email phone city canCharge")
+      .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate email city")
       .lean();
 
     if (!workshopDoc) return res.status(404).json({ message: "Workshop not found" });
 
-    const workshop = toAdminWorkshop(workshopDoc);
+    const workshop = toAdminWorkshop(workshopDoc, {
+      includeParticipantDetails: true,
+      includeSensitiveFields: true,
+    });
 
     // 2. Setup Excel Logic (Preserved from your code)
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
