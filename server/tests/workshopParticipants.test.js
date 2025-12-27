@@ -67,3 +67,29 @@ test('normalizeWorkshopParticipants hides participant arrays for non-admin views
   assert.equal(normalized.participants, undefined);
   assert.equal(typeof normalized.participantsCount, 'number');
 });
+
+test('normalizeWorkshopParticipants can include sensitive fields for admin exports', () => {
+  const normalized = normalizeWorkshopParticipants(
+    {
+      participants: [
+        { _id: '1', name: 'Admin', email: 'admin@example.com', idNumber: '111', birthDate: '2000-01-01' },
+      ],
+      familyRegistrations: [
+        {
+          familyMemberId: { _id: '2', name: 'Child', idNumber: '222', birthDate: '2010-02-02' },
+          parentUser: { _id: '1', email: 'parent@example.com', idNumber: '111' },
+          relation: 'child',
+        },
+      ],
+    },
+    { adminView: true, includeSensitiveFields: true }
+  );
+
+  const participant = normalized.participants.find((p) => p.isFamily === false);
+  assert.equal(participant.idNumber, '111');
+  assert.ok(String(participant.birthDate).startsWith('2000-01-01'));
+
+  const family = normalized.participants.find((p) => p.isFamily === true);
+  assert.equal(family.idNumber, '222');
+  assert.ok(String(family.birthDate).startsWith('2010-02-02'));
+});
