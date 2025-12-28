@@ -56,6 +56,7 @@ export default function Register() {
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [serverDetails, setServerDetails] = useState([]);
+  const [lastPayload, setLastPayload] = useState(null);
 
   const [phase, setPhase] = useState("form");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -64,9 +65,27 @@ export default function Register() {
   const [otpSuccess, setOtpSuccess] = useState("");
   const [otpDetails, setOtpDetails] = useState([]);
   const [otpLoading, setOtpLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const navigate = useNavigate();
   const { startRegistration, confirmRegistration } = useAuth();
+  const conflictMessage =
+    'הערך שסופק כבר קיים במערכת. נסה/י דוא"ל או ת"ז אחרת.';
+
+  const applyConflictHint = (status) => {
+    if (status !== 409) return;
+    setTouched((prev) => ({
+      ...prev,
+      email: true,
+      idNumber: true,
+    }));
+    setErrors((prev) => ({
+      ...prev,
+      email: prev.email || conflictMessage,
+      idNumber: prev.idNumber || conflictMessage,
+    }));
+  };
 
   const runValidation = (field, value, nextAccount = account) => {
     switch (field) {
@@ -115,6 +134,7 @@ export default function Register() {
     setServerDetails([]);
     setOtpError("");
     setOtpDetails([]);
+    setLastPayload(null);
     if (name === "email" && phase === "otp") {
       setPhase("form");
       setPendingEmail("");
@@ -132,11 +152,14 @@ export default function Register() {
     });
   };
 
-  const markTouched = (field) =>
+  const markTouched = (field) => {
+    // Email/ID errors should surface only after the submit action, not on blur.
+    if (field === "email" || field === "idNumber") return;
     setTouched((prev) => ({
       ...prev,
       [field]: true,
     }));
+  };
 
   const handleFamilyChange = (index, field, value) => {
     setFamilyMembers((prev) =>
@@ -201,6 +224,23 @@ export default function Register() {
     setSubmitSuccess("");
     setServerDetails([]);
 
+    if (phase === "otp" && lastPayload) {
+      setLoading(true);
+      const resendResult = await startRegistration(lastPayload);
+      setLoading(false);
+
+      if (resendResult.success) {
+        setSubmitSuccess("📨 שלחנו שוב את קוד האימות אליך.");
+        setOtpError("");
+        setServerDetails([]);
+      } else {
+        setSubmitError(`❌ ${resendResult.message || "שגיאה בשליחת קוד חדש"}`);
+        setServerDetails(resendResult.details || []);
+        applyConflictHint(resendResult.status);
+      }
+      return;
+    }
+
     if (!validateForm()) return;
 
     const trimmedName = account.name.trim();
@@ -243,9 +283,11 @@ export default function Register() {
       setOtpCode("");
       setOtpError("");
       setOtpDetails([]);
+      setLastPayload(payload);
     } else {
       setSubmitError(`❌ ${result.message || "שגיאה בהרשמה"}`);
       setServerDetails(result.details || []);
+      applyConflictHint(result.status);
     }
   };
 
@@ -299,6 +341,7 @@ export default function Register() {
         confirm: "",
         idNumber: "",
       });
+      setLastPayload(null);
       setTimeout(() => navigate("/login"), 800);
     } else {
       setOtpError(`❌ ${result.message || "אימות הקוד נכשל"}`);
@@ -409,34 +452,54 @@ export default function Register() {
             <p className="text-xs text-rose-600">{errors.phone}</p>
           )}
 
-          <input
-            type="password"
-            name="password"
-            value={account.password}
-            onChange={handleChange}
-            onBlur={() => markTouched("password")}
-            required
-            placeholder="סיסמה (לפחות 8 תווים, אות גדולה, ספרה ותו)"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              errors.password && touched.password ? "border-rose-400" : ""
-            }`}
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              name="password"
+              value={account.password}
+              onChange={handleChange}
+              onBlur={() => markTouched("password")}
+              required
+              placeholder="סיסמה (לפחות 8 תווים, אות גדולה, ספרה ותו)"
+              className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+                errors.password && touched.password ? "border-rose-400" : ""
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600 text-lg"
+              aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+            >
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
           {errors.password && touched.password && (
             <p className="text-xs text-rose-600">{errors.password}</p>
           )}
 
-          <input
-            type="password"
-            name="confirm"
-            value={account.confirm}
-            onChange={handleChange}
-            onBlur={() => markTouched("confirm")}
-            required
-            placeholder="אימות סיסמה"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
-              errors.confirm && touched.confirm ? "border-rose-400" : ""
-            }`}
-          />
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? "text" : "password"}
+              name="confirm"
+              value={account.confirm}
+              onChange={handleChange}
+              onBlur={() => markTouched("confirm")}
+              required
+              placeholder="אימות סיסמה"
+              className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+                errors.confirm && touched.confirm ? "border-rose-400" : ""
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword((prev) => !prev)}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600 text-lg"
+              aria-label={showConfirmPassword ? "הסתר אימות סיסמה" : "הצג אימות סיסמה"}
+            >
+              {showConfirmPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
           {errors.confirm && touched.confirm && (
             <p className="text-xs text-rose-600">{errors.confirm}</p>
           )}
