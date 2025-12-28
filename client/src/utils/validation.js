@@ -31,7 +31,14 @@ export const validateRequired = (value, label) => {
 };
 
 export const validateEmail = (value) => {
-  const email = String(value || "").trim();
+  const raw = String(value || "");
+  const email = raw.trim();
+
+  // Reject multiple values or whitespace tricks up-front
+  if (!email || raw !== email || /[,;]/.test(email) || /\s/.test(email)) {
+    return { valid: false, message: HEBREW_MESSAGES.email };
+  }
+
   const pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const valid = pattern.test(email);
   return { valid, message: valid ? "" : HEBREW_MESSAGES.email };
@@ -79,7 +86,7 @@ export const validateSafeText = (value, label = "השדה") => {
 };
 
 export const validateIsraeliId = (value) => {
-  const digits = String(value || "").replace(/\D/g, "");
+  const digits = String(value || "").trim();
 
   if (!PATTERNS.idNumber.test(digits)) {
     return { valid: false, message: HEBREW_MESSAGES.israelId };
