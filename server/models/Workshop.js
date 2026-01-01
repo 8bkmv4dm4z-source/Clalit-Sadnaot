@@ -44,6 +44,7 @@ const WorkshopSchema = new mongoose.Schema(
     inactiveDates: { type: [Date], default: [] },
 
     available: { type: Boolean, default: true },
+    adminHidden: { type: Boolean, default: false },
     description: { type: String, default: "" },
     price: { type: Number, default: 0 },
 image: { 
@@ -168,6 +169,7 @@ WorkshopSchema.index({ city: 1 });
 WorkshopSchema.index({ coach: 1 });
 WorkshopSchema.index({ type: 1 });
 WorkshopSchema.index({ available: 1 });
+WorkshopSchema.index({ adminHidden: 1 });
 WorkshopSchema.index({ startDate: 1 });
 WorkshopSchema.index({ city: 1, coach: 1, type: 1, available: 1 });
 

@@ -488,6 +488,7 @@ const toAdminWorkshop = (
   const counts = deriveCounts(src, { includeArrays: includeParticipantDetails });
   const payload = {
     ...base,
+    adminHidden: !!src.adminHidden,
     participantsCount: counts.participantsCount,
     waitingListCount: counts.waitingListCount,
     familyRegistrationsCount: counts.familyRegistrationsCount,
@@ -516,6 +517,17 @@ const resolveAccessScope = (req) => {
   if (req?.user?.role === "admin") return { scope: "admin", principal: req.user };
   if (req?.user) return { scope: "user", principal: req.user };
   return { scope: "public", principal: null };
+};
+
+const isHiddenFromAccess = (workshop, access) =>
+  access?.scope !== "admin" && !!workshop?.adminHidden;
+
+const rejectHiddenWorkshop = (workshop, access, res) => {
+  if (isHiddenFromAccess(workshop, access)) {
+    res.status(404).json({ message: "Workshop not found" });
+    return true;
+  }
+  return false;
 };
 
 const selectWorkshopView = (workshop, { scope, principal }, options = {}) => {
@@ -695,6 +707,7 @@ exports.getAllWorkshops = async (req, res) => {
 
     const isUserScope = access.scope === "user";
     const isAdminScope = access.scope === "admin";
+    const visibilityFilter = isAdminScope ? {} : { adminHidden: { $ne: true } };
 
     let registrationMaps = {
       userKey: null,
@@ -723,6 +736,7 @@ exports.getAllWorkshops = async (req, res) => {
       "days",
       "hour",
       "available",
+      "adminHidden",
       "description",
       "price",
       "image",
@@ -752,13 +766,13 @@ exports.getAllWorkshops = async (req, res) => {
     const selectClause = baseSelectFields.join(" ");
 
     const [workshops, total] = await Promise.all([
-      Workshop.find({})
+      Workshop.find(visibilityFilter)
         .sort({ startDate: 1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .select(selectClause)
         .lean(),
-      Workshop.countDocuments({}),
+      Workshop.countDocuments(visibilityFilter),
     ]);
 
     const decorated = workshops.map((w) => {
@@ -811,6 +825,8 @@ exports.getAllWorkshops = async (req, res) => {
 ------------------------------------------------------------ */
 exports.getRegisteredWorkshops = async (req, res) => {
   try {
+    const access = resolveAccessScope(req);
+    const isAdminScope = access.scope === "admin";
     const userId = req.user?._id?.toString();
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -846,8 +862,11 @@ exports.getRegisteredWorkshops = async (req, res) => {
     const workshopKeyById = new Map();
 
     if (allWorkshopIds.length > 0) {
-      const workshops = await Workshop.find({ _id: { $in: allWorkshopIds } })
-        .select("_id workshopKey")
+      const workshops = await Workshop.find({
+        _id: { $in: allWorkshopIds },
+        ...(isAdminScope ? {} : { adminHidden: { $ne: true } }),
+      })
+        .select("_id workshopKey adminHidden")
         .lean();
 
       workshops.forEach((w) => {
@@ -915,12 +934,14 @@ exports.getWorkshopById = async (req, res) => {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
+    if (rejectHiddenWorkshop(workshopDoc, access, res)) return;
+
     /* -------------------------------------------------
        3️⃣ Reload clean document (ALWAYS re-fetch)
        ------------------------------------------------- */
     const workshop = await Workshop.findById(workshopDoc._id)
       .select(
-        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount workshopKey"
+        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available adminHidden maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount workshopKey"
       )
       .lean();
 
@@ -991,14 +1012,19 @@ exports.updateWorkshop = async (req, res) => {
        ============================================================ */
     const allowed = [
       "title", "type", "ageGroup", "city", "address", "studio", "coach",
-      "days", "hour", "available", "description", "price",
+      "days", "hour", "available", "adminHidden", "description", "price",
       "image", "maxParticipants", "waitingListMax", "autoEnrollOnVacancy",
       "sessionsCount", "startDate", "inactiveDates"
     ];
 
     const updates = {};
+    const wasHidden = !!existing.adminHidden;
     for (const key of allowed) {
       if (key in req.body) updates[key] = req.body[key];
+    }
+
+    if ("adminHidden" in updates) {
+      updates.adminHidden = !!updates.adminHidden;
     }
 
     /* ============================================================
@@ -1086,6 +1112,18 @@ exports.updateWorkshop = async (req, res) => {
 
     await existing.save();
 
+    if (wasHidden !== !!existing.adminHidden) {
+      await safeAuditLog({
+        eventType: AuditEventTypes.WORKSHOP_VISIBILITY_TOGGLE,
+        subjectType: "workshop",
+        subjectKey: existing.workshopKey || null,
+        actorKey: req.user?.entityKey,
+        metadata: {
+          action: existing.adminHidden ? "hide" : "unhide",
+        },
+      });
+    }
+
     /* ============================================================
        📦 Reload normalized + populated data
        ============================================================ */
@@ -1150,6 +1188,10 @@ exports.createWorkshop = async (req, res) => {
     // 🧩 Required field check
     if (!data.city || !data.address) {
       return res.status(400).json({ message: "City and address are required" });
+    }
+
+    if ("adminHidden" in data) {
+      data.adminHidden = !!data.adminHidden;
     }
 
     /* ============================================================
@@ -1392,6 +1434,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const workshop = await loadWorkshopByIdentifier(workshopKey);
     if (!workshop)
       return res.status(404).json({ message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res)) return;
 
     // Resolve entity
     const resolved = await resolveEntityByKey(targetEntityKey);
@@ -1604,8 +1647,9 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-const workshop = await loadWorkshopByIdentifier(workshopKey);
+    const workshop = await loadWorkshopByIdentifier(workshopKey);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved) return res.status(404).json({ message: "Entity not found" });
@@ -1727,6 +1771,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     const workshop = await loadWorkshopByIdentifier(id);
     if (!workshop)
       return res.status(404).json({ success: false, message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved)
@@ -1857,6 +1902,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved)
@@ -2353,6 +2399,7 @@ exports.searchWorkshops = async (req, res) => {
     if (dayFilter) filterObj.days = dayFilter;
     if (ageGroupFilter) filterObj.ageGroup = ageGroupFilter;
     if (availableFilter !== undefined) filterObj.available = availableFilter;
+    if (access.scope !== "admin") filterObj.adminHidden = { $ne: true };
 
     // Projection
     const projection = {
@@ -2370,6 +2417,7 @@ exports.searchWorkshops = async (req, res) => {
       maxParticipants: 1,
       startDate: 1,
       endDate: 1,
+      adminHidden: 1,
     };
 
     // ----------------------------
