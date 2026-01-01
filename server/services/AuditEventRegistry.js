@@ -13,6 +13,7 @@ const AuditEventTypes = Object.freeze({
   WORKSHOP_WAITLIST_PROMOTED: "workshop.waitlist.promoted",
   WORKSHOP_UNREGISTER: "workshop.unregister",
   WORKSHOP_MAXED: "workshop.maxed",
+  WORKSHOP_VISIBILITY_TOGGLE: "workshop.visibility.toggle",
   SECURITY: "security",
   USER_STALE_DETECTED: "user.stale.detected",
 });
@@ -41,6 +42,10 @@ const AuditEventRegistry = Object.freeze({
   [AuditEventTypes.WORKSHOP_MAXED]: {
     eventType: AuditEventTypes.WORKSHOP_MAXED,
     category: AuditCategories.CAPACITY,
+  },
+  [AuditEventTypes.WORKSHOP_VISIBILITY_TOGGLE]: {
+    eventType: AuditEventTypes.WORKSHOP_VISIBILITY_TOGGLE,
+    category: AuditCategories.WORKSHOP,
   },
   [AuditEventTypes.USER_STALE_DETECTED]: {
     eventType: AuditEventTypes.USER_STALE_DETECTED,

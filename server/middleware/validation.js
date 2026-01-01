@@ -382,6 +382,7 @@ const validateWorkshopCreate = celebrate({
     description: Joi.string().trim().allow("").max(500).optional(),
     price: Joi.number().min(0).max(99999).optional(),
     available: Joi.boolean().optional(),
+    adminHidden: Joi.boolean().optional(),
     image: Joi.string().allow("").optional(),
 
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),
@@ -424,6 +425,7 @@ const validateWorkshopEdit = celebrate({
     description: Joi.string().trim().allow("").max(500).optional(),
     price: Joi.number().min(0).max(99999).optional(),
     available: Joi.boolean().optional(),
+    adminHidden: Joi.boolean().optional(),
     image: Joi.string().allow("").optional(),
 
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),

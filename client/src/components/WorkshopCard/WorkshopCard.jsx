@@ -24,6 +24,8 @@ import {
   MoreVertical,
   User as UserIcon,
   Check,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
@@ -59,6 +61,7 @@ export default function WorkshopCard({
     unregisterEntityFromWorkshop,
     registerToWaitlist,
     unregisterFromWaitlist,
+    updateWorkshop,
   } = useWorkshops();
 
   const wid = str(_id);
@@ -76,6 +79,7 @@ export default function WorkshopCard({
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [showWaitlist, setShowWaitlist] = useState(false);
+  const [visibilityLoading, setVisibilityLoading] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [viewport, setViewport] = useState("desktop");
 
@@ -120,6 +124,7 @@ export default function WorkshopCard({
     price,
     image,
     available = true,
+    adminHidden = false,
     participants = [],
     waitingList = [],
     waitingListMax = 0,
@@ -335,6 +340,33 @@ export default function WorkshopCard({
       });
   };
 
+  const toggleVisibility = async (e) => {
+    if (e?.stopPropagation) e.stopPropagation();
+    if (!adminEnabled || visibilityLoading) return;
+
+    const nextHidden = !adminHidden;
+    setVisibilityLoading(true);
+    setFeedback(null);
+
+    try {
+      const result = await updateWorkshop(wid, { adminHidden: nextHidden });
+      if (!result?.success) {
+        setFeedback(`❌ ${result?.message || "עדכון החשיפה נכשל"}`);
+      } else {
+        setFeedback(
+          nextHidden
+            ? "✅ הסדנה הוסתרה ממשתמשים"
+            : "✅ הסדנה הוחזרה לתצוגה"
+        );
+      }
+    } catch (err) {
+      setFeedback(`❌ ${err?.message || "עדכון החשיפה נכשל"}`);
+    } finally {
+      setVisibilityLoading(false);
+      setTimeout(() => setFeedback(null), 2500);
+    }
+  };
+
   // ---------- Skeleton ----------
   if (!workshop || !wid) {
     return (
@@ -371,6 +403,15 @@ export default function WorkshopCard({
                 <Coins size={14} />
                 {Number(price)} ₪
               </span>
+            </div>
+          </div>
+        )}
+
+        {adminEnabled && adminHidden && (
+          <div className="absolute top-3 right-3 z-10">
+            <div className="bg-rose-600/90 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg inline-flex items-center gap-1">
+              <EyeOff size={14} />
+              מוסתר
             </div>
           </div>
         )}
@@ -421,16 +462,27 @@ export default function WorkshopCard({
             </h3>
 
             {adminEnabled && (
-              <AdminMenu
-                adminMenuRef={adminMenuRef}
-                adminOpen={adminOpen}
-                setAdminOpen={setAdminOpen}
-                workshopId={wid}
-                onManageParticipants={onManageParticipants}
-                onEditWorkshop={onEditWorkshop}
-                onDeleteWorkshop={onDeleteWorkshop}
-                className={isMobile ? "self-end" : ""}
-              />
+              <div
+                className={`flex items-center gap-2 ${
+                  isMobile ? "w-full justify-between flex-wrap" : ""
+                }`}
+              >
+                <AdminVisibilityToggle
+                  hidden={adminHidden}
+                  onToggle={toggleVisibility}
+                  loading={visibilityLoading}
+                />
+                <AdminMenu
+                  adminMenuRef={adminMenuRef}
+                  adminOpen={adminOpen}
+                  setAdminOpen={setAdminOpen}
+                  workshopId={wid}
+                  onManageParticipants={onManageParticipants}
+                  onEditWorkshop={onEditWorkshop}
+                  onDeleteWorkshop={onDeleteWorkshop}
+                  className={isMobile ? "self-end" : ""}
+                />
+              </div>
             )}
           </div>
 
@@ -743,6 +795,39 @@ export default function WorkshopCard({
         </div>
       )}
     </>
+  );
+}
+
+/* ---------- Admin Visibility Toggle ---------- */
+function AdminVisibilityToggle({ hidden, onToggle, loading }) {
+  const pillColors = hidden
+    ? "bg-rose-50 text-rose-700 border-rose-200"
+    : "bg-emerald-50 text-emerald-700 border-emerald-200";
+  const sliderBg = hidden ? "bg-rose-500/80" : "bg-emerald-500/80";
+  const knobPosition = hidden ? "translate-x-7" : "translate-x-1";
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        if (typeof onToggle === "function") onToggle(e);
+      }}
+      disabled={loading}
+      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold transition ${pillColors} disabled:opacity-70 disabled:cursor-not-allowed`}
+      title="הצג/הסתר למשתמשים"
+    >
+      <span
+        className={`relative inline-flex items-center h-7 w-14 rounded-full ${sliderBg} transition-colors`}
+      >
+        <span
+          className={`absolute h-5 w-5 bg-white rounded-full shadow transform transition-transform ${knobPosition}`}
+        />
+      </span>
+      <span className="inline-flex items-center gap-1">
+        {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+        {loading ? "..." : hidden ? "מוסתר" : "גלוי"}
+      </span>
+    </button>
   );
 }
 
