@@ -11,11 +11,40 @@ const PROVIDERS = {
   },
 };
 
-const resolveProvider = () => {
-  if (process.env.HCAPTCHA_SECRET) return "hcaptcha";
-  if (process.env.RECAPTCHA_SECRET) return "recaptcha";
+const resolveCaptchaProvider = () => {
+  const provider = process.env.CAPTCHA_PROVIDER;
+  if (provider === "recaptcha") return "recaptcha";
+  if (provider === "hcaptcha") return "hcaptcha";
   return null;
 };
+
+const validateCaptchaConfiguration = () => {
+  const rawProvider = process.env.CAPTCHA_PROVIDER;
+  const provider = resolveCaptchaProvider();
+
+  if (rawProvider && !provider) {
+    throw new Error(`Unsupported CAPTCHA_PROVIDER value: ${rawProvider}`);
+  }
+
+  if (!provider) return null;
+
+  if (provider === "recaptcha" && !process.env.RECAPTCHA_SECRET) {
+    throw new Error("CAPTCHA_PROVIDER=recaptcha requires RECAPTCHA_SECRET to be set");
+  }
+
+  if (provider === "hcaptcha" && !process.env.HCAPTCHA_SECRET) {
+    throw new Error("CAPTCHA_PROVIDER=hcaptcha requires HCAPTCHA_SECRET to be set");
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    // Minimal debug to confirm deterministic provider selection; no secrets or tokens logged.
+    console.debug(`[SECURITY] Captcha provider resolved: ${provider}`);
+  }
+
+  return provider;
+};
+
+const ACTIVE_PROVIDER = validateCaptchaConfiguration();
 
 const verifyToken = async ({ provider, token, remoteip }) => {
   const config = PROVIDERS[provider];
@@ -42,11 +71,11 @@ const verifyToken = async ({ provider, token, remoteip }) => {
 
 /**
  * Enforce bot detection for sensitive auth endpoints.
- * - Supports Google reCAPTCHA v3 or hCaptcha based on env secrets.
+ * - Supports Google reCAPTCHA v3 or hCaptcha based on explicit provider selection.
  * - Rejects missing/failed tokens in production to avoid silent bypasses.
  */
 const requireCaptcha = async (req, res, next) => {
-  const provider = resolveProvider();
+  const provider = ACTIVE_PROVIDER;
 
   if (!provider) {
     // In production we require a provider to avoid silent bypass; dev can skip for velocity.
