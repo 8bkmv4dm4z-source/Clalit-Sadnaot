@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import {
-  validateEmail,
   validatePasswordComplexity,
   validatePasswordConfirmation,
   validateRequired,
@@ -20,10 +19,8 @@ export default function ResetPassword() {
   const navigate = useNavigate();
   const { completePasswordReset } = useAuth();
 
-  const initialEmail = query.get("email") ? query.get("email").trim() : "";
   const initialToken = query.get("token") ? query.get("token").trim() : "";
 
-  const [email, setEmail] = useState(initialEmail);
   const [token, setToken] = useState(initialToken);
   const [phoneAnswer, setPhoneAnswer] = useState("");
   const [password, setPassword] = useState("");
@@ -33,26 +30,15 @@ export default function ResetPassword() {
   const [successMsg, setSuccessMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({
-    email: "",
     phoneAnswer: "",
     password: "",
     confirmPassword: "",
   });
   const [touched, setTouched] = useState({
-    email: Boolean(initialEmail),
     phoneAnswer: false,
     password: false,
     confirmPassword: false,
   });
-
-  useEffect(() => {
-    if (initialEmail) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        email: validateEmail(initialEmail).message,
-      }));
-    }
-  }, [initialEmail]);
 
   useEffect(() => {
     setToken(initialToken);
@@ -61,34 +47,22 @@ export default function ResetPassword() {
   const hasToken = Boolean(token.trim());
 
   const canSubmit = useMemo(() => {
-    const emailOk = email && !fieldErrors.email;
     const phoneOk = phoneAnswer && !fieldErrors.phoneAnswer;
     const passwordOk = password && !fieldErrors.password;
     const confirmOk = confirmPassword && !fieldErrors.confirmPassword;
 
     return (
-      emailOk &&
       phoneOk &&
       passwordOk &&
       confirmOk &&
       hasToken &&
       status !== "submitting"
     );
-  }, [email, phoneAnswer, password, confirmPassword, fieldErrors, hasToken, status]);
+  }, [phoneAnswer, password, confirmPassword, fieldErrors, hasToken, status]);
 
   const validateField = (field, value) => {
     let message = "";
     switch (field) {
-      case "email": {
-        const required = validateRequired(value, "כתובת אימייל");
-        if (!required.valid) {
-          message = required.message;
-          break;
-        }
-        const emailCheck = validateEmail(value);
-        message = emailCheck.valid ? "" : emailCheck.message;
-        break;
-      }
       case "password": {
         const result = validatePasswordComplexity(value);
         message = result.valid ? "" : result.message;
@@ -125,20 +99,18 @@ export default function ResetPassword() {
   const handleSubmit = async (evt) => {
     evt.preventDefault();
 
-    const emailValid = validateField("email", email);
     const passwordValid = validateField("password", password);
     const confirmValid = validateField("confirmPassword", confirmPassword);
     const phoneValid = validateField("phoneAnswer", phoneAnswer.trim());
 
     setTouched((prev) => ({
       ...prev,
-      email: true,
       password: true,
       confirmPassword: true,
       phoneAnswer: true,
     }));
 
-    if (!emailValid || !passwordValid || !confirmValid || !phoneValid) {
+    if (!passwordValid || !confirmValid || !phoneValid) {
       return;
     }
 
@@ -152,7 +124,6 @@ export default function ResetPassword() {
     setSuccessMsg("");
 
     const payload = {
-      email: email.trim(),
       newPassword: password,
       token: token.trim(),
       phoneAnswer: phoneAnswer.trim(),
@@ -193,33 +164,6 @@ export default function ResetPassword() {
         </div>
 
         <form onSubmit={handleSubmit} className="grid gap-6">
-          <div>
-            <label className="block text-sm font-semibold text-indigo-700 mb-2">
-              כתובת אימייל
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (touched.email) validateField("email", e.target.value);
-              }}
-              onBlur={() => {
-                markTouched("email");
-                validateField("email", email);
-              }}
-              className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
-                fieldErrors.email && touched.email
-                  ? "border-rose-400"
-                  : "border-indigo-100"
-              }`}
-              placeholder="example@gmail.com"
-            />
-            {fieldErrors.email && touched.email && (
-              <p className="mt-2 text-xs text-rose-600">{fieldErrors.email}</p>
-            )}
-          </div>
-
           <div>
             <label className="block text-sm font-semibold text-indigo-700 mb-2">
               ספרות אחרונות של מספר הטלפון

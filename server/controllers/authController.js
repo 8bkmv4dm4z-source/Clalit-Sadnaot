@@ -6,7 +6,6 @@
  */
 
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -17,6 +16,12 @@ const emailService = require('../services/emailService');
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { hashId } = require("../utils/hashId");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
+const {
+  hashPassword,
+  verifyPassword,
+  upgradeHashIfNeeded,
+  isBcryptHash,
+} = require("../utils/passwordHasher");
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
 const safeAuthLog = (message) => {
@@ -204,7 +209,6 @@ function resolveClientBaseUrl(req) {
 function buildPasswordResetPayload({ baseUrl, email, token, minutes }) {
   const resetUrl = new URL("/resetpassword", baseUrl);
   resetUrl.searchParams.set("token", token);
-  resetUrl.searchParams.set("email", email);
 
   const prettyMinutes = minutes >= 60
     ? `${Math.round(minutes / 60)} שעות`
@@ -259,6 +263,7 @@ function sanitizeUserForResponse(user, loggedInUser) {
   delete u.otpAttempts;
   delete u.passwordResetTokenHash;
   delete u.passwordResetTokenExpires;
+  delete u.passwordChangedAt;
   delete u.refreshTokens;
   delete u.__v;
   const entityKey = u.entityKey || u.hashedId || (u._id ? hashId("user", String(u._id)) : undefined);
@@ -431,7 +436,7 @@ exports.registerUser = async (req, res) => {
       return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
     }
 
-    const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
+    const passwordHash = payload.password ? await hashPassword(payload.password) : null;
 
     const user = await User.create({
       name: payload.name,
@@ -491,7 +496,7 @@ exports.requestRegistration = async (req, res) => {
       return res.status(202).json(GENERIC_REGISTRATION_ACCEPTED);
     }
 
-    const passwordHash = payload.password ? await bcrypt.hash(payload.password, 10) : null;
+    const passwordHash = payload.password ? await hashPassword(payload.password) : null;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = Date.now() + REGISTRATION_OTP_TTL_MS;
     const expiresAt = new Date(Date.now() + REGISTRATION_REQUEST_TTL_MS);
@@ -681,13 +686,17 @@ exports.loginUser = async (req, res) => {
 
     if (!user) return res.status(400).json({ message: "Invalid email or password" });
 
-    const match = await bcrypt.compare(password, user.passwordHash || "");
+    const match = await verifyPassword(password, user.passwordHash || "");
     if (!match) return res.status(400).json({ message: "Invalid email or password" });
 
-  const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user);
-  recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
-  await user.save();
+    if (isBcryptHash(user.passwordHash || "")) {
+      await upgradeHashIfNeeded(user, password, user.passwordHash);
+    }
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
+    await user.save();
     setRefreshCookie(res, refreshToken);
 
     safeAuthLog("loginUser succeeded");
@@ -948,46 +957,46 @@ exports.requestPasswordReset = handlePasswordResetRequest;
 exports.resetPassword = async (req, res) => {
   safeAuthLog("resetPassword invoked");
   try {
-    const { email, newPassword, token, phoneAnswer } = req.body;
-    if (!email || !newPassword || !token || !phoneAnswer) {
-      return res.status(400).json({ message: "Email, token, phone verification, and new password are required" });
+    const { newPassword, token, phoneAnswer } = req.body || {};
+    if (!newPassword || !token || !phoneAnswer) {
+      return res
+        .status(400)
+        .json({ message: "Token, phone verification, and new password are required" });
     }
 
+    const hashedToken = hashResetToken(String(token).trim());
     const user = await User.findOne({
-      email: email.trim().toLowerCase(),
+      passwordResetTokenHash: hashedToken,
     }).select(
       "+passwordHash +otpCode +otpExpires +otpAttempts +passwordResetTokenHash +passwordResetTokenExpires"
     );
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid reset token" });
+    }
 
     const now = Date.now();
-    const normalizedToken = String(token).trim();
-    const hashed = hashResetToken(normalizedToken);
-    if (
-      !user.passwordResetTokenHash ||
-      !user.passwordResetTokenExpires ||
-      now > user.passwordResetTokenExpires
-    ) {
+    if (!user.passwordResetTokenExpires || now > user.passwordResetTokenExpires) {
       return res.status(400).json({ message: "Reset token expired" });
-    }
-    if (hashed !== user.passwordResetTokenHash) {
-      return res.status(400).json({ message: "Invalid reset token" });
     }
 
     const providedDigits = normalizeDigits(phoneAnswer);
     const userDigits = normalizeDigits(user.phone);
     const expected = userDigits ? userDigits.slice(-Math.min(4, userDigits.length)) : "";
     if (!expected) {
-      return res.status(400).json({ message: "Phone verification unavailable for this account. Contact support." });
+      return res
+        .status(400)
+        .json({ message: "Phone verification unavailable for this account. Contact support." });
     }
     if (!providedDigits || providedDigits.slice(-expected.length) !== expected) {
       return res.status(400).json({ message: "Phone verification failed" });
     }
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.passwordHash = await hashPassword(newPassword);
     user.hasPassword = true;
     user.temporaryPassword = false;
+    user.passwordChangedAt = new Date();
+    user.refreshTokens = [];
     user.otpCode = null;
     user.otpExpires = null;
     user.otpAttempts = 0;
@@ -1022,12 +1031,14 @@ exports.updatePassword = async (req, res) => {
     const user = await User.findById(req.user._id).select("+passwordHash");
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    const match = await bcrypt.compare(currentPassword, user.passwordHash);
+    const match = await verifyPassword(currentPassword, user.passwordHash);
     if (!match) return res.status(400).json({ message: "Current password incorrect." });
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.passwordHash = await hashPassword(newPassword);
     user.hasPassword = true;
     user.temporaryPassword = false;
+    user.passwordChangedAt = new Date();
+    user.refreshTokens = [];
     await user.save();
     res.json({ success: true, message: "Password updated successfully." });
   } catch (e) {
@@ -1046,6 +1057,16 @@ exports.refreshAccessToken = async (req, res) => {
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(payload.id);
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.passwordChangedAt) {
+      const issuedAtMs = (payload.iat || 0) * 1000;
+      if (issuedAtMs && issuedAtMs < new Date(user.passwordChangedAt).getTime()) {
+        user.refreshTokens = [];
+        await user.save();
+        clearRefreshCookie(res);
+        return res.status(403).json({ message: "Session invalidated. Please login again." });
+      }
+    }
 
     const session = user.refreshTokens.find((rt) => tokensMatch(rt.token, token));
     if (!session) {

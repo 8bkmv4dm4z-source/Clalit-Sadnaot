@@ -21,9 +21,32 @@ const API_BASE =
   "";
 
 const ACCESS_TOKEN_KEY = "accessToken";
+const CSRF_COOKIE_NAME = "XSRF-TOKEN";
+const isUnsafeMethod = (method = "GET") =>
+  !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method.toUpperCase());
+
+const readCookie = (name) => {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
+const ensureCsrfToken = async () => {
+  const existing = readCookie(CSRF_COOKIE_NAME);
+  if (existing) return existing;
+
+  const res = await fetch(`${API_BASE}/api/auth/csrf`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => ({}));
+  return data.csrfToken || readCookie(CSRF_COOKIE_NAME);
+};
 
 export async function apiFetch(path, options = {}) {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const method = (options.method || "GET").toUpperCase();
 
   // ✅ Normalize and prepend API base so callers can pass "/api/..." or absolute URLs interchangeably
   const url = path.startsWith("http")
@@ -37,11 +60,19 @@ export async function apiFetch(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
+  // Pre-flight CSRF for unsafe methods that rely on cookies (refresh, logout, reset, etc.)
+  if (isUnsafeMethod(method) && options.credentials !== "omit") {
+    const csrf = await ensureCsrfToken();
+    if (csrf) {
+      headers["X-CSRF-Token"] = csrf;
+    }
+  }
+
   // Initial request
   let res = await fetch(url, {
     ...options,
     headers,
-    credentials: "include", // ✅ sends refresh cookie automatically so /refresh endpoint can rotate tokens
+    credentials: options.credentials || "include", // ✅ sends refresh cookie automatically so /refresh endpoint can rotate tokens
   });
 
   // Handle token refresh if needed
@@ -67,7 +98,7 @@ export async function apiFetch(path, options = {}) {
         res = await fetch(url, {
           ...options,
           headers,
-          credentials: "include",
+          credentials: options.credentials || "include",
         });
       } else {
         if (import.meta.env.MODE !== "production") {

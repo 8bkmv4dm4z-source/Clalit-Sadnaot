@@ -1159,6 +1159,19 @@ exports.updateWorkshop = async (req, res) => {
       endDate: ws.endDate,
     });
 
+    await safeAuditLog({
+      eventType: AuditEventTypes.ADMIN_WORKSHOP_UPDATE,
+      subjectType: "workshop",
+      subjectKey: ws.workshopKey || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "workshop_update",
+        adminId: req.user?.entityKey || null,
+        entityId: ws.workshopKey || null,
+        ip: req.ip,
+      },
+    });
+
     return res.json({
       success: true,
       message: "Workshop updated successfully",
@@ -1308,6 +1321,19 @@ exports.createWorkshop = async (req, res) => {
       endDate: ws.endDate,
     });
 
+    await safeAuditLog({
+      eventType: AuditEventTypes.ADMIN_WORKSHOP_CREATE,
+      subjectType: "workshop",
+      subjectKey: ws.workshopKey || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "workshop_create",
+        adminId: req.user?.entityKey || null,
+        entityId: ws.workshopKey || null,
+        ip: req.ip,
+      },
+    });
+
     return res.status(201).json({ success: true, data: normalized, meta });
   } catch (err) {
     console.error("❌ [createWorkshop] Error:", err);
@@ -1331,11 +1357,16 @@ exports.deleteWorkshop = async (req, res) => {
     const ws = await Workshop.findByIdAndDelete(workshopDoc._id);
     if (!ws) return res.status(404).json({ message: "Workshop not found" });
     await safeAuditLog({
-      eventType: AuditEventTypes.SECURITY,
+      eventType: AuditEventTypes.ADMIN_WORKSHOP_DELETE,
       subjectType: "workshop",
       subjectKey: workshopDoc.workshopKey || null,
       actorKey: req.user?.entityKey,
-      metadata: { action: "workshop_delete" },
+      metadata: {
+        action: "workshop_delete",
+        adminId: req.user?.entityKey || null,
+        entityId: workshopDoc.workshopKey || null,
+        ip: req.ip,
+      },
     });
     res.json({ message: "Workshop deleted successfully" });
   } catch (err) {

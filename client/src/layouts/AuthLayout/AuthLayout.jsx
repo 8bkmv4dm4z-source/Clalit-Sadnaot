@@ -65,6 +65,7 @@ import {
   translateNetworkError,
 } from "../../utils/errorTranslator";
 import { flattenUserEntities } from "../../utils/entityTypes";
+import { getCaptchaToken } from "../../utils/captcha";
 
 /* ------------------------------ Logger ------------------------------ */
 const AUTH_DEV = import.meta.env.MODE !== "production";
@@ -484,9 +485,10 @@ export const AuthProvider = ({ children }) => {
   const sendOtp = async (email) => {
     log("📤 sendOtp:", email);
     try {
+      const captchaToken = await getCaptchaToken("send-otp");
       const res = await apiFetch("/api/auth/send-otp", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, captchaToken }),
       });
       const data = await safeJson(res);
       if (!res.ok) {
@@ -501,9 +503,10 @@ export const AuthProvider = ({ children }) => {
   const verifyOtp = async (email, otp) => {
     log("🔐 verifyOtp called:", email, otp);
     try {
+      const captchaToken = await getCaptchaToken("verify-otp");
       const res = await apiFetch("/api/auth/verify", {
         method: "POST",
-        body: JSON.stringify({ email, otp }),
+        body: JSON.stringify({ email, otp, captchaToken }),
         credentials: "include",
       });
       const data = await safeJson(res);
@@ -526,9 +529,10 @@ export const AuthProvider = ({ children }) => {
   const requestPasswordReset = async (email) => {
     log("📨 requestPasswordReset:", email);
     try {
+      const captchaToken = await getCaptchaToken("password-reset-request");
       const res = await apiFetch("/api/auth/password/request", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, captchaToken }),
       });
       const data = await safeJson(res);
       if (!res.ok) {
@@ -540,19 +544,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const completePasswordReset = async ({ email, newPassword, token, phoneAnswer }) => {
+  const completePasswordReset = async ({ newPassword, token, phoneAnswer }) => {
     log("🔁 completePasswordReset invoked", {
-      email,
       hasToken: Boolean(token),
       hasPhoneAnswer: Boolean(phoneAnswer),
     });
 
     try {
+      const captchaToken = await getCaptchaToken("password-reset-complete");
       const payload = {
-        email,
         newPassword,
         token,
         phoneAnswer,
+        captchaToken,
       };
 
       const res = await apiFetch("/api/auth/reset", {
@@ -595,9 +599,10 @@ export const AuthProvider = ({ children }) => {
     async ({ email, password }) => {
       log("🔑 loginWithPassword called:", email);
       try {
+        const captchaToken = await getCaptchaToken("login");
         const res = await apiFetch("/api/auth/login", {
           method: "POST",
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, captchaToken }),
         });
 
         const data = await safeJson(res);

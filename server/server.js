@@ -104,6 +104,20 @@ const ALL_ALLOWED_ORIGINS = [
     ...DEPLOY_DEFAULTS.filter(Boolean),
   ]),
 ];
+const CSP_ALLOWED_ORIGINS = [...new Set([...ENV_ALLOWED_ORIGINS, ...DEPLOY_DEFAULTS].filter(Boolean))];
+const CAPTCHA_SCRIPT_SOURCES = [];
+const CAPTCHA_FRAME_SOURCES = [];
+const CAPTCHA_CONNECT_SOURCES = [];
+if (process.env.RECAPTCHA_SITE_KEY) {
+  CAPTCHA_SCRIPT_SOURCES.push("https://www.google.com/recaptcha/", "https://www.gstatic.com/recaptcha/");
+  CAPTCHA_FRAME_SOURCES.push("https://www.google.com/recaptcha/");
+  CAPTCHA_CONNECT_SOURCES.push("https://www.google.com/recaptcha/");
+}
+if (process.env.HCAPTCHA_SITE_KEY) {
+  CAPTCHA_SCRIPT_SOURCES.push("https://js.hcaptcha.com", "https://hcaptcha.com");
+  CAPTCHA_FRAME_SOURCES.push("https://hcaptcha.com", "https://*.hcaptcha.com");
+  CAPTCHA_CONNECT_SOURCES.push("https://hcaptcha.com");
+}
 
 const corsOptions = {
   origin(origin, cb) {
@@ -121,6 +135,7 @@ const corsOptions = {
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept","x-admin-password"
+, "X-CSRF-Token"
 ],
   exposedHeaders: ["Content-Disposition"],
   preflightContinue: false,
@@ -138,6 +153,7 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginOpenerPolicy: false,
+    frameguard: { action: "deny" },
     hsts: isProd
       ? {
           maxAge: 31536000,
@@ -150,11 +166,14 @@ app.use(
           useDefaults: true,
           directives: {
             "default-src": ["'self'"],
-            "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-            "style-src": ["'self'", "'unsafe-inline'"],
-            "img-src": ["'self'", "data:", "https:"],
-            "connect-src": ["'self'", ...ALL_ALLOWED_ORIGINS],
+            "script-src": ["'self'", ...CAPTCHA_SCRIPT_SOURCES],
+            "style-src": ["'self'"],
+            "img-src": ["'self'"],
+            "connect-src": ["'self'", ...CSP_ALLOWED_ORIGINS, ...CAPTCHA_CONNECT_SOURCES],
+            "frame-src": ["'self'", ...CAPTCHA_FRAME_SOURCES],
             "frame-ancestors": ["'none'"],
+            "base-uri": ["'self'"],
+            "object-src": ["'none'"],
           },
         }
       : false,
@@ -162,6 +181,15 @@ app.use(
     hidePoweredBy: true,
   })
 );
+
+// Minimal Permissions-Policy to disable high-risk features by default
+app.use((req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+  );
+  next();
+});
 
 /* ----------------------------
  * Body parsing (global)
@@ -269,6 +297,12 @@ api.use((req, res, next) => {
 
 // API error handlers
 api.use(celebrateErrors());
+api.use((err, req, res, next) => {
+  if (err.code === "EBADCSRFTOKEN") {
+    return res.status(403).json({ success: false, message: "Invalid or missing CSRF token" });
+  }
+  return next(err);
+});
 api.use((err, req, res, _next) => {
   if (err instanceof CelebrateError) {
     return res.status(400).json({ success: false, message: "Validation error" });
@@ -293,6 +327,12 @@ const SHOULD_SERVE_CLIENT = process.env.SERVE_CLIENT !== "false";
 const CLIENT_DIST_PATH = process.env.CLIENT_DIST_PATH
   ? path.resolve(process.env.CLIENT_DIST_PATH)
   : path.join(__dirname, "../client/dist");
+
+// Protect password reset flows from leaking origins when serving the SPA page.
+app.use("/resetpassword", (req, res, next) => {
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
 
 if (SHOULD_SERVE_CLIENT) {
   const hasDist = fs.existsSync(CLIENT_DIST_PATH);

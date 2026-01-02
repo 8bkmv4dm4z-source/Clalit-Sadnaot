@@ -116,6 +116,7 @@ const validateSendOtp = celebrate({
 const validatePasswordResetRequest = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
+    captchaToken: Joi.string().trim().optional(),
   }).unknown(false),
 });
 
@@ -131,6 +132,7 @@ const validateOTP = celebrate({
         Joi.number().integer().min(100000).max(999999)
       )
       .required(),
+    captchaToken: Joi.string().trim().optional(),
   }).unknown(true),
 });
 
@@ -138,7 +140,6 @@ const phoneDigits = Joi.string().trim().pattern(/^[0-9]{4,15}$/);
 
 const validatePasswordReset = celebrate({
   [Segments.BODY]: Joi.object({
-    email: Joi.string().email().lowercase().trim().required(),
     newPassword: Joi.string()
       .min(8)
       .max(64)
@@ -154,6 +155,7 @@ const validatePasswordReset = celebrate({
     token: Joi.string()
       .guid({ version: ["uuidv4", "uuidv5", "uuidv1", "uuidv3"] })
       .required(),
+    captchaToken: Joi.string().trim().optional(),
   }).unknown(false),
 });
 

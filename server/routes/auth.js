@@ -6,6 +6,8 @@ const { refreshAccessToken, logout } = require("../controllers/authController");
 const { perUserRateLimit } = require("../middleware/perUserRateLimit");
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
+const { requireCaptcha } = require("../middleware/captchaValidator");
+const { csrfProtection, issueCsrfToken } = require("../middleware/csrf");
 
 const {
   registerUser,
@@ -49,6 +51,20 @@ const perUserOtpLimiter = perUserRateLimit({
   limit: 5,
 });
 
+// Limit password reset email volume per normalized email to reduce abuse.
+const passwordResetEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.body?.email || "").toLowerCase().trim() || req.ip,
+  skip: (req) => process.env.NODE_ENV === "loadtest",
+  handler: (req, res) =>
+    res.status(429).json({
+      message: "Too many password reset requests. Try again later.",
+    }),
+});
+
 const auditSecurityEvent = (reason, req) =>
   safeAuditLog({
     eventType: AuditEventTypes.SECURITY,
@@ -64,8 +80,8 @@ const auditSecurityEvent = (reason, req) =>
 
 // General login/register limiter
 const generalAuthLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 8, // only 8 auth attempts per 10 minutes per IP
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // only 5 auth attempts per 15 minutes per IP
   message: { message: "Too many authentication attempts. Try again later." },
   skip: (req) =>
     process.env.NODE_ENV === "loadtest" ||
@@ -163,6 +179,11 @@ function otpEmailLimiter(req, res, next) {
 // 🧩 Auth Routes
 // ============================================================
 
+// CSRF token bootstrapper (read-only)
+router.get("/csrf", csrfProtection, issueCsrfToken, (req, res) => {
+  res.json({ csrfToken: res.locals.csrfToken });
+});
+
 // 🟢 New: start registration (pending until OTP confirmed)
 router.post(
   "/register/request",
@@ -196,29 +217,54 @@ router.post(
 );
 
 // 🔵 Login existing user
-router.post("/login", generalAuthLimiter, perUserAuthLimiter, validateLogin, loginUser);
+router.post(
+  "/login",
+  generalAuthLimiter,
+  perUserAuthLimiter,
+  requireCaptcha,
+  validateLogin,
+  loginUser
+);
 
 // 🟣 Refresh access token (no validation body)
-router.post("/refresh", perUserAuthLimiter, refreshAccessToken);
+// CSRF is scoped only to cookie-reliant state changers to avoid breaking other flows.
+router.post("/refresh", perUserAuthLimiter, csrfProtection, issueCsrfToken, refreshAccessToken);
 
 // 🔴 Logout
-router.post("/logout", logout);
+router.post("/logout", csrfProtection, issueCsrfToken, logout);
 
 // ============================================================
 // 🔐 OTP verification & password reset
 // ============================================================
 
 // ✉️ Send OTP (for login or recovery)
-router.post("/send-otp", otpLimiter, otpEmailLimiter, perUserOtpLimiter, validateSendOtp, sendOtp);
+router.post(
+  "/send-otp",
+  otpLimiter,
+  otpEmailLimiter,
+  perUserOtpLimiter,
+  requireCaptcha,
+  validateSendOtp,
+  sendOtp
+);
 
 // ✅ Verify OTP
-router.post("/verify", otpLimiter, perUserOtpLimiter, validateOTP, verifyOtp);
+router.post(
+  "/verify",
+  otpLimiter,
+  perUserOtpLimiter,
+  requireCaptcha,
+  validateOTP,
+  verifyOtp
+);
 
 // 🛠️ Recover password (send reset link + OTP to email)
 router.post(
   "/recover",
   otpLimiter,
   otpEmailLimiter,
+  passwordResetEmailLimiter,
+  requireCaptcha,
   validatePasswordResetRequest,
   recoverPassword
 );
@@ -228,12 +274,22 @@ router.post(
   "/password/request",
   otpLimiter,
   otpEmailLimiter,
+  passwordResetEmailLimiter,
+  requireCaptcha,
   validatePasswordResetRequest,
   requestPasswordReset
 );
 
 // 🔄 Reset password with OTP
-router.post("/reset", otpLimiter, validatePasswordReset, resetPassword);
+router.post(
+  "/reset",
+  otpLimiter,
+  requireCaptcha,
+  csrfProtection,
+  issueCsrfToken,
+  validatePasswordReset,
+  resetPassword
+);
 
 // ============================================================
 // 👤 Authenticated user routes

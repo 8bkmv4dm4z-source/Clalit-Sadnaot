@@ -16,7 +16,7 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
+const { hashPassword } = require("../utils/passwordHasher");
 const User = require("../models/User");
 
 /* ==========================================================
@@ -73,7 +73,7 @@ async function run() {
 
     for (const user of users) {
       const newPassword = generatePassword(10);
-      const passwordHash = await bcrypt.hash(newPassword, 10);
+      const passwordHash = await hashPassword(newPassword);
 
       user.passwordHash = passwordHash;
       await user.save();
