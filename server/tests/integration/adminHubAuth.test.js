@@ -16,15 +16,17 @@ const adminHubServicePath = require.resolve("../../services/AdminHubService");
 const adminHubRouterPath = require.resolve("../../routes/adminHub");
 const adminHubControllerPath = require.resolve("../../controllers/adminHubController");
 
-const createUserStub = (role = "admin") => ({
+const createUserStub = (role = "admin", overrides = {}) => ({
   _id: "user-id",
+  entityKey: "entity-user-id",
   role,
   isRoleIntegrityValid: () => true,
   refreshIntegrityHashes: () => {},
   save: async () => {},
+  ...overrides,
 });
 
-const installUserStub = (role = "admin") => {
+const installUserStub = (role = "admin", overrides = {}) => {
   delete require.cache[userModulePath];
   require.cache[userModulePath] = {
     id: userModulePath,
@@ -32,7 +34,7 @@ const installUserStub = (role = "admin") => {
     loaded: true,
     exports: {
       findById: () => ({
-        select: async () => createUserStub(role),
+        select: async () => createUserStub(role, overrides),
       }),
     },
   };
@@ -46,7 +48,7 @@ const installUserModelStub = (options = {}) => {
     loaded: true,
     exports: {
       findById: () => ({
-        select: async () => createUserStub(options.role || "admin"),
+        select: async () => createUserStub(options.role || "admin", options.overrides || {}),
       }),
       find: () => ({
         select() {
@@ -146,6 +148,22 @@ test("rejects non-admin users", async () => {
   });
 
   assert.equal(response.status, 403);
+  await stopServer(server);
+});
+
+test("rejects principals missing an entityKey", async () => {
+  installUserStub("admin", { entityKey: undefined });
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+
+  const token = createToken();
+  const response = await fetchJson(server, "/api/admin/hub/logs", {
+    headers: { Authorization: `Bearer ${token}`, "x-admin-password": "strong-secret" },
+  });
+
+  assert.equal(response.status, 401);
   await stopServer(server);
 });
 
