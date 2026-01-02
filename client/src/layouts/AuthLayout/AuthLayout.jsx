@@ -485,7 +485,7 @@ export const AuthProvider = ({ children }) => {
   const sendOtp = async (email) => {
     log("📤 sendOtp:", email);
     try {
-      const captchaToken = await getCaptchaToken("send-otp");
+      const captchaToken = await getCaptchaToken("send_otp");
       const res = await apiFetch("/api/auth/send-otp", {
         method: "POST",
         body: JSON.stringify({ email, captchaToken }),
@@ -503,7 +503,7 @@ export const AuthProvider = ({ children }) => {
   const verifyOtp = async (email, otp) => {
     log("🔐 verifyOtp called:", email, otp);
     try {
-      const captchaToken = await getCaptchaToken("verify-otp");
+      const captchaToken = await getCaptchaToken("verify_otp");
       const res = await apiFetch("/api/auth/verify", {
         method: "POST",
         body: JSON.stringify({ email, otp, captchaToken }),
@@ -529,7 +529,7 @@ export const AuthProvider = ({ children }) => {
   const requestPasswordReset = async (email) => {
     log("📨 requestPasswordReset:", email);
     try {
-      const captchaToken = await getCaptchaToken("password-reset-request");
+      const captchaToken = await getCaptchaToken("password_reset_request");
       const res = await apiFetch("/api/auth/password/request", {
         method: "POST",
         body: JSON.stringify({ email, captchaToken }),
@@ -551,7 +551,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     try {
-      const captchaToken = await getCaptchaToken("password-reset-complete");
+      const captchaToken = await getCaptchaToken("password_reset_complete");
       const payload = {
         newPassword,
         token,
