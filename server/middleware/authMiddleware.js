@@ -26,6 +26,14 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
+    if (user.passwordChangedAt) {
+      const issuedAt = (decoded.iat || 0) * 1000;
+      if (issuedAt && issuedAt < new Date(user.passwordChangedAt).getTime()) {
+        console.warn("[AUTH] Token issued before password change");
+        return res.status(401).json({ message: "Invalid or expired token" });
+      }
+    }
+
     if (!user.isRoleIntegrityValid()) {
       console.warn("[AUTH] Role integrity hash mismatch", { id: user._id, role: user.role });
       return res.status(403).json({ message: "Role integrity check failed" });

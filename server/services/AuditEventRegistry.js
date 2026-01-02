@@ -15,6 +15,11 @@ const AuditEventTypes = Object.freeze({
   WORKSHOP_MAXED: "workshop.maxed",
   WORKSHOP_VISIBILITY_TOGGLE: "workshop.visibility.toggle",
   SECURITY: "security",
+  ADMIN_WORKSHOP_CREATE: "admin.workshop.create",
+  ADMIN_WORKSHOP_UPDATE: "admin.workshop.update",
+  ADMIN_WORKSHOP_DELETE: "admin.workshop.delete",
+  ADMIN_USER_CREATE: "admin.user.create",
+  ADMIN_USER_DELETE: "admin.user.delete",
   USER_STALE_DETECTED: "user.stale.detected",
 });
 
@@ -46,6 +51,26 @@ const AuditEventRegistry = Object.freeze({
   [AuditEventTypes.WORKSHOP_VISIBILITY_TOGGLE]: {
     eventType: AuditEventTypes.WORKSHOP_VISIBILITY_TOGGLE,
     category: AuditCategories.WORKSHOP,
+  },
+  [AuditEventTypes.ADMIN_WORKSHOP_CREATE]: {
+    eventType: AuditEventTypes.ADMIN_WORKSHOP_CREATE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.ADMIN_WORKSHOP_UPDATE]: {
+    eventType: AuditEventTypes.ADMIN_WORKSHOP_UPDATE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.ADMIN_WORKSHOP_DELETE]: {
+    eventType: AuditEventTypes.ADMIN_WORKSHOP_DELETE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.ADMIN_USER_CREATE]: {
+    eventType: AuditEventTypes.ADMIN_USER_CREATE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.ADMIN_USER_DELETE]: {
+    eventType: AuditEventTypes.ADMIN_USER_DELETE,
+    category: AuditCategories.SECURITY,
   },
   [AuditEventTypes.USER_STALE_DETECTED]: {
     eventType: AuditEventTypes.USER_STALE_DETECTED,

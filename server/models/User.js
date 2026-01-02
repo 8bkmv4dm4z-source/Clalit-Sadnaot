@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
 const nodeCrypto = require("node:crypto");
+const { hashPassword, verifyPassword } = require("../utils/passwordHasher");
 
 // ✅ HASHED ID UTILS (WORKSHOPS + USERS + FAMILY SHARE SAME SYSTEM)
 const { hashId } = require("../utils/hashId");
@@ -93,6 +93,7 @@ const UserSchema = new mongoose.Schema(
 
     hasPassword: { type: Boolean, default: false },
     temporaryPassword: { type: Boolean, default: false },
+    passwordChangedAt: { type: Date },
 
     // 🔁 Refresh tokens
     refreshTokens: {
@@ -230,14 +231,15 @@ UserSchema.pre("save", function (next) {
    ============================================================ */
 
 UserSchema.methods.setPassword = async function (plainPassword) {
-  const salt = await bcrypt.genSalt(10);
-  this.passwordHash = await bcrypt.hash(plainPassword, salt);
+  this.passwordHash = await hashPassword(plainPassword);
   this.hasPassword = true;
   this.temporaryPassword = false;
+  this.passwordChangedAt = new Date();
+  this.refreshTokens = [];
 };
 
 UserSchema.methods.validatePassword = async function (plainPassword) {
-  return bcrypt.compare(plainPassword, this.passwordHash);
+  return verifyPassword(plainPassword, this.passwordHash);
 };
 
 /* ============================================================

@@ -13,9 +13,9 @@ const pickFields = (obj = {}, allowed = []) =>
     return acc;
   }, {});
 
-
-
 const { runUserIntegrityAudit, getAuditSnapshot } = require("../services/auditService");
+const { safeAuditLog } = require("../services/SafeAuditLog");
+const { AuditEventTypes } = require("../services/AuditEventRegistry");
 
 
 // routes stay the same: router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser)
@@ -93,6 +93,18 @@ exports.deleteUser = async (req, res) => {
       }
 
       await User.findByIdAndDelete(user._id);
+      await safeAuditLog({
+        eventType: AuditEventTypes.ADMIN_USER_DELETE,
+        subjectType: "user",
+        subjectKey: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
+        actorKey: req.user?.entityKey,
+        metadata: {
+          action: "user_delete",
+          adminId: req.user?.entityKey || null,
+          entityId: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
+          ip: req.ip,
+        },
+      });
       return res.json({
         success: true,
         message: "המשתמש וכל בני המשפחה המקושרים נמחקו",
@@ -122,6 +134,19 @@ exports.deleteUser = async (req, res) => {
       (entry) => String(entry.familyMemberId) !== String(member._id)
     );
     await parent.save();
+
+    await safeAuditLog({
+      eventType: AuditEventTypes.ADMIN_USER_DELETE,
+      subjectType: "familyMember",
+      subjectKey: member.entityKey || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "family_member_delete",
+        adminId: req.user?.entityKey || null,
+        entityId: member.entityKey || null,
+        ip: req.ip,
+      },
+    });
 
     return res.json({
       success: true,
@@ -480,6 +505,19 @@ exports.createUser = async (req, res) => {
     const user = new User({ name, email, role, city, phone, birthDate, canCharge });
     if (password) await user.setPassword(password);
     await user.save();
+
+    await safeAuditLog({
+      eventType: AuditEventTypes.ADMIN_USER_CREATE,
+      subjectType: "user",
+      subjectKey: user.entityKey || user.hashedId || null,
+      actorKey: req.user?.entityKey,
+      metadata: {
+        action: "user_create",
+        adminId: req.user?.entityKey || null,
+        entityId: user.entityKey || user.hashedId || null,
+        ip: req.ip,
+      },
+    });
 
     res.status(201).json({
       message: "User created successfully",
