@@ -15,11 +15,12 @@ try {
 const ARGON2_OPTS = argon2
   ? {
       type: argon2.argon2id,
-      memoryCost: Math.max(2 ** 16, argon2.defaults.memoryCost || 0),
-      timeCost: Math.max(3, argon2.defaults.timeCost || 0),
-      parallelism: Math.max(1, argon2.defaults.parallelism || 1),
+      memoryCost: 2 ** 16, // 64 MB
+      timeCost: 3,
+      parallelism: 1,
     }
   : null;
+
 
 const isBcryptHash = (hash = "") => hash.startsWith("$2");
 
