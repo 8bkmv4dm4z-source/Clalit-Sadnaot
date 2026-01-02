@@ -39,6 +39,14 @@ const authenticate = async (req, res, next) => {
       return res.status(403).json({ message: "Role integrity check failed" });
     }
 
+    if (!user.entityKey || typeof user.entityKey !== "string") {
+      console.warn("[AUTH] Missing entityKey for authenticated principal", {
+        id: user._id,
+        role: user.role,
+      });
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
     if (!user.roleIntegrityHash || !user.idNumberHash) {
       try {
         user.refreshIntegrityHashes();

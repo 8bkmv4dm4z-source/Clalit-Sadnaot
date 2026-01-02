@@ -27,6 +27,7 @@ const installUserStub = (role = "admin") => {
       findById: () => ({
         select: async () => ({
           _id: "user-id",
+          entityKey: "entity-user-id",
           role,
           isRoleIntegrityValid: () => true,
           refreshIntegrityHashes: () => {},
