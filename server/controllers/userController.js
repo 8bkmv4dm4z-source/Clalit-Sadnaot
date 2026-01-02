@@ -6,7 +6,7 @@ const {
   buildEntityFromFamilyMemberDoc,
 } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
-const { resolveEntityByKey } = require("../services/entities/resolveEntity");
+const { resolveEntity, resolveEntityByKey } = require("../services/entities/resolveEntity");
 const pickFields = (obj = {}, allowed = []) =>
   allowed.reduce((acc, key) => {
     if (obj[key] !== undefined) acc[key] = obj[key];
@@ -65,92 +65,52 @@ exports.deleteUser = async (req, res) => {
     rejectForbiddenFields(req.body);
 
     const entityKey = req.params.id;
-    const resolved = await resolveEntityByKey(entityKey);
+    const resolved = await resolveEntity(entityKey, { allowFamily: false });
 
-    if (!resolved) {
+    if (!resolved || !resolved.userDoc) {
       return res.status(404).json({ success: false, message: "Entity not found" });
     }
 
-    if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester: req.user });
+    const user = await User.findById(resolved.userDoc._id).select(
+      "userWorkshopMap familyWorkshopMap"
+    );
 
-      const user = await User.findById(resolved.userDoc._id).select(
-        "userWorkshopMap familyWorkshopMap"
-      );
-
-      for (const workshopId of user.userWorkshopMap || []) {
-        await unregisterUserFromWorkshop({ workshopId, userId: user._id });
-      }
-
-      for (const familyEntry of user.familyWorkshopMap || []) {
-        for (const workshopId of familyEntry.workshops || []) {
-          await unregisterFamilyFromWorkshop({
-            workshopId,
-            parentUserId: user._id,
-            familyId: familyEntry.familyMemberId,
-          });
-        }
-      }
-
-      await User.findByIdAndDelete(user._id);
-      await safeAuditLog({
-        eventType: AuditEventTypes.ADMIN_USER_DELETE,
-        subjectType: "user",
-        subjectKey: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
-        actorKey: req.user?.entityKey,
-        metadata: {
-          action: "user_delete",
-          adminId: req.user?.entityKey || null,
-          entityId: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
-          ip: req.ip,
-        },
-      });
-      return res.json({
-        success: true,
-        message: "המשתמש וכל בני המשפחה המקושרים נמחקו",
-      });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Entity not found" });
     }
 
-    const parent = resolved.userDoc;
-    const member = resolved.memberDoc;
-    assertOwnershipOrAdmin({ ownerId: parent._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerId: user._id, requester: req.user });
 
-    const mapEntry = (parent.familyWorkshopMap || []).find(
-      (entry) => String(entry.familyMemberId) === String(member._id)
-    );
-    const workshopIds = mapEntry?.workshops || [];
-    for (const workshopId of workshopIds) {
-      await unregisterFamilyFromWorkshop({
-        workshopId,
-        parentUserId: parent._id,
-        familyId: member._id,
-      });
+    for (const workshopId of user.userWorkshopMap || []) {
+      await unregisterUserFromWorkshop({ workshopId, userId: user._id });
     }
 
-    parent.familyMembers = (parent.familyMembers || []).filter(
-      (m) => String(m._id) !== String(member._id)
-    );
-    parent.familyWorkshopMap = (parent.familyWorkshopMap || []).filter(
-      (entry) => String(entry.familyMemberId) !== String(member._id)
-    );
-    await parent.save();
+    for (const familyEntry of user.familyWorkshopMap || []) {
+      for (const workshopId of familyEntry.workshops || []) {
+        await unregisterFamilyFromWorkshop({
+          workshopId,
+          parentUserId: user._id,
+          familyId: familyEntry.familyMemberId,
+        });
+      }
+    }
 
+    await User.deleteOne({ _id: user._id });
     await safeAuditLog({
       eventType: AuditEventTypes.ADMIN_USER_DELETE,
-      subjectType: "familyMember",
-      subjectKey: member.entityKey || null,
+      subjectType: "user",
+      subjectKey: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
       actorKey: req.user?.entityKey,
       metadata: {
-        action: "family_member_delete",
+        action: "user_delete",
         adminId: req.user?.entityKey || null,
-        entityId: member.entityKey || null,
+        entityId: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
         ip: req.ip,
       },
     });
-
     return res.json({
       success: true,
-      message: "בן המשפחה נמחק והוסר מכל הסדנאות",
+      message: "המשתמש וכל בני המשפחה המקושרים נמחקו",
     });
   } catch (err) {
     console.error("❌ deleteUser error:", err);
