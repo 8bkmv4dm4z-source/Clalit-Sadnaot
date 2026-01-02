@@ -2,6 +2,17 @@ const mongoose = require("mongoose");
 const User = require("../../models/User");
 const { hashId } = require("../../utils/hashId");
 
+function ensureEntityKeys(userDoc, memberDoc = null) {
+  if (userDoc && !userDoc.entityKey && userDoc._id) {
+    const hashed = hashId("user", userDoc._id.toString());
+    userDoc.entityKey = hashed;
+  }
+  if (memberDoc && !memberDoc.entityKey && memberDoc._id) {
+    const hashed = hashId("family", memberDoc._id.toString());
+    memberDoc.entityKey = hashed;
+  }
+}
+
 /**
  * resolveEntityByKey
  * -------------------------------------------------------------
@@ -21,10 +32,7 @@ async function resolveEntityByKey(entityKey) {
   // 1) direct user
   let userDoc = await User.findOne({ entityKey: normalizedKey });
   if (userDoc) {
-    if (!userDoc.entityKey && userDoc._id) {
-      const hashed = hashId("user", userDoc._id.toString());
-      userDoc.entityKey = hashed;
-    }
+    ensureEntityKeys(userDoc);
     return { type: "user", userDoc };
   }
 
@@ -37,18 +45,41 @@ async function resolveEntityByKey(entityKey) {
   );
   if (!memberDoc) return null;
 
-  if (!userDoc.entityKey && userDoc._id) {
-    const hashed = hashId("user", userDoc._id.toString());
-    userDoc.entityKey = hashed;
-  }
-  if (!memberDoc.entityKey && memberDoc._id) {
-    const hashed = hashId("family", memberDoc._id.toString());
-    memberDoc.entityKey = hashed;
-  }
+  ensureEntityKeys(userDoc, memberDoc);
 
   return { type: "familyMember", userDoc, memberDoc };
 }
 
+/**
+ * resolveEntity
+ * -------------------------------------------------------------
+ * Extended resolver that accepts either an opaque entityKey or a raw
+ * MongoDB ObjectId string. Family-member lookups are delegated to
+ * resolveEntityByKey, and can be disabled via allowFamily.
+ *
+ * @param {string} entityKeyOrId
+ * @param {{ allowFamily?: boolean }} options
+ * @returns {Promise<null|{type: 'user', userDoc: object}|{type: 'familyMember', userDoc: object, memberDoc: object}>}
+ */
+async function resolveEntity(entityKeyOrId, { allowFamily = true } = {}) {
+  if (!entityKeyOrId) return null;
 
+  const normalized = String(entityKeyOrId);
 
-module.exports = {resolveEntityByKey,};
+  // Fast path: direct Mongo ObjectId lookup
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const userDoc = await User.findById(normalized);
+    if (userDoc) {
+      ensureEntityKeys(userDoc);
+      return { type: "user", userDoc };
+    }
+  }
+
+  const resolved = await resolveEntityByKey(normalized);
+  if (!resolved) return null;
+
+  if (resolved.type === "familyMember" && !allowFamily) return null;
+  return resolved;
+}
+
+module.exports = { resolveEntityByKey, resolveEntity };
