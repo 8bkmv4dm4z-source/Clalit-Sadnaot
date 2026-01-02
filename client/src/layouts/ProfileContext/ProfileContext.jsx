@@ -217,7 +217,8 @@ export function ProfileProvider({ children }) {
     async ({ entityKey } = {}) => {
       if (!entityKey) return { success: false, message: "Missing entity key" };
       try {
-        const res = await apiFetch(`/api/users/${encodeURIComponent(entityKey)}`, {
+        // Use the profile router so the backend also cleans up workshop registrations
+        const res = await apiFetch(`/api/profile/${encodeURIComponent(entityKey)}`, {
           method: "DELETE",
         });
         const data = await res.json();
