@@ -10,6 +10,7 @@ export default function Verify() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("idle");
+  const [feedback, setFeedback] = useState({ tone: "", text: "" });
 
   useEffect(() => {
     if (location.state?.prefillEmail) {
@@ -17,36 +18,65 @@ export default function Verify() {
     }
   }, [location.state]);
 
+  useEffect(() => {
+    setStep(1);
+    setCode("");
+    setStatus("idle");
+    setFeedback({ tone: "", text: "" });
+  }, [location.key]);
+
   const handleSendOtp = async (e) => {
     e.preventDefault();
-    if (!email) return alert("נא להזין מייל תקין.");
+    const trimmedEmail = email.trim();
     setStatus("sending");
+    setFeedback({ tone: "", text: "" });
 
-    const result = await sendOtp(email);
+    const result = await sendOtp(trimmedEmail);
     setStatus("idle");
 
     if (result.success) {
-      alert("✅ נשלח קוד למייל שלך!");
+      setFeedback({
+        tone: "info",
+        text: "בדקו שהכתובת תקינה. אם החשבון קיים נשלח קוד אימות, ואם לא – אפשר להירשם כאן.",
+      });
       setStep(2);
     } else {
-      alert(result.message || "שגיאה בשליחת הקוד.");
+      setFeedback({
+        tone: "error",
+        text: result.message || "שגיאה בשליחת הקוד.",
+      });
+      setStep(1);
     }
   };
 
   const handleVerifyCode = async (e) => {
     e.preventDefault();
-    if (!code) return alert("נא להזין את הקוד שהתקבל במייל.");
-    setStatus("verifying");
+    const trimmedEmail = email.trim();
 
-    const result = await verifyOtp(email, code);
+    if (!code) {
+      setFeedback({ tone: "error", text: "נא להזין את הקוד שהתקבל במייל." });
+      return;
+    }
+    setStatus("verifying");
+    setFeedback({ tone: "", text: "" });
+
+    const result = await verifyOtp(trimmedEmail, code);
     setStatus("idle");
 
     if (result.success) {
       alert("✅ התחברת בהצלחה!");
       navigate("/workshops");
     } else {
-      alert(result.message || "❌ קוד שגוי או פג תוקף.");
+      const message = result.message || "❌ קוד שגוי או פג תוקף.";
+      setFeedback({ tone: "error", text: message });
+      setStep(1);
     }
+  };
+
+  const feedbackStyles = {
+    info: "bg-indigo-50 text-indigo-800 border-indigo-200",
+    error: "bg-rose-50 text-rose-700 border-rose-200",
+    success: "bg-emerald-50 text-emerald-700 border-emerald-200",
   };
 
   return (
@@ -55,6 +85,26 @@ export default function Verify() {
       className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-blue-50 to-white p-6"
     >
       <div className="w-full max-w-md bg-white/90 backdrop-blur-lg rounded-3xl border border-indigo-100 shadow-2xl p-10 animate-fade-in transition hover:shadow-indigo-200">
+        {feedback.text && (
+          <div
+            className={`mb-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+              feedbackStyles[feedback.tone] || "bg-gray-50 text-gray-700 border-gray-200"
+            }`}
+          >
+            {feedback.text}
+            {feedback.tone === "info" && (
+              <button
+                type="button"
+                onClick={() => navigate("/register")}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-white text-xs font-semibold shadow hover:bg-indigo-700"
+              >
+                להרשמה
+                <span aria-hidden="true">→</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {step === 1 ? (
           <>
             {/* Header */}
