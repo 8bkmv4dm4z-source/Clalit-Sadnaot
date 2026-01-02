@@ -19,6 +19,7 @@ export default function Login() {
   const [inlineDetails, setInlineDetails] = useState([]);
   const [fieldErrors, setFieldErrors] = useState({ email: "", password: "" });
   const [touched, setTouched] = useState({ email: false, password: false });
+  const GENERIC_LOGIN_ERROR = "לא ניתן להתחבר כרגע. בדקו את הפרטים ונסו שוב.";
 
   const runValidation = (field, value) => {
     switch (field) {
@@ -78,19 +79,26 @@ export default function Login() {
       });
 
       if (!result?.success) {
-        setErrorMsg(result?.message || "פרטי ההתחברות שגויים");
+        setErrorMsg(result?.message || GENERIC_LOGIN_ERROR);
         if (Array.isArray(result?.details) && result.details.length) {
           setInlineDetails(result.details);
         }
       }
     } catch (err) {
-      setErrorMsg(err.message || "שגיאה בהתחברות");
+      setErrorMsg(err.message || GENERIC_LOGIN_ERROR);
     } finally {
       setStatus("idle");
     }
   };
 
-  const gotoOtp = () => navigate("/verify", { state: { email } });
+  const gotoOtp = () => {
+    const trimmedEmail = email.trim();
+    if (trimmedEmail) {
+      navigate("/verify", { state: { prefillEmail: trimmedEmail } });
+      return;
+    }
+    navigate("/verify");
+  };
   const gotoForgotPassword = () => navigate("/forgot-password", { state: { email } });
 
   return (

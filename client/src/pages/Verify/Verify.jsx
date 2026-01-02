@@ -12,9 +12,8 @@ export default function Verify() {
   const [status, setStatus] = useState("idle");
 
   useEffect(() => {
-    if (location.state?.email) {
-      setEmail(location.state.email);
-      setStep(2);
+    if (location.state?.prefillEmail) {
+      setEmail(location.state.prefillEmail);
     }
   }, [location.state]);
 
