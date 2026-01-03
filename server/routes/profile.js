@@ -55,9 +55,11 @@ router.put("/edit", authenticate, validateProfile, async (req, res) => {
 router.get("/all", authenticate, authorizeAdmin, getAllUsers);
 
 /**
- * ✅ DELETE /api/profile/:id
- * מוחק משתמש לפי ID (רק אדמין)
+ * ✅ DELETE /api/profile/by-entity/:entityKey
+ * מוחק משתמש לפי entityKey (רק אדמין)
  */
+router.delete("/by-entity/:entityKey", authenticate, authorizeAdmin, deleteUser);
+// Legacy: treat :id as entityKey until clients migrate
 router.delete("/:id", authenticate, authorizeAdmin, deleteUser);
 
 module.exports = router;

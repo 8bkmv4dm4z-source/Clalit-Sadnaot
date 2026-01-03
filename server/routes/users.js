@@ -42,7 +42,14 @@ router.get(
 // 🔹 Create new user (Admin only)
 router.post("/", protect, authorizeAdmin, validateUserRegistration, usersController.createUser);
 
-// 🔹 Delete user (Admin only)
+// 🔹 Delete user (Admin only) — explicit entityKey route
+router.delete(
+  "/by-entity/:entityKey",
+  protect,
+  authorizeAdmin,
+  usersController.deleteUser
+);
+// Legacy: treat :id as entityKey for backward compatibility
 router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser);
 
 // ============================================================
