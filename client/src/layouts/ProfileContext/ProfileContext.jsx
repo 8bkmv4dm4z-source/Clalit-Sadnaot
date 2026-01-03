@@ -218,9 +218,12 @@ export function ProfileProvider({ children }) {
       if (!entityKey) return { success: false, message: "Missing entity key" };
       try {
         // Use the profile router so the backend also cleans up workshop registrations
-        const res = await apiFetch(`/api/profile/${encodeURIComponent(entityKey)}`, {
-          method: "DELETE",
-        });
+        const res = await apiFetch(
+          `/api/profile/by-entity/${encodeURIComponent(entityKey)}`,
+          {
+            method: "DELETE",
+          }
+        );
         const data = await res.json();
         if (!res.ok || data?.success === false) {
           throw new Error(data?.message || "Delete failed");
@@ -240,8 +243,8 @@ export function ProfileProvider({ children }) {
     const entityKey =
       typeof rowOrId === "string"
         ? rowOrId
-        : rowOrId && (rowOrId.entityKey || rowOrId._id)
-        ? String(rowOrId.entityKey || rowOrId._id)
+        : rowOrId?.entityKey
+        ? String(rowOrId.entityKey)
         : null;
 
     if (!entityKey) throw new Error("Missing entity key");

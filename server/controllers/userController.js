@@ -18,7 +18,7 @@ const { safeAuditLog } = require("../services/SafeAuditLog");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
 
 
-// routes stay the same: router.delete("/:id", protect, authorizeAdmin, usersController.deleteUser)
+// Routes: /api/users/by-entity/:entityKey (legacy /:id proxies entityKey)
 
 const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop} =
   require("../services/workshopRegistration");
@@ -64,7 +64,7 @@ exports.deleteUser = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
 
-    const entityKey = req.params.id;
+    const entityKey = req.params.entityKey || req.params.id;
     const resolved = await resolveEntity(entityKey, { allowFamily: false });
 
     if (!resolved || !resolved.userDoc) {
@@ -72,7 +72,7 @@ exports.deleteUser = async (req, res) => {
     }
 
     const user = await User.findById(resolved.userDoc._id).select(
-      "userWorkshopMap familyWorkshopMap"
+      "entityKey userWorkshopMap familyWorkshopMap"
     );
 
     if (!user) {
@@ -81,30 +81,39 @@ exports.deleteUser = async (req, res) => {
 
     assertOwnershipOrAdmin({ ownerId: user._id, requester: req.user });
 
-    for (const workshopId of user.userWorkshopMap || []) {
-      await unregisterUserFromWorkshop({ workshopId, userId: user._id });
+    const unregisterOps = [];
+
+    const userWorkshops = Array.from(new Set(user.userWorkshopMap || []));
+    for (const workshopId of userWorkshops) {
+      unregisterOps.push(unregisterUserFromWorkshop({ workshopId, userId: user._id }));
     }
 
-    for (const familyEntry of user.familyWorkshopMap || []) {
-      for (const workshopId of familyEntry.workshops || []) {
-        await unregisterFamilyFromWorkshop({
-          workshopId,
-          parentUserId: user._id,
-          familyId: familyEntry.familyMemberId,
-        });
+    const familyEntries = Array.isArray(user.familyWorkshopMap) ? user.familyWorkshopMap : [];
+    for (const familyEntry of familyEntries) {
+      const familyWorkshops = Array.from(new Set(familyEntry.workshops || []));
+      for (const workshopId of familyWorkshops) {
+        unregisterOps.push(
+          unregisterFamilyFromWorkshop({
+            workshopId,
+            parentUserId: user._id,
+            familyId: familyEntry.familyMemberId,
+          })
+        );
       }
     }
+
+    await Promise.all(unregisterOps);
 
     await User.deleteOne({ _id: user._id });
     await safeAuditLog({
       eventType: AuditEventTypes.ADMIN_USER_DELETE,
       subjectType: "user",
-      subjectKey: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
+      subjectKey: user.entityKey || resolved.userDoc.entityKey || null,
       actorKey: req.user?.entityKey,
       metadata: {
         action: "user_delete",
         adminId: req.user?.entityKey || null,
-        entityId: resolved.userDoc.entityKey || resolved.userDoc.hashedId || null,
+        entityId: user.entityKey || resolved.userDoc.entityKey || null,
         ip: req.ip,
       },
     });
