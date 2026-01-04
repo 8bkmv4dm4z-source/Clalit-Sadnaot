@@ -6,11 +6,13 @@ const DEFAULTS = {
 };
 
 const buildPerUserKey = (req) => {
-  const userId = req.user?._id || req.user?.id;
+  // Rate limiting key:
+  // Use entityKey for authenticated users (canonical identity).
+  // Mongo _id must not be used as an external identity signal.
+  const userKey = req.user?.entityKey || req.body?.entityKey || req.body?.familyMemberKey || req.body?.parentKey;
   const email = req.body?.email || req.query?.email;
-  const entityKey = req.body?.entityKey || req.body?.familyMemberKey || req.body?.parentKey;
   const fallback = req.ip || "unknown";
-  return String(userId || email || entityKey || fallback).toLowerCase();
+  return String(userKey || email || fallback).toLowerCase();
 };
 
 const perUserRateLimit = (options = {}) =>

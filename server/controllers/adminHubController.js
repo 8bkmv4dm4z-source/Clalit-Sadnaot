@@ -21,6 +21,14 @@ const parseIsoDate = (value) => {
   return parsed.toISOString();
 };
 
+/**
+ * Identity:
+ *   - Relies on upstream admin authorization tied to entityKey authorities.
+ * Storage:
+ *   - Removes Mongo _id before responding; database lookups stay internal.
+ * Notes:
+ *   - Sanitizes metadata to avoid leaking identifiers during admin log reads.
+ */
 const getLogs = async (req, res) => {
   try {
     const { eventType, subjectType, subjectKey, from, to, page, limit, sort } = req.query;
@@ -72,6 +80,14 @@ const getLogs = async (req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Expects admin-scoped callers validated by entityKey-based middleware.
+ * Storage:
+ *   - Uses Mongo _id only inside AdminHubService queries.
+ * Notes:
+ *   - Responds with alerts without exposing internal identifiers.
+ */
 const getMaxedWorkshopAlerts = async (_req, res) => {
   try {
     const alerts = await getMaxedWorkshops();
@@ -82,6 +98,14 @@ const getMaxedWorkshopAlerts = async (_req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Admin access enforced upstream via entityKey/authority checks.
+ * Storage:
+ *   - Pulls stale user data by _id internally without returning it.
+ * Notes:
+ *   - Outputs sanitized stale user summaries only.
+ */
 const getStaleUsers = async (_req, res) => {
   try {
     const staleUsers = await fetchStaleUsers();
@@ -92,6 +116,14 @@ const getStaleUsers = async (_req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Placeholder handler assumes admin-only routing via entityKey authorities.
+ * Storage:
+ *   - No database access; no Mongo _id exposure.
+ * Notes:
+ *   - Stub remains until stats endpoint is implemented.
+ */
 const getStats = (_req, res) => res.status(501).json({ message: "Not implemented" });
 
 module.exports = {

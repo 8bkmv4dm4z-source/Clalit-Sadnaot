@@ -24,7 +24,7 @@ router.get("/", authenticate, getUserProfile);
  */
 router.put("/edit", authenticate, validateProfile, async (req, res) => {
   try {
-    if (!req.user?._id) {
+    if (!req.user?.entityKey) {
       return res.status(401).json({ message: "Unauthorized - no user in token" });
     }
 
@@ -34,7 +34,7 @@ router.put("/edit", authenticate, validateProfile, async (req, res) => {
       return acc;
     }, {});
 
-    req.body.userId = req.user._id.toString(); // ⬅️ נשתמש במבנה של updateEntity
+    req.body.entityKey = req.user.entityKey; // ⬅️ משתמשים בזהות האפליקטיבית, לא ב-_id
     req.body.updates = updates; // ⬅️ כי updateEntity מצפה ל-updates
 
     await updateEntity(req, res); // ⬅️ קורא לפונקציה הקיימת שלך

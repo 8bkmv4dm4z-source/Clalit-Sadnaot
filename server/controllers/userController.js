@@ -78,10 +78,12 @@ const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
 };
 
 /**
- * deleteUser
- * --------------------------------------------------------------------------
- * Deletes a user and cleans up all workshop registrations efficiently.
- * Uses userWorkshopMap and familyWorkshopMap for O(1) lookups.
+ * Identity:
+ *   - Resolves target via entityKey and enforces ownership or admin authority before deletion.
+ * Storage:
+ *   - Uses Mongo _id to remove linked workshop registrations and to delete the user document.
+ * Notes:
+ *   - Relies on userWorkshopMap/familyWorkshopMap for cleanup; no _id values are exposed externally.
  */
 exports.deleteUser = async (req, res) => {
   try {
@@ -214,12 +216,14 @@ const SEARCH_KEYWORD = [
   "familyMembers.idNumber_keyword","familyMembers.phone_keyword",
 ];
 
-/* ============================================================
-   MAIN: searchUsers
-   ============================================================ */
-/* ============================================================
-   MAIN: searchUsers  (CLEAN VERSION — obeys your rules)
-   ============================================================ */
+/**
+ * Identity:
+ *   - Uses requester.entityKey to decide admin scope; ownership limited to caller’s family otherwise.
+ * Storage:
+ *   - Mongo _id stays inside aggregation/queries; responses return entityKey-based entities.
+ * Notes:
+ *   - Supports legacy ObjectId search only through admin Atlas Search, not for auth decisions.
+ */
 exports.searchUsers = async (req, res) => {
   try {
     const raw = (req.query.q || "").trim();
@@ -345,9 +349,14 @@ exports.searchUsers = async (req, res) => {
 };
 
 
-/* ============================================================
-   🟢 Get current logged-in user
-   ============================================================ */
+/**
+ * Identity:
+ *   - Authenticates via req.user.entityKey supplied by JWT middleware.
+ * Storage:
+ *   - Looks up the user by entityKey and never uses Mongo _id for permission checks.
+ * Notes:
+ *   - Responds with sanitized profile fields only.
+ */
 exports.getMe = async (req, res) => {
   try {
     if (!req.user?.entityKey) return res.status(401).json({ message: "Unauthorized" });
@@ -364,10 +373,14 @@ exports.getMe = async (req, res) => {
 };
 
 
-/* ============================================================
-   📋 Get all users (admin only)
-   ============================================================ */
-// controllers/userController.js (inside getAllUsers)
+/**
+ * Identity:
+ *   - Requires admin authority derived from entityKey-scoped middleware.
+ * Storage:
+ *   - Uses Mongo _id only implicitly inside Mongoose queries; response is entityKey-centric.
+ * Notes:
+ *   - Delivers flattened user + family entities without exposing internal identifiers.
+ */
 exports.getAllUsers = async (req, res) => {
   try {
     if (!hasAuthority(req.user, "admin")) {
@@ -414,9 +427,14 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-/* ============================================================
-   🛡️ Integrity audit (admin only)
-   ============================================================ */
+/**
+ * Identity:
+ *   - Intended for admin callers validated via entityKey authorities upstream.
+ * Storage:
+ *   - Runs audit routines that operate on Mongo _id internally; does not expose them.
+ * Notes:
+ *   - Returns aggregated audit report only; no identity decisions depend on _id.
+ */
 exports.getUserAuditReport = async (_req, res) => {
   try {
     const report = await runUserIntegrityAudit({ reason: "admin-request", force: true });
@@ -433,9 +451,14 @@ exports.getUserAuditReport = async (_req, res) => {
   }
 };
 
-/* ============================================================
-   🟢 Get user or family member by ID
-   ============================================================ */
+/**
+ * Identity:
+ *   - Resolves entity by entityKey and enforces ownership/admin via requester.entityKey.
+ * Storage:
+ *   - Uses Mongo _id only inside resolution and response shaping; no auth decisions rely on it.
+ * Notes:
+ *   - Family member fetches are parent-key scoped to prevent cross-account access.
+ */
 exports.getUserById = async (req, res) => {
   try {
     const entityKey = req.params.id;
@@ -459,9 +482,14 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-/* ============================================================
-   🟢 Unified: getEntityById (user OR family member)
-   ============================================================ */
+/**
+ * Identity:
+ *   - Authorizes via entityKey ownership or admin before returning any entity.
+ * Storage:
+ *   - Mongo _id is only used within resolveEntityByKey and Workshop data joins.
+ * Notes:
+ *   - Supports both user and family members without exposing ObjectIds in responses.
+ */
 exports.getEntityById = async (req, res) => {
   try {
     const entityKey = req.params.id;
@@ -485,9 +513,14 @@ exports.getEntityById = async (req, res) => {
   }
 };
 
-/* ============================================================
-   🟢 Create user
-   ============================================================ */
+/**
+ * Identity:
+ *   - Admin-driven creation; caller identity validated via entityKey authorities.
+ * Storage:
+ *   - Persists user with Mongo _id while returning sanitized entityKey-based payload.
+ * Notes:
+ *   - Strips privilege fields from payload before save to avoid unauthorized role changes.
+ */
 exports.createUser = async (req, res) => {
   try {
     stripPrivilegeFields(req.body, req.user?.entityKey);
@@ -522,9 +555,14 @@ exports.createUser = async (req, res) => {
   }
 };
 
-/* ============================================================
-   🟢 UNIFIED UPDATE ENTITY (user or family)
-   ============================================================ */
+/**
+ * Identity:
+ *   - Resolves target via entityKey and enforces owner/admin via requester.entityKey.
+ * Storage:
+ *   - Uses Mongo _id only to sync workshop subdocuments after updates.
+ * Notes:
+ *   - Rejects forbidden identity fields to keep requests entityKey-first.
+ */
 exports.updateEntity = async (req, res) => {
   try {
     rejectForbiddenFields(req.body, req.user?.entityKey);
@@ -615,9 +653,14 @@ exports.updateEntity = async (req, res) => {
 };
 
 
-/* ============================================================
-   🧾 Get workshops per user or family member (Stable version)
-   ============================================================ */
+/**
+ * Identity:
+ *   - Authorizes via entityKey ownership or admin before returning workshop summaries.
+ * Storage:
+ *   - Relies on Mongo _id to join participant records; responses use workshopKey/entityKey only.
+ * Notes:
+ *   - Supports optional familyEntityKey filter while keeping storage identifiers internal.
+ */
 exports.getUserWorkshopsList = async (req, res) => {
   try {
     rejectForbiddenFields(req.query, req.user?.entityKey);
