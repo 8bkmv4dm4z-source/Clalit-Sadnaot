@@ -72,7 +72,7 @@ async function pruneUsers({ dryRun }) {
   const pruned = [];
 
   for (const user of users) {
-    if (user.role === "admin") continue;
+    if (user.authorities?.admin) continue;
 
     const idStr = stringId(user._id);
     const hasDirectRegistration = userIds.has(idStr);

@@ -41,7 +41,7 @@ router.get("/audit/run", async (req, res) => {
     const SERVER_KEY = process.env.ADMIN_KEY;
 
     // 1. Try cookie/JWT admin first
-    if (req.user && req.user.role === "admin") {
+    if (req.user && req.user.authorities?.admin) {
       const result = await runWorkshopAudit();
       return res.json({ success: true, result });
     }

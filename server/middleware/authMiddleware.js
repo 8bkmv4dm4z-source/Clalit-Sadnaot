@@ -17,9 +17,13 @@ const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded?.sub) {
+      console.warn("[AUTH] Token missing subject");
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
 
-    const user = await User.findById(decoded.id).select(
-      "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash"
+    const user = await User.findOne({ entityKey: decoded.sub }).select(
+      "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash +authorities"
     );
     if (!user) {
       console.warn("[AUTH] User not found for provided token");
@@ -56,6 +60,7 @@ const authenticate = async (req, res, next) => {
       }
     }
 
+    user.authorities = user.authorities || {};
     req.user = user;
     next();
   } catch (err) {
@@ -75,12 +80,14 @@ const authenticate = async (req, res, next) => {
 /**
  * 🔑 Middleware: Authorize only admins
  */
-const authorizeAdmin = (req, res, next) => {
-  if (req.user && req.user.role === "admin") {
-    return next();
-  }
+const hasAuthority = (user, key) => !!user?.authorities?.[key];
+
+const requireAuthority = (authorityKey) => (req, res, next) => {
+  if (hasAuthority(req.user, authorityKey)) return next();
   return res.status(403).json({ message: "Admin access only" });
 };
 
+const authorizeAdmin = requireAuthority("admin");
+
 // ✅ Correct export
-module.exports = { authenticate, authorizeAdmin };
+module.exports = { authenticate, authorizeAdmin, requireAuthority, hasAuthority };

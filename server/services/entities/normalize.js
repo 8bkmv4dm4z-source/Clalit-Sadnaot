@@ -49,8 +49,7 @@ const normalizeUser = (entity = {}) => {
   return {
     ...base,
     entityType: "user",
-    role: entity.role || "",
-    isAdmin: entity.role === "admin",
+    isAdmin: !!entity.isAdmin,
     isFamily: false,
   };
 };
@@ -113,4 +112,3 @@ module.exports = {
   sanitizePhone,
   normalizeEntity, // correct place
 };
-

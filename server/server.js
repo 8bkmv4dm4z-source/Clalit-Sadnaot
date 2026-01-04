@@ -252,7 +252,7 @@ const workshopWriteLimiter = rateLimit({
       if (!auth.startsWith("Bearer ")) return false;
       const token = auth.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const uid = String(decoded.id || decoded.userId || "").toLowerCase();
+      const uid = String(decoded.sub || decoded.entityKey || "").toLowerCase();
       const email = String(decoded.email || "").toLowerCase();
       if (uid && ADMIN_WHITELIST_IDS.includes(uid)) return true;
       if (email && ADMIN_WHITELIST_EMAILS.includes(email)) return true;

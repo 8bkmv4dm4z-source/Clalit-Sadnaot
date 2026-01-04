@@ -16,6 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const { safeFetch } = require("../utils/safeFetch");
 const { hashId } = require("../utils/hashId");
+const { hasAuthority } = require("../middleware/authMiddleware");
 const fallbackCities = require("../config/fallbackCities.json");
 const {
   hydrateFamilyMember,
@@ -236,9 +237,9 @@ const rejectForbiddenFields = (payload = {}) => {
   }
 };
 
-const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
-  const isAdmin = requester?.role === "admin";
-  const isOwner = ownerId && requester?._id && String(ownerId) === String(requester._id);
+const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
+  const isAdmin = hasAuthority(requester, "admin");
+  const isOwner = ownerKey && requester?.entityKey && String(ownerKey) === String(requester.entityKey);
   if (!isOwner && !isAdmin) {
     const error = new Error("Unauthorized");
     error.statusCode = 403;
@@ -410,14 +411,10 @@ const normalizeEntityKey = (entity) => {
   return null;
 };
 
-const matchesUserIdentity = (candidate, { userKey, userId }) => {
+const matchesUserIdentity = (candidate, { userKey }) => {
   if (!candidate) return false;
   const normalized = normalizeEntityKey(candidate);
-  const candidateId = candidate?._id ? String(candidate._id) : normalizeEntityKey(candidate);
-  return (
-    (!!userKey && normalized && normalized === userKey) ||
-    (!!userId && candidateId && candidateId === userId)
-  );
+  return !!userKey && normalized && normalized === userKey;
 };
 
 const toUserWorkshop = (workshop, user = null) => {
@@ -428,7 +425,6 @@ const toUserWorkshop = (workshop, user = null) => {
   const { waitingList } = deriveCounts(src, { includeArrays: true });
 
   const userKey = normalizeEntityKey(user?.entityKey || src.__ownerKey);
-  const userId = user?._id ? String(user._id) : normalizeEntityKey(src.__ownerId);
 
   const directMap = src.__userRegistrationMap || new Set();
   const familyMap = src.__familyRegistrationMap || new Map();
@@ -442,7 +438,7 @@ const toUserWorkshop = (workshop, user = null) => {
   const myFamilyCountInWorkshop = familyEntries.length;
 
   const waitlisted = waitingList.some((wl) =>
-    matchesUserIdentity(wl.parentKey || wl.parentUser, { userKey, userId })
+    matchesUserIdentity(wl.parentKey || wl.parentUser, { userKey })
   );
 
   const isUserRegistered = isDirectParticipant || hasFamilyRegistration || !!src.isUserRegistered;
@@ -514,7 +510,7 @@ const toAdminWorkshop = (
 };
 
 const resolveAccessScope = (req) => {
-  if (req?.user?.role === "admin") return { scope: "admin", principal: req.user };
+  if (hasAuthority(req?.user, "admin")) return { scope: "admin", principal: req.user };
   if (req?.user) return { scope: "user", principal: req.user };
   return { scope: "public", principal: null };
 };
@@ -674,9 +670,10 @@ async function attachUserIfPresent(req) {
     if (!auth.startsWith("Bearer ")) return;
     const token = auth.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.id || decoded.userId;
-    if (!userId) return;
-    const user = await User.findById(userId).select("_id role name email entityKey");
+    const entityKey = decoded.sub || decoded.entityKey;
+    if (!entityKey) return;
+    const user = await User.findOne({ entityKey }).select("_id name email entityKey +authorities");
+    if (user && !user.authorities) user.authorities = {};
     if (user) req.user = user;
   } catch (err) {
   }
@@ -780,7 +777,6 @@ exports.getAllWorkshops = async (req, res) => {
         return {
           ...w,
           __ownerKey: registrationMaps.userKey,
-          __ownerId: registrationMaps.userId,
           __userRegistrationMap: registrationMaps.directWorkshopIds,
           __familyRegistrationMap: registrationMaps.familyWorkshopMap,
         };
@@ -1381,7 +1377,7 @@ exports.deleteWorkshop = async (req, res) => {
 // controllers/workshopController.js
 exports.getWorkshopParticipants = async (req, res) => {
   try {
-    if (req.user?.role !== "admin") {
+    if (!hasAuthority(req.user, "admin")) {
       return res.status(403).json({ message: "Access denied" });
     }
 
@@ -1475,7 +1471,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
 
-    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: parentUser.entityKey, requester: req.user });
 
     const parentId = parentUser._id;
     const memberId = member?._id || null;
@@ -1615,8 +1611,8 @@ exports.registerEntityToWorkshop = async (req, res) => {
     }
 
     // repopulate complete workshop
-    const populated = await Workshop.findById(updatedWorkshop._id)
-      .populate("participants", "entityKey name")
+  const populated = await Workshop.findById(updatedWorkshop._id)
+    .populate("participants", "entityKey name")
       .populate(
         "familyRegistrations.familyMemberId",
         "entityKey name relation"
@@ -1625,12 +1621,8 @@ exports.registerEntityToWorkshop = async (req, res) => {
       .populate("waitingList.parentUser", "entityKey name")
       .populate("waitingList.familyMemberId", "entityKey name relation");
 
-    const decorated = populated.toObject();
-    decorated.__ownerKey = req.user?.entityKey || null;
-    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
-    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
-    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
-    decorated.__ownerId = req.user?._id ? String(req.user._id) : null;
+  const decorated = populated.toObject();
+  decorated.__ownerKey = req.user?.entityKey || null;
 
     await safeAuditLog({
       eventType: AuditEventTypes.WORKSHOP_REGISTRATION,
@@ -1688,7 +1680,7 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
 
-    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: parentUser.entityKey, requester: req.user });
 
     let changed = false;
     const workshopObjectId = workshop._id;
@@ -1811,7 +1803,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
 
-    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: parentUser.entityKey, requester: req.user });
 
     const parentId = parentUser._id;
     const memberId = member?._id || null;
@@ -1944,7 +1936,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
 
-    assertOwnershipOrAdmin({ ownerId: parentUser._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: parentUser.entityKey, requester: req.user });
 
     const parentId = parentUser._id;
     const memberId = member?._id || null;
@@ -2002,7 +1994,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
 exports.exportWorkshopExcel = async (req, res) => {
   try {
     const admin = req.user;
-    if (!admin || admin.role !== "admin") {
+    if (!hasAuthority(admin, "admin")) {
       return res.status(403).json({ message: "Access denied" });
     }
 
@@ -2204,7 +2196,7 @@ exports.__test = { autoPromoteFromWaitlist };
 // ------------------------------------------------------------
 exports.getWaitlist = async (req, res) => {
   try {
-    if (req.user?.role !== "admin") {
+    if (!hasAuthority(req.user, "admin")) {
       return res.status(403).json({ message: "Access denied" });
     }
 

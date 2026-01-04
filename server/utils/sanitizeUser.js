@@ -24,13 +24,14 @@ function stripSensitiveFields(user) {
     "passwordResetTokenHash",
     "passwordResetTokenExpires",
     "passwordResetTokenIssuedAt",
-    "refreshTokens",
-    "roleIntegrityHash",
-    "idNumberHash",
-    "userWorkshopMap",
-    "familyWorkshopMap",
-    "otpExpires",
-  ];
+  "refreshTokens",
+  "roleIntegrityHash",
+  "idNumberHash",
+  "userWorkshopMap",
+  "familyWorkshopMap",
+  "otpExpires",
+  "authorities",
+];
 
   for (const key of redactions) delete clean[key];
   return clean;
@@ -91,6 +92,35 @@ const ALLOWED_FAMILY_FIELDS = [
 ];
 const ALLOWED_FAMILY_FIELDS_ADMIN = [...ALLOWED_FAMILY_FIELDS, "birthDate", "idNumber", "canCharge"];
 
+// Scope-specific, minimum profile payload (no role string)
+const PROFILE_USER_FIELDS = [
+  "_id",
+  "entityKey",
+  "name",
+  "email",
+  "phone",
+  "city",
+  "birthDate",
+  "idNumber",
+  "canCharge",
+];
+
+const PROFILE_FAMILY_FIELDS = [
+  "_id",
+  "entityKey",
+  "name",
+  "relation",
+  "email",
+  "phone",
+  "city",
+  "birthDate",
+  "idNumber",
+  "parentKey",
+  "parentName",
+  "parentEmail",
+  "parentPhone",
+];
+
 const pickAllowed = (source = {}, allowed = []) => {
   const out = {};
   for (const key of allowed) {
@@ -107,24 +137,78 @@ const pickAllowed = (source = {}, allowed = []) => {
  *   leaking the underlying role string.
  * - Removes all sensitive fields (passwords, OTP, integrity hashes, tokens).
  */
-function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) {
+function sanitizeUserForResponse(user, requester, { includeFull = false, scope = "default" } = {}) {
   if (!user) return null;
-  const clean = stripSensitiveFields(user);
+  const raw = toPlain(user);
+  const rawAuthorities = raw?.authorities || {};
+  const clean = stripSensitiveFields(raw);
 
   clean.entityKey =
     clean.entityKey || (clean._id ? hashId("user", String(clean._id)) : undefined);
 
-  const requesterIsAdmin = requester?.role === "admin";
-  const isAdminRole = clean.role === "admin";
+  const requesterHasAdminAuthority = !!requester?.authorities?.admin;
+  const requesterIsAdmin = requesterHasAdminAuthority;
+  const hasAdminAuthority = !!rawAuthorities?.admin;
+
+  const buildScopedPayload = (allowedUserFields, allowedFamilyFields, { stripRole = false } = {}) => {
+    const safeUser = withEntityFlags(
+      pickAllowed(clean, allowedUserFields),
+      { isFamily: false }
+    );
+
+    // Ensure entityKey is always available for transport + flattening
+    safeUser.entityKey = safeUser.entityKey || hashId("user", String(clean._id));
+
+    const safeFamilyMembers = Array.isArray(clean.familyMembers)
+      ? clean.familyMembers.map((member) =>
+          withEntityFlags(
+            pickAllowed(
+              {
+                parentKey: safeUser.entityKey,
+                parentName: safeUser.name,
+                parentEmail: safeUser.email,
+                parentPhone: safeUser.phone,
+                ...member,
+                entityKey:
+                  member.entityKey ||
+                  (member._id ? hashId("family", String(member._id)) : undefined),
+              },
+              allowedFamilyFields
+            ),
+            { isFamily: true, parent: safeUser }
+          )
+        )
+      : [];
+
+    const roleFingerprint = User.computeRoleHash(safeUser.entityKey, clean.role);
+
+    safeUser.isAdmin = hasAdminAuthority;
+    safeUser.roleFingerprint = roleFingerprint;
+    safeUser.familyMembers = safeFamilyMembers;
+
+    const safeSelf = { ...safeUser };
+    delete safeSelf.entities;
+    safeUser.entities = [safeSelf, ...safeFamilyMembers];
+
+    delete safeUser.role;
+
+    return safeUser;
+  };
+
+  // 🔐 Scoped minimal payload for /profile and /users/me
+  if (scope === "profile") {
+    return buildScopedPayload(PROFILE_USER_FIELDS, PROFILE_FAMILY_FIELDS, { stripRole: true });
+  }
 
   // 📦 Full profile payload (for /me and admin views)
   if (includeFull) {
     const normalizedUser = normalizeEntityShape(clean);
     const base = {
       ...withEntityFlags(normalizedUser, { isFamily: false }),
-      isAdmin: isAdminRole,
+      isAdmin: hasAdminAuthority,
       roleFingerprint: User.computeRoleHash(clean.entityKey, clean.role),
     };
+    delete base.role;
 
     base.familyMembers = Array.isArray(clean.familyMembers)
       ? clean.familyMembers.map((member) => {
@@ -194,7 +278,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
 
   const roleFingerprint = User.computeRoleHash(safeUser.entityKey, clean.role);
 
-  safeUser.isAdmin = isAdminRole;
+  safeUser.isAdmin = hasAdminAuthority;
   safeUser.roleFingerprint = roleFingerprint;
   safeUser.familyMembers = safeFamilyMembers;
 
@@ -204,11 +288,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false } = {}) 
 
   safeUser.entities = safeEntities;
 
-  // Hide the literal role string for non-admin consumers to avoid leaking
-  // role semantics through developer tools/sniffers.
-  if (!requesterIsAdmin) {
-    delete safeUser.role;
-  }
+  delete safeUser.role;
 
   return safeUser;
 }

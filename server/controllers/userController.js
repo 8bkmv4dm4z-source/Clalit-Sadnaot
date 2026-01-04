@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
+const { hasAuthority } = require("../middleware/authMiddleware");
 const {
   buildEntityFromUserDoc,
   buildEntityFromFamilyMemberDoc,
@@ -33,7 +34,28 @@ const FORBIDDEN_IDENTITY_FIELDS = [
   "workshopId",
 ];
 
-const rejectForbiddenFields = (payload = {}) => {
+const stripPrivilegeFields = (payload = {}, actorKey = null) => {
+  if (!payload || typeof payload !== "object") return;
+  const stripped = [];
+  for (const key of ["role", "authorities", "capabilities"]) {
+    if (payload[key] !== undefined) {
+      stripped.push(key);
+      delete payload[key];
+    }
+  }
+  if (stripped.length) {
+    safeAuditLog({
+      eventType: AuditEventTypes.SECURITY,
+      subjectType: "user",
+      subjectKey: actorKey || null,
+      actorKey: actorKey || null,
+      metadata: { action: "privileged_fields_stripped", fields: stripped },
+    });
+  }
+};
+
+const rejectForbiddenFields = (payload = {}, actorKey = null) => {
+  stripPrivilegeFields(payload, actorKey);
   const sent = Object.keys(payload || {});
   const forbidden = sent.filter((f) => FORBIDDEN_IDENTITY_FIELDS.includes(f));
   if (forbidden.length) {
@@ -44,9 +66,10 @@ const rejectForbiddenFields = (payload = {}) => {
   }
 };
 
-const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
-  const isAdmin = requester?.role === "admin";
-  const isOwner = ownerId && requester?._id && String(ownerId) === String(requester._id);
+const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
+  const isAdmin = hasAuthority(requester, "admin");
+  const isOwner =
+    ownerKey && requester?.entityKey && String(ownerKey) === String(requester.entityKey);
   if (!isOwner && !isAdmin) {
     const error = new Error("Unauthorized");
     error.statusCode = 403;
@@ -62,7 +85,7 @@ const assertOwnershipOrAdmin = ({ ownerId, requester }) => {
  */
 exports.deleteUser = async (req, res) => {
   try {
-    rejectForbiddenFields(req.body);
+    rejectForbiddenFields(req.body, req.user?.entityKey);
 
     const entityKey = req.params.entityKey || req.params.id;
     const resolved = await resolveEntity(entityKey, { allowFamily: false });
@@ -71,7 +94,7 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "Entity not found" });
     }
 
-    const user = await User.findById(resolved.userDoc._id).select(
+    const user = await User.findOne({ entityKey: resolved.userDoc.entityKey }).select(
       "entityKey userWorkshopMap familyWorkshopMap"
     );
 
@@ -79,7 +102,7 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "Entity not found" });
     }
 
-    assertOwnershipOrAdmin({ ownerId: user._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: user.entityKey, requester: req.user });
 
     const unregisterOps = [];
 
@@ -227,7 +250,7 @@ exports.searchUsers = async (req, res) => {
     // ============================================================
     // ADMIN MODE — global search
     // ============================================================
-    if (requester && requester.role === "admin") {
+  if (requester && hasAuthority(requester, "admin")) {
       let docs = [];
 
       try {
@@ -295,7 +318,7 @@ exports.searchUsers = async (req, res) => {
     // ============================================================
     // REGULAR USER — search only inside own family
     // ============================================================
-    const me = await User.findById(requester._id).lean();
+    const me = await User.findOne({ entityKey: requester.entityKey }).lean();
     if (!me) return res.status(404).json({ message: "User not found" });
 
     const flat = [];
@@ -327,12 +350,14 @@ exports.searchUsers = async (req, res) => {
    ============================================================ */
 exports.getMe = async (req, res) => {
   try {
-    if (!req.user?._id) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user?.entityKey) return res.status(401).json({ message: "Unauthorized" });
 
-    const user = await User.findById(req.user._id).select("-passwordHash -otpCode -otpAttempts");
+    const user = await User.findOne({ entityKey: req.user.entityKey }).select(
+      "-passwordHash -otpCode -otpAttempts +authorities"
+    );
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.json(sanitizeUserForResponse(user, req.user, { includeFull: true }));
+    res.json(sanitizeUserForResponse(user, req.user, { scope: "profile" }));
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
@@ -345,7 +370,7 @@ exports.getMe = async (req, res) => {
 // controllers/userController.js (inside getAllUsers)
 exports.getAllUsers = async (req, res) => {
   try {
-    if (!req.user || req.user.role !== "admin") {
+    if (!hasAuthority(req.user, "admin")) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
@@ -359,7 +384,6 @@ exports.getAllUsers = async (req, res) => {
       idNumber: 1,
       city: 1,
       birthDate: 1,
-      role: 1,
       canCharge: 1,
       createdAt: 1,
       updatedAt: 1,
@@ -417,17 +441,17 @@ exports.getUserById = async (req, res) => {
     const entityKey = req.params.id;
     const requester = req.user;
 
-    if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
+    if (!requester?.entityKey) return res.status(401).json({ message: "Unauthorized" });
 
     const resolved = await resolveEntityByKey(entityKey);
     if (!resolved) return res.status(404).json({ message: "User not found" });
 
     if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+      assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
       return res.json(sanitizeUserForResponse(resolved.userDoc, requester));
     }
 
-    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
   } catch (err) {
@@ -442,18 +466,18 @@ exports.getEntityById = async (req, res) => {
   try {
     const entityKey = req.params.id;
     const requester = req.user;
-    if (!requester?._id) return res.status(401).json({ message: "Unauthorized" });
+    if (!requester?.entityKey) return res.status(401).json({ message: "Unauthorized" });
 
     const resolved = await resolveEntityByKey(entityKey);
     if (!resolved) return res.status(404).json({ message: "Entity not found" });
 
     if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+      assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
       const entity = buildEntityFromUserDoc(resolved.userDoc);
       return res.json(entity);
     }
 
-    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
   } catch (err) {
@@ -466,12 +490,13 @@ exports.getEntityById = async (req, res) => {
    ============================================================ */
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role, city, phone, birthDate, canCharge } = req.body;
+    stripPrivilegeFields(req.body, req.user?.entityKey);
+    const { name, email, password, city, phone, birthDate, canCharge } = req.body;
 
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: "User already exists" });
 
-    const user = new User({ name, email, role, city, phone, birthDate, canCharge });
+    const user = new User({ name, email, city, phone, birthDate, canCharge });
     if (password) await user.setPassword(password);
     await user.save();
 
@@ -502,10 +527,11 @@ exports.createUser = async (req, res) => {
    ============================================================ */
 exports.updateEntity = async (req, res) => {
   try {
-    rejectForbiddenFields(req.body);
+    rejectForbiddenFields(req.body, req.user?.entityKey);
     const { entityKey, updates: rawUpdates } = req.body;
+    stripPrivilegeFields(rawUpdates, req.user?.entityKey);
     const requester = req.user;
-    const isAdmin = requester?.role === "admin";
+    const isAdmin = hasAuthority(requester, "admin");
 
     if (!entityKey) return res.status(400).json({ message: "Missing entityKey" });
     if (!rawUpdates || typeof rawUpdates !== "object")
@@ -516,12 +542,12 @@ exports.updateEntity = async (req, res) => {
 
     const baseAllowedKeys = ["name", "phone", "city", "email"];
     const userAllowed = [...baseAllowedKeys, "birthDate", "idNumber"];
-    const adminOnlyKeys = ["canCharge", "role"];
+    const adminOnlyKeys = ["canCharge"];
     const userAllowedFields = isAdmin ? [...userAllowed, ...adminOnlyKeys] : userAllowed;
     const familyAllowed = [...baseAllowedKeys, "relation", "birthDate", "idNumber"];
 
-    if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+  if (resolved.type === "user") {
+      assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
 
       const updates = pickFields(rawUpdates, userAllowedFields);
       const requestedKeys = Object.keys(rawUpdates || {});
@@ -550,7 +576,7 @@ exports.updateEntity = async (req, res) => {
         .json({ message: "Invalid fields for family member", fields: invalidKeys });
     }
 
-    assertOwnershipOrAdmin({ ownerId: resolved.userDoc._id, requester });
+    assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const member = resolved.memberDoc;
     Object.assign(member, updates);
 
@@ -594,7 +620,7 @@ exports.updateEntity = async (req, res) => {
    ============================================================ */
 exports.getUserWorkshopsList = async (req, res) => {
   try {
-    rejectForbiddenFields(req.query);
+    rejectForbiddenFields(req.query, req.user?.entityKey);
 
     const { id } = req.params; // parent entityKey
     const familyEntityKey = req.query.familyEntityKey || null;
@@ -604,7 +630,7 @@ exports.getUserWorkshopsList = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    assertOwnershipOrAdmin({ ownerId: resolvedParent.userDoc._id, requester: req.user });
+    assertOwnershipOrAdmin({ ownerKey: resolvedParent.userDoc.entityKey, requester: req.user });
 
     const parentUser = resolvedParent.userDoc;
     const parentId = parentUser._id;

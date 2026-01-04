@@ -42,10 +42,26 @@ test('sanitization hides PII for non-admin family responses', () => {
 });
 
 test('sanitization includes PII for admin family responses', () => {
-  const sanitized = sanitizeUserForResponse(baseUser, { role: 'admin' });
+  const sanitized = sanitizeUserForResponse(baseUser, { authorities: { admin: true } });
   const child = sanitized.familyMembers[0];
   assert.equal(child.birthDate, '2000-01-01');
   assert.equal(child.idNumber, '321');
+});
+
+test('profile scope strips role and flattens family entities with keys', () => {
+  const scoped = sanitizeUserForResponse(
+    { ...baseUser, role: 'admin', passwordHash: 'secret' },
+    { authorities: { admin: true } },
+    { scope: 'profile' }
+  );
+
+  assert.equal(scoped.role, undefined);
+  assert.ok(scoped.entities?.length === 2);
+
+  const [selfEntity, familyEntity] = scoped.entities;
+  assert.equal(selfEntity.entityKey, 'parent-key');
+  assert.equal(familyEntity.entityKey, 'child-key');
+  assert.equal(familyEntity.parentKey, 'parent-key');
 });
 
 test('toPublicWorkshop strips internal identifiers and relational arrays', () => {

@@ -15,6 +15,7 @@ const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { hashId } = require("../utils/hashId");
+const { sanitizeUserForResponse: sanitizeUserForResponseScoped } = require("../utils/sanitizeUser");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
 const {
   hashPassword,
@@ -67,7 +68,9 @@ const OTP_LOCK_MS = 10 * 60 * 1000;
    ============================================================ */
 function generateAccessToken(user) {
   const expiresIn = process.env.JWT_EXPIRY || "15m";
-  return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+  const subject = user.entityKey || user.hashedId;
+  if (!subject) throw new Error("Missing entityKey for token generation");
+  return jwt.sign({ sub: subject }, process.env.JWT_SECRET, {
     expiresIn,
   });
 }
@@ -79,7 +82,9 @@ function createJti() {
 
 function generateRefreshToken(user) {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
-  return jwt.sign({ id: user._id, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
+  const subject = user.entityKey || user.hashedId;
+  if (!subject) throw new Error("Missing entityKey for token generation");
+  return jwt.sign({ sub: subject, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn,
   });
 }
@@ -253,30 +258,7 @@ function createPasswordResetArtifacts() {
 
 const normalizeDigits = (value = "") => String(value || "").replace(/\D/g, "");
 function sanitizeUserForResponse(user, loggedInUser) {
-  // Convert Mongoose doc to object if needed
-  const u = user.toObject ? user.toObject() : user;
-  
-  // delete sensitive fields
-  delete u.passwordHash;
-  delete u.otpCode;
-  delete u.otpExpires;
-  delete u.otpAttempts;
-  delete u.passwordResetTokenHash;
-  delete u.passwordResetTokenExpires;
-  delete u.passwordChangedAt;
-  delete u.refreshTokens;
-  delete u.__v;
-  const entityKey = u.entityKey || u.hashedId || (u._id ? hashId("user", String(u._id)) : undefined);
-  if (entityKey) {
-    u.id = entityKey;
-    u.entityKey = entityKey;
-  }
-  if (u._id) {
-    u.legacyMongoId = u._id;
-    delete u._id;
-  }
-
-  return u;
+  return sanitizeUserForResponseScoped(user, loggedInUser, { scope: "profile" });
 }
 
 function normalizeFamilyMembers(familyMembers = [], defaults = {}) {
@@ -682,7 +664,7 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({
       email: (email || "").toLowerCase().trim(),
-    }).select("+passwordHash");
+    }).select("+passwordHash +authorities");
 
     if (!user) return res.status(400).json({ message: "Invalid email or password" });
 
@@ -808,9 +790,9 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json(GENERIC_OTP_VERIFY_FAILURE);
     }
 
-    const user = await User.findOne({
-      email: normalizedEmail,
-    }).select("+otpCode +otpExpires +otpAttempts +otpLockUntil +otpLastSent");
+  const user = await User.findOne({
+    email: normalizedEmail,
+  }).select("+otpCode +otpExpires +otpAttempts +otpLockUntil +otpLastSent +authorities");
 
     if (!user) {
       await enumerationDelay();
@@ -874,13 +856,7 @@ exports.verifyOtp = async (req, res) => {
 
   return res.json({
     accessToken,
-    user: {
-      id: user.entityKey || user.hashedId || user._id,
-      legacyMongoId: user._id,
-      email: user.email,
-      role: user.role,
-      name: user.name,
-    },
+    user: sanitizeUserForResponse(user, user),
   });
   } catch (e) {
     console.error("❌ verifyOtp error:", e);
@@ -1017,7 +993,7 @@ exports.resetPassword = async (req, res) => {
    ============================================================ */
 exports.getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-passwordHash -otpCode");
+    const user = await User.findOne({ entityKey: req.user.entityKey }).select("-passwordHash -otpCode");
     if (!user) return res.status(404).json({ message: "User not found." });
     res.json(sanitizeUserForResponse(user, req.user));
   } catch (e) {
@@ -1028,7 +1004,7 @@ exports.getUserProfile = async (req, res) => {
 exports.updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user._id).select("+passwordHash");
+    const user = await User.findOne({ entityKey: req.user.entityKey }).select("+passwordHash");
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const match = await verifyPassword(currentPassword, user.passwordHash);
@@ -1055,7 +1031,14 @@ exports.refreshAccessToken = async (req, res) => {
     if (!token) return res.status(401).json({ message: "No refresh token" });
 
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    const user = await User.findById(payload.id);
+    const entityKey = payload.sub || payload.entityKey;
+    if (!entityKey) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+    const user = await User.findOne({ entityKey }).select(
+      "+authorities"
+    );
     if (!user) return res.status(404).json({ message: "User not found" });
 
     if (user.passwordChangedAt) {
@@ -1104,7 +1087,10 @@ exports.logout = async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-        const user = await User.findById(payload.id);
+        const entityKey = payload.sub || payload.entityKey;
+        const user = await User.findOne({ entityKey }).select(
+          "+authorities"
+        );
         if (user) {
           user.refreshTokens = user.refreshTokens.filter(
             (rt) => !tokensMatch(rt.token, token)

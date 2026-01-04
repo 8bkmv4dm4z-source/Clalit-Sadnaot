@@ -114,7 +114,7 @@ const stopServer = (server) =>
     server.close(() => resolve());
   });
 
-const createToken = (id = "user-id") => jwt.sign({ id }, process.env.JWT_SECRET);
+const createToken = (id = "user-id") => jwt.sign({ sub: id }, process.env.JWT_SECRET);
 
 const fetchJson = async (server, path, { headers } = {}) => {
   const port = server.address().port;
