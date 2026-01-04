@@ -397,6 +397,14 @@ exports.__test = {
 /* ============================================================
    👤 Register User
    ============================================================ */
+/**
+ * Identity:
+ *   - Creates new principals and issues entityKey-based authentication tokens.
+ * Storage:
+ *   - Uses Mongo _id only after creation for linking registration requests; not for auth.
+ * Notes:
+ *   - Enumeration-safe responses avoid leaking whether _id exists.
+ */
 exports.registerUser = async (req, res) => {
   safeAuthLog("registerUser invoked");
   try {
@@ -457,6 +465,14 @@ exports.registerUser = async (req, res) => {
 const REGISTRATION_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const REGISTRATION_REQUEST_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+/**
+ * Identity:
+ *   - Starts registration tied to email/entityKey flow; no _id-based auth decisions.
+ * Storage:
+ *   - Persists request documents with Mongo _id internally while keeping responses opaque.
+ * Notes:
+ *   - Enumeration-safe responses prevent leaking account existence.
+ */
 exports.requestRegistration = async (req, res) => {
   safeAuthLog("requestRegistration invoked");
   try {
@@ -559,6 +575,14 @@ exports.requestRegistration = async (req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Completes registration via email/OTP, issuing entityKey-backed records.
+ * Storage:
+ *   - Uses Mongo _id to persist new user and link to registration request only after OTP validation.
+ * Notes:
+ *   - Keeps responses opaque; no ObjectIds returned to clients.
+ */
 exports.verifyRegistrationOtp = async (req, res) => {
   safeAuthLog("verifyRegistrationOtp invoked");
   try {
@@ -658,6 +682,14 @@ exports.verifyRegistrationOtp = async (req, res) => {
 /* ============================================================
    🔑 Login User
    ============================================================ */
+/**
+ * Identity:
+ *   - Authenticates via email/password and issues tokens keyed by entityKey.
+ * Storage:
+ *   - Uses Mongo _id only for persistence (refresh tokens, role hashes) after login.
+ * Notes:
+ *   - Does not expose _id; relies on entityKey/hashedId for JWT subjects.
+ */
 exports.loginUser = async (req, res) => {
   safeAuthLog("loginUser invoked");
   try {
@@ -698,6 +730,14 @@ exports.loginUser = async (req, res) => {
 /* ============================================================
    ✉️ Send OTP
    ============================================================ */
+/**
+ * Identity:
+ *   - Authenticates OTP requests by email and logs against entityKey/hashedId.
+ * Storage:
+ *   - Uses Mongo _id only to derive hash fallback for logging; no access control depends on it.
+ * Notes:
+ *   - Enumeration-safe responses keep account existence concealed.
+ */
 exports.sendOtp = async (req, res) => {
   try {
     const email = (req.body?.email || "").trim().toLowerCase();
@@ -778,6 +818,14 @@ exports.sendOtp = async (req, res) => {
 /* ============================================================
    ✅ Verify OTP
    ============================================================ */
+/**
+ * Identity:
+ *   - Validates OTP for entityKey-bearing users; subjectKey uses entityKey/hash for auditing.
+ * Storage:
+ *   - Uses Mongo _id only inside user lookup and audit logging after validation.
+ * Notes:
+ *   - Tokens issued afterward rely on entityKey, not _id.
+ */
 exports.verifyOtp = async (req, res) => {
   safeAuthLog("verifyOtp invoked");
   try {
@@ -867,6 +915,14 @@ exports.verifyOtp = async (req, res) => {
 /* ============================================================
    🔁 Recover & Reset Password
    ============================================================ */
+/**
+ * Identity:
+ *   - Initiates reset using email and entityKey-derived tokens; no _id-based auth.
+ * Storage:
+ *   - Stores hashed reset token tied to Mongo _id internally.
+ * Notes:
+ *   - Responses remain generic to avoid leaking account presence.
+ */
 async function handlePasswordResetRequest(req, res) {
   const emailRaw = req.body?.email;
   safeAuthLog("requestPasswordReset invoked");
@@ -930,6 +986,14 @@ async function handlePasswordResetRequest(req, res) {
 exports.recoverPassword = handlePasswordResetRequest;
 exports.requestPasswordReset = handlePasswordResetRequest;
 
+/**
+ * Identity:
+ *   - Validates reset tokens derived from entityKey/hashed identifiers; no _id-based auth.
+ * Storage:
+ *   - Uses Mongo _id internally to locate and update the user record once token verified.
+ * Notes:
+ *   - Keeps responses opaque and clears reset tokens post-use.
+ */
 exports.resetPassword = async (req, res) => {
   safeAuthLog("resetPassword invoked");
   try {
@@ -991,6 +1055,14 @@ exports.resetPassword = async (req, res) => {
 /* ============================================================
    👤 User Profile & Password Update
    ============================================================ */
+/**
+ * Identity:
+ *   - Requires authenticated principal via entityKey-bearing JWT.
+ * Storage:
+ *   - Looks up user by entityKey; Mongo _id stays internal.
+ * Notes:
+ *   - Responds with sanitized profile without exposing ObjectIds.
+ */
 exports.getUserProfile = async (req, res) => {
   try {
     const user = await User.findOne({ entityKey: req.user.entityKey }).select("-passwordHash -otpCode");
@@ -1001,6 +1073,14 @@ exports.getUserProfile = async (req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Authenticated users update their own password using entityKey from JWT.
+ * Storage:
+ *   - Uses Mongo _id implicitly via entityKey lookup and persists hashed password.
+ * Notes:
+ *   - Does not expose _id; verifies current password before mutation.
+ */
 exports.updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -1025,6 +1105,14 @@ exports.updatePassword = async (req, res) => {
 /* ============================================================
    🔁 Token Refresh & Logout
    ============================================================ */
+/**
+ * Identity:
+ *   - Refreshes access tokens using entityKey as JWT subject.
+ * Storage:
+ *   - Uses Mongo _id only when pruning refresh token arrays after validation.
+ * Notes:
+ *   - Rejects tokens without entityKey subjects; keeps ObjectIds out of responses.
+ */
 exports.refreshAccessToken = async (req, res) => {
   try {
     const token = req.cookies?.[REFRESH_COOKIE_NAME];
@@ -1078,6 +1166,14 @@ exports.refreshAccessToken = async (req, res) => {
   }
 };
 
+/**
+ * Identity:
+ *   - Logs out the entityKey-authenticated user by clearing refresh token lineage.
+ * Storage:
+ *   - Uses Mongo _id only via entityKey lookup to mutate stored refresh tokens.
+ * Notes:
+ *   - Clears cookie regardless of lookup outcome to avoid leaking token validity.
+ */
 exports.logout = async (req, res) => {
   try {
     const token = req.cookies?.[REFRESH_COOKIE_NAME];

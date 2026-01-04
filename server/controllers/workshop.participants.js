@@ -1,6 +1,13 @@
 const Workshop = require("../models/Workshop");
 
-// Return participants with clean separation of user participants vs family registrations
+/**
+ * Identity:
+ *   - Assumes caller authorized upstream via entityKey-bearing middleware; does not gate on _id.
+ * Storage:
+ *   - Queries workshop by workshopKey and uses Mongo _id only inside population.
+ * Notes:
+ *   - Responds with entityKey-based participant data to avoid leaking _id values.
+ */
 exports.getParticipants = async (req, res) => {
   try {
     const id = req.params.id;

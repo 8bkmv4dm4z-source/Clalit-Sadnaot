@@ -248,8 +248,12 @@ const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
 };
 
 /**
- * Resolve any workshop identifier (ObjectId / hashed / workshopKey)
- * → Always returns null because raw ObjectIds are not accepted from clients.
+ * Identity:
+ *   - Rejects ObjectId-based identity and expects opaque workshopKey inputs.
+ * Storage:
+ *   - Returns null; Mongo _id is never surfaced to callers here.
+ * Notes:
+ *   - Transitional stub while clients finalize workshopKey-only routing.
  */
 function resolveWorkshopObjectId() {
   return null;
@@ -363,6 +367,14 @@ const buildUserRegistrationMaps = (userDoc) => {
   return { userKey, userId, directWorkshopIds, familyWorkshopMap };
 };
 
+/**
+ * Identity:
+ *   - No auth gating; consumes pre-filtered workshop data without using entityKey or _id for access.
+ * Storage:
+ *   - Reads Mongo _id only via helper counts; omits _id from responses.
+ * Notes:
+ *   - Produces public-safe shape for calendars and cards.
+ */
 const toPublicWorkshop = (workshop) => {
   if (!workshop) return null;
 
@@ -383,6 +395,14 @@ const toPublicWorkshop = (workshop) => {
   };
 };
 
+/**
+ * Identity:
+ *   - Accepts only UUID workshopKey inputs; ignores raw Mongo _id strings.
+ * Storage:
+ *   - Uses Mongo _id solely after a workshopKey match to fetch the document.
+ * Notes:
+ *   - Ensures client-facing identifiers stay opaque.
+ */
 async function loadWorkshopByIdentifier(identifier) {
   if (!identifier) return null;
   const id = String(identifier).trim();
@@ -417,6 +437,14 @@ const matchesUserIdentity = (candidate, { userKey }) => {
   return !!userKey && normalized && normalized === userKey;
 };
 
+/**
+ * Identity:
+ *   - Determines viewer context from entityKey (user.__ownerKey) to mark registration state.
+ * Storage:
+ *   - Uses Mongo _id internally to correlate registration maps; not exposed externally.
+ * Notes:
+ *   - Provides user-scoped view without leaking participant ObjectIds.
+ */
 const toUserWorkshop = (workshop, user = null) => {
   if (!workshop) return null;
 
@@ -473,6 +501,14 @@ const sanitizeWaitingListEntry = (
     { adminView, includeSensitiveFields }
   );
 
+/**
+ * Identity:
+ *   - Assumes admin caller validated by entityKey authority checks upstream.
+ * Storage:
+ *   - Reads Mongo _id for participant joins but omits it from the response body.
+ * Notes:
+ *   - Can include participant and waitlist details while preserving entityKey boundaries.
+ */
 const toAdminWorkshop = (
   workshop,
   { includeParticipantDetails = false, includeSensitiveFields = false } = {}
@@ -694,6 +730,14 @@ const clampSkip = (value = 0) => {
   return parsed;
 };
 
+/**
+ * Identity:
+ *   - Optionally attaches principal via entityKey-bearing JWT and scopes visibility by admin/user roles.
+ * Storage:
+ *   - Uses Mongo _id strictly for workshop queries and registration map joins after auth resolution.
+ * Notes:
+ *   - Returns view-layer DTOs without exposing ObjectIds.
+ */
 // 🚀 NEW getAllWorkshops — full waitlist-aware version
 exports.getAllWorkshops = async (req, res) => {
   try {
@@ -819,6 +863,14 @@ exports.getAllWorkshops = async (req, res) => {
    we never need to expose full participant/familyRegistration rows in
    the general workshops list, keeping payloads smaller and more private.
 ------------------------------------------------------------ */
+/**
+ * Identity:
+ *   - Requires authenticated principal; scopes admin visibility via entityKey authorities.
+ * Storage:
+ *   - Uses Mongo _id to fetch workshop maps and translate to workshopKey/entityKey for clients.
+ * Notes:
+ *   - Keeps ObjectIds internal while returning opaque registration maps.
+ */
 exports.getRegisteredWorkshops = async (req, res) => {
   try {
     const access = resolveAccessScope(req);
@@ -916,6 +968,14 @@ exports.getRegisteredWorkshops = async (req, res) => {
  * @route GET /api/workshops/:id
  * @access Authenticated (admin or user)
  */
+/**
+ * Identity:
+ *   - Resolves requester via entityKey JWT (optional) and scopes admin-hidden workshops accordingly.
+ * Storage:
+ *   - Uses Mongo _id solely after resolving the workshopKey; no permission checks rely on _id.
+ * Notes:
+ *   - Responds with DTOs that avoid exposing ObjectIds.
+ */
 exports.getWorkshopById = async (req, res) => {
   try {
     await attachUserIfPresent(req);
@@ -992,6 +1052,14 @@ exports.getWorkshopById = async (req, res) => {
  * @route PUT /api/workshops/:id
  * @access Admin only
   */
+/**
+ * Identity:
+ *   - Admin authorization enforced via entityKey authorities resolved upstream.
+ * Storage:
+ *   - Uses Mongo _id for document updates and participant syncing after workshopKey lookup.
+ * Notes:
+ *   - Keeps client-facing identifiers opaque while recalculating derived fields.
+ */
 exports.updateWorkshop = async (req, res) => {
   try {
     const access = resolveAccessScope(req);
@@ -1189,6 +1257,14 @@ exports.updateWorkshop = async (req, res) => {
  * @route POST /api/workshops
  * @access Admin only
  */
+/**
+ * Identity:
+ *   - Admin scope enforced via entityKey-based authorities before creation.
+ * Storage:
+ *   - Writes workshop using Mongo _id internally; returns workshopKey/DTOs to clients.
+ * Notes:
+ *   - Address validation is non-blocking and does not affect identity handling.
+ */
 exports.createWorkshop = async (req, res) => {
   try {
     const access = resolveAccessScope(req);
@@ -1343,6 +1419,14 @@ exports.createWorkshop = async (req, res) => {
 /* ------------------------------------------------------------
    🔴 DELETE /api/workshops/:id
 ------------------------------------------------------------ */
+/**
+ * Identity:
+ *   - Expects admin authority validated via entityKey middleware before deletion.
+ * Storage:
+ *   - Uses Mongo _id to locate and delete the workshop after resolving workshopKey.
+ * Notes:
+ *   - Audit logging keyed by entityKey/workshopKey keeps ObjectIds internal.
+ */
 exports.deleteWorkshop = async (req, res) => {
   try {
     const workshopDoc = await loadWorkshopByIdentifier(req.params.id);
@@ -1375,6 +1459,14 @@ exports.deleteWorkshop = async (req, res) => {
    🧩 GET /api/workshops/:id/participants
 ------------------------------------------------------------ */
 // controllers/workshopController.js
+/**
+ * Identity:
+ *   - Requires admin authority derived from entityKey-scoped middleware.
+ * Storage:
+ *   - Uses Mongo _id to load and paginate participants; never for permission decisions.
+ * Notes:
+ *   - Response contains entityKey-based participant DTOs only.
+ */
 exports.getWorkshopParticipants = async (req, res) => {
   try {
     if (!hasAuthority(req.user, "admin")) {
@@ -1448,6 +1540,14 @@ exports.getWorkshopParticipants = async (req, res) => {
  * - Adds to waiting list if full.
  * - Syncs User.userWorkshopMap / User.familyWorkshopMap.
  * - Uses shared services for consistency.
+ */
+/**
+ * Identity:
+ *   - Resolves target via entityKey and enforces owner/admin through assertOwnershipOrAdmin.
+ * Storage:
+ *   - Uses Mongo _id for workshop mutation and registration subdocuments after auth.
+ * Notes:
+ *   - Rejects forbidden identity fields to keep requests entityKey-first.
  */
 exports.registerEntityToWorkshop = async (req, res) => {
   try {
@@ -1662,6 +1762,14 @@ exports.registerEntityToWorkshop = async (req, res) => {
  * Removes either a user or a family member from a workshop.
  * Keeps Workshop and User mappings in sync.
  */
+/**
+ * Identity:
+ *   - Resolves entity by entityKey and enforces ownership or admin before unregistering.
+ * Storage:
+ *   - Uses Mongo _id for workshop mutations and User map updates after auth check.
+ * Notes:
+ *   - Waitlist fallback delegates to addEntityToWaitlist without exposing ObjectIds.
+ */
 exports.unregisterEntityFromWorkshop = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
@@ -1783,6 +1891,14 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
  * POST /api/workshops/:id/waitlist-entity
  * This version preserves ALL existing behavior (populate + decorate).
  *********************************************************************/
+/**
+ * Identity:
+ *   - Resolves target via entityKey and enforces ownership/admin before enqueueing.
+ * Storage:
+ *   - Uses Mongo _id for workshop updates and waitlist documents after authorization.
+ * Notes:
+ *   - Keeps response DTOs keyed by entityKey/workshopKey only.
+ */
 exports.addEntityToWaitlist = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
@@ -1912,6 +2028,14 @@ exports.addEntityToWaitlist = async (req, res) => {
  * DELETE /api/workshops/:id/waitlist-entity
  * Same behavior as existing version + canonical matching.
  *********************************************************************/
+/**
+ * Identity:
+ *   - Resolves entityKey target and enforces ownership or admin before removal.
+ * Storage:
+ *   - Uses Mongo _id internally when updating waitlist/registration arrays.
+ * Notes:
+ *   - Emits entityKey-focused DTOs; ObjectIds remain internal.
+ */
 exports.removeEntityFromWaitlist = async (req, res) => {
   try {
     rejectForbiddenFields(req.body);
@@ -1990,7 +2114,14 @@ exports.removeEntityFromWaitlist = async (req, res) => {
 };
 
 
-
+/**
+ * Identity:
+ *   - Admin-only export validated via entityKey authorities.
+ * Storage:
+ *   - Loads workshop and participant data by Mongo _id after auth; exports without exposing _id.
+ * Notes:
+ *   - Output is Excel; retains privacy by hashing or omitting internal identifiers.
+ */
 exports.exportWorkshopExcel = async (req, res) => {
   try {
     const admin = req.user;
@@ -2194,6 +2325,14 @@ exports.__test = { autoPromoteFromWaitlist };
 // 🟣 GET /api/workshops/:id/waitlist — Admin only
 // Returns all waiting list entries for a given workshop
 // ------------------------------------------------------------
+/**
+ * Identity:
+ *   - Admin-only route validated via entityKey authority checks.
+ * Storage:
+ *   - Uses Mongo _id for workshop lookup and pagination; authorization never depends on _id.
+ * Notes:
+ *   - Returns waitlist entries keyed by entityKey to avoid exposing ObjectIds.
+ */
 exports.getWaitlist = async (req, res) => {
   try {
     if (!hasAuthority(req.user, "admin")) {
@@ -2263,6 +2402,14 @@ exports.getWaitlist = async (req, res) => {
 
    
 
+/**
+ * Identity:
+ *   - Public metadata endpoint; no identity decisions or entityKey checks.
+ * Storage:
+ *   - No Mongo _id usage; reads external dataset only.
+ * Notes:
+ *   - Returns city list without touching persistence.
+ */
 exports.getAvailableCities = async (req, res) => {
   try {
     const url =
@@ -2348,6 +2495,14 @@ exports.__test = {
 };
 
 // ✅ בודק אם הכתובת שייכת לעיר בעזרת OpenStreetMap (Nominatim)
+/**
+ * Identity:
+ *   - Public utility; no authentication or entityKey decisions involved.
+ * Storage:
+ *   - No Mongo _id usage; external geocoding only.
+ * Notes:
+ *   - Returns validation status without persisting data.
+ */
 exports.validateAddress = async (req, res) => {
   const { city, address } = req.query;
   if (!city || !address)
@@ -2387,6 +2542,14 @@ exports.validateAddress = async (req, res) => {
    🔍 searchWorkshops — Atlas Compound Search + Fallback
    Mirrors searchUsers for consistent UX & query logic
    ============================================================ */
+/**
+ * Identity:
+ *   - Optional principal attachment via entityKey JWT; no permission checks rely on Mongo _id.
+ * Storage:
+ *   - Uses Mongo _id internally for query results only; responses remain workshopKey/entityKey-based.
+ * Notes:
+ *   - Public-safe search returning opaque identifiers.
+ */
 exports.searchWorkshops = async (req, res) => {
   try {
     await attachUserIfPresent(req);
