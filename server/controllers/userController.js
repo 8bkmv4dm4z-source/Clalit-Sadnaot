@@ -8,6 +8,7 @@ const {
 } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
 const { resolveEntity, resolveEntityByKey } = require("../services/entities/resolveEntity");
+const { hashId } = require("../utils/hashId");
 const pickFields = (obj = {}, allowed = []) =>
   allowed.reduce((acc, key) => {
     if (obj[key] !== undefined) acc[key] = obj[key];
@@ -75,6 +76,59 @@ const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
     error.statusCode = 403;
     throw error;
   }
+};
+
+const formatBirthDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  const asString = String(value).trim();
+  if (!asString) return null;
+
+  const [datePart] = asString.split("T");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+
+  const parsed = new Date(asString);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return null;
+};
+
+const ensureEntityKey = (doc, type) => {
+  if (!doc) return "";
+  if (doc.entityKey) return doc.entityKey;
+  if (doc._id) return hashId(type, String(doc._id));
+  return "";
+};
+
+const buildMinimalIdentityResponse = (userDoc = {}) => {
+  const entityKey = ensureEntityKey(userDoc, "user");
+  const entities = [
+    {
+      entityKey,
+      name: userDoc.name || "",
+    },
+    ...(Array.isArray(userDoc.familyMembers)
+      ? userDoc.familyMembers.map((member) => ({
+          entityKey: ensureEntityKey(member, "family"),
+          name: member?.name || "",
+        }))
+      : []),
+  ];
+
+  return {
+    entityKey,
+    name: userDoc.name || "",
+    email: userDoc.email || "",
+    phone: userDoc.phone || "",
+    city: userDoc.city || "",
+    birthDate: formatBirthDate(userDoc.birthDate),
+    entities,
+  };
 };
 
 /**
@@ -357,16 +411,29 @@ exports.searchUsers = async (req, res) => {
  * Notes:
  *   - Responds with sanitized profile fields only.
  */
+// SECURITY CONTRACT:
+// /getMe intentionally returns a minimal identity view.
+// Roles, authorities, flags, and internal identifiers must NEVER be exposed here.
 exports.getMe = async (req, res) => {
   try {
     if (!req.user?.entityKey) return res.status(401).json({ message: "Unauthorized" });
 
-    const user = await User.findOne({ entityKey: req.user.entityKey }).select(
-      "-passwordHash -otpCode -otpAttempts +authorities"
-    );
+    const projection = {
+      entityKey: 1,
+      name: 1,
+      email: 1,
+      phone: 1,
+      city: 1,
+      birthDate: 1,
+      "familyMembers.entityKey": 1,
+      "familyMembers.name": 1,
+      "familyMembers._id": 1,
+    };
+
+    const user = await User.findOne({ entityKey: req.user.entityKey }).select(projection).lean();
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    res.json(sanitizeUserForResponse(user, req.user, { scope: "profile" }));
+    res.json(buildMinimalIdentityResponse(user));
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
   }
