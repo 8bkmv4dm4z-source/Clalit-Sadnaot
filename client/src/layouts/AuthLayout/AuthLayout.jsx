@@ -271,7 +271,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const res = await apiFetch("/api/users/me", {
+        const res = await apiFetch("/api/users/getMe", {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
@@ -284,22 +284,15 @@ export const AuthProvider = ({ children }) => {
         }
 
         const normalizedUser = normalizeUserPayload(data);
-        const isAdminFlag = Boolean(
-          normalizedUser?.isAdmin || normalizedUser?.role === "admin"
-        );
 
         setUser(normalizedUser);
         setIsLoggedIn(true);
-        setIsAdmin(isAdminFlag);
+        // 🚫 Roles/privileges are not communicated via /getMe
+        setIsAdmin(false);
         log(
           "✅ User loaded:",
           normalizedUser?.name || normalizedUser?.email,
-          "| admin:",
-          isAdminFlag,
-          "| fingerprint:",
-          normalizedUser?.roleFingerprint
-            ? `${String(normalizedUser.roleFingerprint).slice(0, 8)}…`
-            : "none"
+          "| admin: false (suppressed by contract)"
         );
 
         return normalizedUser;
@@ -586,7 +579,7 @@ export const AuthProvider = ({ children }) => {
 
       const data = await fetchMe(newToken);
       fireAuthReady(true, { phase: "login-complete" });
-      fireLoggedIn({ userId: String(data?._id || data?.id || "") });
+        fireLoggedIn({ userId: String(data?.entityKey || "") });
       navigate("/workshops");
     },
     [fetchMe, navigate]

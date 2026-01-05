@@ -20,7 +20,7 @@
  * --------
  * • This file does not make API calls. It indirectly controls them by choosing which page
  *   components render. For example, selecting <Workshops /> triggers fetches to /api/workshops
- *   inside that page; selecting <Profile /> triggers /api/users/me.
+ *   inside that page; selecting <Profile /> triggers /api/users/getMe.
  * • Auth requirements: Protected routes sit behind the isLoggedIn branch; admin-only routes are
  *   gated by isAdmin. Public routes skip auth middleware.
  *

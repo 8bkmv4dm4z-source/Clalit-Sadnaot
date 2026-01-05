@@ -2,7 +2,7 @@
  * Profile.jsx — User Profile Page (Full DB-Sync, Hebrew UI + English Notes)
  * -----------------------------------------------------------------------
  * ✅ Updates user via /api/users/update-entity (AuthContext updateEntity)
- * ✅ Always fetches /api/users/me on mount (single source of truth)
+ * ✅ Always fetches /api/users/getMe on mount (single source of truth)
  * ✅ Keeps full design, modal, and Hebrew layout intact
  * ✅ Prevents local-only updates (server is always authority)
  */
@@ -11,17 +11,54 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { apiFetch } from "../../utils/apiFetch";
-import FamilyEditorModal from "../../components/people/FamilyEditorModal";
+
+const normalizeBirthDate = (value) => {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+
+  const asString = String(value).trim();
+  if (!asString) return "";
+
+  const [datePart] = asString.split("T");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+
+  const parsed = new Date(asString);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return "";
+};
+
+const normalizeProfilePayload = (payload = {}) => ({
+  entityKey: payload.entityKey || "",
+  name: payload.name || "",
+  email: payload.email || "",
+  phone: payload.phone || "",
+  city: payload.city || "",
+  birthDate: normalizeBirthDate(payload.birthDate),
+  entities: Array.isArray(payload.entities)
+    ? payload.entities.map((e) => ({
+        entityKey: e?.entityKey || "",
+        name: e?.name || "",
+      }))
+    : [],
+});
 
 export default function Profile() {
   const { user, updateEntity } = useAuth();
   const { fetchWorkshops } = useWorkshops();
 
   // 🔹 Local UI state
-  const [form, setForm] = useState(user || {});
+  const [form, setForm] = useState(normalizeProfilePayload(user));
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showFamilyModal, setShowFamilyModal] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setForm(normalizeProfilePayload(user));
+    }
+  }, [user]);
 
   /* ------------------------------------------------------------
      🔄 Refresh user info from backend (single source of truth)
@@ -29,9 +66,11 @@ export default function Profile() {
   useEffect(() => {
     const refreshUser = async () => {
       try {
-        const res = await apiFetch("/api/users/me");
+        const res = await apiFetch("/api/users/getMe");
         const data = await res.json();
-        if (res.ok && data?._id) setForm(data);
+        if (res.ok && data?.entityKey) {
+          setForm(normalizeProfilePayload(data));
+        }
       } catch (err) {
         console.warn("⚠️ Failed to refresh user data:", err.message);
       }
@@ -53,11 +92,9 @@ export default function Profile() {
 
       const updates = {
         name: form.name,
-        idNumber: form.idNumber,
         phone: form.phone,
         city: form.city,
-        birthDate: form.birthDate,
-        canCharge: form.canCharge,
+        birthDate: normalizeBirthDate(form.birthDate) || null,
       };
 
       const payload = { entityKey: user.entityKey, updates };
@@ -81,7 +118,7 @@ export default function Profile() {
      ↩️ Cancel editing
   ------------------------------------------------------------ */
   const handleCancel = () => {
-    setForm(user);
+    setForm(normalizeProfilePayload(user));
     setEditMode(false);
   };
 
@@ -126,8 +163,8 @@ export default function Profile() {
             <h2 className="text-2xl font-bold text-gray-900 font-[Poppins]">
               {form.name || "משתמש"}
             </h2>
-            <p className="text-gray-600 mt-1">
-              {user.isAdmin ? "מנהל מערכת" : "משתמש רגיל"}
+            <p className="text-gray-600 mt-1 break-all text-sm">
+              מזהה ישות: {form.entityKey || "לא זמין"}
             </p>
           </div>
         </div>
@@ -135,18 +172,12 @@ export default function Profile() {
         {/* Fields */}
         <div className="space-y-5">
           <ProfileField
-            label="תעודת זהות"
-            value={form.idNumber}
-            editMode={editMode}
-            onChange={(v) => handleChange("idNumber", v)}
-          />
-          <ProfileField
             label="שם מלא"
             value={form.name}
             editMode={editMode}
             onChange={(v) => handleChange("name", v)}
           />
-          <ProfileField label="אימייל" value={user.email} editMode={false} />
+          <ProfileField label="אימייל" value={form.email} editMode={false} />
           <ProfileField
             label="תאריך לידה"
             type="date"
@@ -169,25 +200,25 @@ export default function Profile() {
             editMode={editMode}
             onChange={(v) => handleChange("phone", v)}
           />
+        </div>
 
-          {/* Charge permission */}
-          <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
-            {editMode ? (
-              <label className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={!!form.canCharge}
-                  onChange={(e) => handleChange("canCharge", e.target.checked)}
-                  className="w-5 h-5 accent-indigo-500"
-                />
-                <span className="text-gray-700 font-medium">הרשאה לגבייה</span>
-              </label>
-            ) : (
-              <p className="text-gray-700 font-medium">
-                הרשאה לגבייה: <strong>{form.canCharge ? "✅ כן" : "❌ לא"}</strong>
-              </p>
-            )}
-          </div>
+        {/* Linked entities */}
+        <div className="mt-8 p-4 rounded-xl border border-indigo-200 bg-indigo-50">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">ישויות מקושרות</h3>
+          {form.entities.length === 0 ? (
+            <p className="text-gray-600 text-sm">לא נמצאו ישויות נוספות.</p>
+          ) : (
+            <ul className="space-y-2">
+              {form.entities.map((entity) => (
+                <li key={entity.entityKey} className="flex flex-col">
+                  <span className="text-gray-800 font-medium">{entity.name || "ללא שם"}</span>
+                  <span className="text-gray-600 text-xs break-all">
+                    מזהה: {entity.entityKey || "לא זמין"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Actions */}
@@ -215,27 +246,9 @@ export default function Profile() {
               >
                 ✏️ ערוך פרטים
               </button>
-              <button
-                onClick={() => setShowFamilyModal(true)}
-                className="btn btn-outline px-5 py-2.5 border-indigo-500 text-indigo-700"
-              >
-                👨‍👩‍👧 ניהול בני משפחה
-              </button>
             </>
           )}
         </div>
-
-        {/* Family Modal */}
-        {showFamilyModal && (
-          <FamilyEditorModal
-            user={form}
-            onClose={() => setShowFamilyModal(false)}
-            onSave={(updatedUser) => {
-              setForm(updatedUser);
-              setShowFamilyModal(false);
-            }}
-          />
-        )}
       </div>
     </div>
   );

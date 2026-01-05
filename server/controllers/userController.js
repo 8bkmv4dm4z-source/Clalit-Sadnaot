@@ -78,7 +78,7 @@ const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
   }
 };
 
-const formatBirthDate = (value) => {
+const normalizeBirthDate = (value) => {
   if (!value) return null;
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
@@ -105,28 +105,33 @@ const ensureEntityKey = (doc, type) => {
   return "";
 };
 
+const toSafeString = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value);
+};
+
 const buildMinimalIdentityResponse = (userDoc = {}) => {
-  const entityKey = ensureEntityKey(userDoc, "user");
+  const entityKey = toSafeString(ensureEntityKey(userDoc, "user"));
   const entities = [
     {
       entityKey,
-      name: userDoc.name || "",
+      name: toSafeString(userDoc.name),
     },
     ...(Array.isArray(userDoc.familyMembers)
       ? userDoc.familyMembers.map((member) => ({
-          entityKey: ensureEntityKey(member, "family"),
-          name: member?.name || "",
+          entityKey: toSafeString(ensureEntityKey(member, "family")),
+          name: toSafeString(member?.name),
         }))
       : []),
   ];
 
   return {
     entityKey,
-    name: userDoc.name || "",
-    email: userDoc.email || "",
-    phone: userDoc.phone || "",
-    city: userDoc.city || "",
-    birthDate: formatBirthDate(userDoc.birthDate),
+    name: toSafeString(userDoc.name),
+    email: toSafeString(userDoc.email),
+    phone: toSafeString(userDoc.phone),
+    city: toSafeString(userDoc.city),
+    birthDate: normalizeBirthDate(userDoc.birthDate),
     entities,
   };
 };
