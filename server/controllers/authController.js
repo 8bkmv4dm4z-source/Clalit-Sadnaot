@@ -66,11 +66,27 @@ const OTP_LOCK_MS = 10 * 60 * 1000;
 /* ============================================================
    🔐 JWT Helpers
    ============================================================ */
+function resolveEntityKeyForJwt(user) {
+  if (!user) throw new Error("Missing user for token generation");
+
+  // Persist the canonical entityKey on the user document if it exists only as a hashedId.
+  const key =
+    user.entityKey ||
+    user.hashedId ||
+    (user._id ? hashId("user", String(user._id)) : null);
+
+  if (!key) throw new Error("Missing entityKey for token generation");
+
+  if (!user.entityKey) user.entityKey = key;
+  if (!user.hashedId) user.hashedId = key;
+
+  return key;
+}
+
 function generateAccessToken(user) {
   const expiresIn = process.env.JWT_EXPIRY || "15m";
-  const subject = user.entityKey || user.hashedId;
-  if (!subject) throw new Error("Missing entityKey for token generation");
-  return jwt.sign({ sub: subject }, process.env.JWT_SECRET, {
+  const entityKey = resolveEntityKeyForJwt(user);
+  return jwt.sign({ sub: entityKey, entityKey }, process.env.JWT_SECRET, {
     expiresIn,
   });
 }
@@ -82,9 +98,8 @@ function createJti() {
 
 function generateRefreshToken(user) {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
-  const subject = user.entityKey || user.hashedId;
-  if (!subject) throw new Error("Missing entityKey for token generation");
-  return jwt.sign({ sub: subject, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
+  const entityKey = resolveEntityKeyForJwt(user);
+  return jwt.sign({ sub: entityKey, entityKey, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn,
   });
 }
