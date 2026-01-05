@@ -23,173 +23,18 @@ const {
   hydrateParentFields,
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
-
-const toEntityKey = (doc, type = "user") => {
-  if (!doc) return null;
-  if (typeof doc === "string") return doc;
-  if (doc.entityKey) return doc.entityKey;
-  if (doc._id) return hashId(type, String(doc._id));
-  return null;
-};
-
-const pickFields = (src = {}, allowlist = []) =>
-  allowlist.reduce((acc, field) => {
-    if (src[field] !== undefined) acc[field] = src[field];
-    return acc;
-  }, {});
-
-const PUBLIC_PARTICIPANT_FIELDS = [
-  "entityKey",
-  "name",
-  "isFamily",
-  "parentKey",
-  "relation",
-  "status",
-];
-
-const ADMIN_PARTICIPANT_FIELDS = [
-  ...PUBLIC_PARTICIPANT_FIELDS,
-  "canCharge",
-  "city",
-  "email",
-  "phone",
-];
-
-const SENSITIVE_PARTICIPANT_FIELDS = ["idNumber", "birthDate"];
-
-const withAllowlist = (allowlist = [], includeSensitiveFields = false) => {
-  if (!includeSensitiveFields) return allowlist;
-  return [...new Set([...allowlist, ...SENSITIVE_PARTICIPANT_FIELDS])];
-};
-
-const formatParticipant = (
-  participant,
-  { adminView = false, includeSensitiveFields = false } = {}
-) => {
-  const isFamily = !!participant.isFamily;
-  const entityKey = toEntityKey(
-    isFamily ? participant.entityKey || participant.familyMemberId : participant,
-    isFamily ? "family" : "user"
-  );
-
-  const parentKey = isFamily
-    ? toEntityKey(
-        participant.parentKey || participant.parentUser || participant.parent,
-        "user"
-      )
-    : null;
-
-  const base = {
-    entityKey,
-    name: participant.name || "",
-    isFamily,
-    parentKey,
-    relation: participant.relation || (isFamily ? "" : "self"),
-    status: participant.status || "registered",
-    canCharge: !!participant.canCharge,
-    city: participant.city || "",
-    email: participant.email || "",
-    phone: participant.phone || "",
-  };
-
-  if (includeSensitiveFields) {
-    base.idNumber = participant.idNumber || "";
-    base.birthDate = participant.birthDate || "";
-  }
-
-  if (adminView) {
-    return pickFields(base, withAllowlist(ADMIN_PARTICIPANT_FIELDS, includeSensitiveFields));
-  }
-
-  return pickFields(base, withAllowlist(PUBLIC_PARTICIPANT_FIELDS, includeSensitiveFields));
-};
-
-const formatWaitlistEntry = (
-  entry = {},
-  { adminView = false, includeSensitiveFields = false } = {}
-) => {
-  const parentKey = toEntityKey(entry.parentKey || entry.parentUser, "user");
-  const familyKey = toEntityKey(
-    entry.familyMemberKey || entry.familyMemberId,
-    "family"
-  );
-
-  const dto = {
-    entityKey: familyKey || parentKey || null,
-    name: entry.name || entry.familyMemberId?.name || "",
-    isFamily: !!(familyKey || entry.isFamily),
-    parentKey,
-    relation: entry.relation || entry.familyMemberId?.relation || "",
-    status: "waitlist",
-    canCharge: !!(entry.parentUser?.canCharge || entry.canCharge),
-    city: entry.city || entry.familyMemberId?.city || entry.parentUser?.city || "",
-    email: entry.email || entry.familyMemberId?.email || entry.parentUser?.email || "",
-    phone: entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "",
-  };
-
-  if (includeSensitiveFields) {
-    dto.idNumber = entry.idNumber || entry.familyMemberId?.idNumber || "";
-    dto.birthDate = entry.birthDate || entry.familyMemberId?.birthDate || "";
-  }
-
-  return pickFields(
-    dto,
-    adminView
-      ? withAllowlist(ADMIN_PARTICIPANT_FIELDS, includeSensitiveFields)
-      : withAllowlist(PUBLIC_PARTICIPANT_FIELDS, includeSensitiveFields)
-  );
-};
-
-const normalizeWorkshopParticipants = (
-  workshop,
-  { adminView = false, includeSensitiveFields = false } = {}
-) => {
-  const participants = (workshop?.participants || []).map((u) =>
-    formatParticipant(
-      {
-        ...u,
-        isFamily: false,
-        status: "registered",
-      },
-      { adminView, includeSensitiveFields }
-    )
-  );
-
-  const familyRegistrations = (workshop?.familyRegistrations || []).map((f) => {
-    const parent = f.parentUser || {};
-    return formatParticipant(
-      {
-        entityKey: toEntityKey(f.familyMemberId, "family"),
-        parentKey: toEntityKey(parent, "user"),
-        name: f.name || "",
-        relation: f.relation || "",
-        email: f.email || parent.email || "",
-        phone: f.phone || parent.phone || "",
-        city: f.city || parent.city || "",
-        idNumber: f.idNumber || f.familyMemberId?.idNumber || parent.idNumber || "",
-        birthDate: f.birthDate || f.familyMemberId?.birthDate || parent.birthDate || "",
-        isFamily: true,
-        canCharge: !!parent.canCharge,
-        status: "registered",
-      },
-      { adminView, includeSensitiveFields }
-    );
-  });
-
-  const all = [...participants, ...familyRegistrations];
-  const bundle = {
-    participantsCount: all.length,
-    directCount: participants.length,
-    familyCount: familyRegistrations.length,
-  };
-
-  if (!adminView) return bundle;
-
-  return {
-    ...bundle,
-    participants: all,
-  };
-};
+const {
+  toPublicWorkshop,
+  toUserWorkshop,
+  toAdminWorkshop,
+  normalizeWorkshopParticipants,
+  sanitizeWaitingListEntry,
+  deriveCounts,
+  toEntityKey,
+  normalizeEntityKey,
+  matchesUserIdentity,
+  loadWorkshopByIdentifier,
+} = require("../contracts/workshopContracts");
 
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
@@ -263,77 +108,6 @@ exports.resolveWorkshopObjectId = resolveWorkshopObjectId;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isUuid = (value) => UUID_REGEX.test(String(value || ""));
 
-const toPlainWorkshop = (workshop) =>
-  workshop?.toObject ? workshop.toObject() : { ...(workshop || {}) };
-
-const WORKSHOP_CARD_FIELDS = [
-  "title",
-  "type",
-  "description",
-  "ageGroup",
-  "coach",
-  "city",
-  "address",
-  "studio",
-  "startDate",
-  "endDate",
-  "inactiveDates",
-  "startTime",
-  "time",
-  "durationMinutes",
-  "days",
-  "hour",
-  "price",
-  "image",
-  "available",
-  "maxParticipants",
-  "waitingListMax",
-  "sessionsCount",
-];
-
-const mapWorkshopCardFields = (src = {}) => {
-  const mapped = {};
-  for (const field of WORKSHOP_CARD_FIELDS) {
-    if (src[field] !== undefined) mapped[field] = src[field];
-  }
-  return mapped;
-};
-
-const deriveCounts = (src, { includeArrays = false } = {}) => {
-  const participants = Array.isArray(src.participants) ? src.participants : [];
-  const familyRegistrations = Array.isArray(src.familyRegistrations)
-    ? src.familyRegistrations
-    : [];
-  const waitingList = Array.isArray(src.waitingList) ? src.waitingList : [];
-
-  const participantsCount =
-    typeof src.participantsCount === "number"
-      ? src.participantsCount
-      : participants.length + familyRegistrations.length;
-
-  const familyRegistrationsCount =
-    typeof src.familyRegistrationsCount === "number"
-      ? src.familyRegistrationsCount
-      : familyRegistrations.length;
-
-  const waitingListCount =
-    typeof src.waitingListCount === "number" ? src.waitingListCount : waitingList.length;
-
-  const counts = {
-    participantsCount,
-    familyRegistrationsCount,
-    waitingListCount,
-  };
-
-  if (!includeArrays) return counts;
-
-  return {
-    ...counts,
-    participants,
-    familyRegistrations,
-    waitingList,
-  };
-};
 
 const buildUserRegistrationMaps = (userDoc) => {
   if (!userDoc) {
@@ -365,199 +139,6 @@ const buildUserRegistrationMaps = (userDoc) => {
   }
 
   return { userKey, userId, directWorkshopIds, familyWorkshopMap };
-};
-
-/**
- * Identity:
- *   - No auth gating; consumes pre-filtered workshop data without using entityKey or _id for access.
- * Storage:
- *   - Reads Mongo _id only via helper counts; omits _id from responses.
- * Notes:
- *   - Produces public-safe shape for calendars and cards.
- */
-const toPublicWorkshop = (workshop) => {
-  if (!workshop) return null;
-
-  const src = toPlainWorkshop(workshop);
-  const {
-    participantsCount,
-    familyRegistrationsCount,
-    waitingListCount,
-  } = deriveCounts(src);
-  const workshopKey = isUuid(src.workshopKey) ? src.workshopKey : null;
-
-  return {
-    workshopKey,
-    ...mapWorkshopCardFields(src),
-    participantsCount,
-    waitingListCount,
-    familyRegistrationsCount,
-  };
-};
-
-/**
- * Identity:
- *   - Accepts only UUID workshopKey inputs; ignores raw Mongo _id strings.
- * Storage:
- *   - Uses Mongo _id solely after a workshopKey match to fetch the document.
- * Notes:
- *   - Ensures client-facing identifiers stay opaque.
- */
-async function loadWorkshopByIdentifier(identifier) {
-  if (!identifier) return null;
-  const id = String(identifier).trim();
-
-  // 🔒 Preferred: lookup by UUID workshopKey
-  if (isUuid(id)) {
-    const byKey = await Workshop.findOne({ workshopKey: id });
-    if (byKey) return byKey;
-  }
-
-  // ♻️ Back-compat: hashedId (22-char base64url from hashId util)
-  if (/^[A-Za-z0-9_-]{16,}$/.test(id)) {
-    const byHash = await Workshop.findOne({ hashedId: id });
-    if (byHash) return byHash;
-  }
-
-  // ⚠️ Last resort: allow ObjectId only for existing records (no error if invalid)
-  if (mongoose.Types.ObjectId.isValid(id)) {
-    const byObjectId = await Workshop.findById(id);
-    if (byObjectId) return byObjectId;
-  }
-
-  return null;
-}
-
-exports.loadWorkshopByIdentifier = loadWorkshopByIdentifier;
-
-
-
-const findWorkshopByKey = async (workshopKey) => {
-  if (!workshopKey) return null;
-  return loadWorkshopByIdentifier(workshopKey);
-};
-
-
-const normalizeEntityKey = (entity) => {
-  if (!entity) return null;
-  if (typeof entity === "string") return entity;
-  if (entity.entityKey) return entity.entityKey;
-  if (entity._id) return String(entity._id);
-  return null;
-};
-
-const matchesUserIdentity = (candidate, { userKey }) => {
-  if (!candidate) return false;
-  const normalized = normalizeEntityKey(candidate);
-  return !!userKey && normalized && normalized === userKey;
-};
-
-/**
- * Identity:
- *   - Determines viewer context from entityKey (user.__ownerKey) to mark registration state.
- * Storage:
- *   - Uses Mongo _id internally to correlate registration maps; not exposed externally.
- * Notes:
- *   - Provides user-scoped view without leaking participant ObjectIds.
- */
-const toUserWorkshop = (workshop, user = null) => {
-  if (!workshop) return null;
-
-  const src = toPlainWorkshop(workshop);
-  const base = toPublicWorkshop(src);
-  const { waitingList } = deriveCounts(src, { includeArrays: true });
-
-  const userKey = normalizeEntityKey(user?.entityKey || src.__ownerKey);
-
-  const directMap = src.__userRegistrationMap || new Set();
-  const familyMap = src.__familyRegistrationMap || new Map();
-
-  const workshopId = src._id ? String(src._id) : null;
-
-  const isDirectParticipant = workshopId ? directMap.has(workshopId) : false;
-
-  const familyEntries = workshopId ? familyMap.get(workshopId) || [] : [];
-  const hasFamilyRegistration = familyEntries.length > 0;
-  const myFamilyCountInWorkshop = familyEntries.length;
-
-  const waitlisted = waitingList.some((wl) =>
-    matchesUserIdentity(wl.parentKey || wl.parentUser, { userKey })
-  );
-
-  const isUserRegistered = isDirectParticipant || hasFamilyRegistration || !!src.isUserRegistered;
-  const registrationStatus = isUserRegistered
-    ? "registered"
-    : waitlisted
-      ? "waitlisted"
-      : "not_registered";
-
-  return {
-    ...base,
-    registrationStatus,
-    isUserRegistered,
-    isUserInWaitlist: waitlisted,
-    myFamilyCountInWorkshop,
-    isRegisteredDirect: isDirectParticipant,
-    isRegisteredFamily: hasFamilyRegistration,
-  };
-};
-
-const sanitizeWaitingListEntry = (
-  entry,
-  { adminView = false, includeSensitiveFields = false } = {}
-) =>
-  formatWaitlistEntry(
-    {
-      ...entry,
-      parentKey: normalizeEntityKey(entry?.parentKey || entry?.parentUser),
-      familyMemberKey: normalizeEntityKey(entry?.familyMemberKey),
-      isFamily: !!entry?.familyMemberKey || !!entry?.familyMemberId,
-    },
-    { adminView, includeSensitiveFields }
-  );
-
-/**
- * Identity:
- *   - Assumes admin caller validated by entityKey authority checks upstream.
- * Storage:
- *   - Reads Mongo _id for participant joins but omits it from the response body.
- * Notes:
- *   - Can include participant and waitlist details while preserving entityKey boundaries.
- */
-const toAdminWorkshop = (
-  workshop,
-  { includeParticipantDetails = false, includeSensitiveFields = false } = {}
-) => {
-  if (!workshop) return null;
-
-  const src = toPlainWorkshop(workshop);
-  const base = toPublicWorkshop(src);
-  const counts = deriveCounts(src, { includeArrays: includeParticipantDetails });
-  const payload = {
-    ...base,
-    adminHidden: !!src.adminHidden,
-    participantsCount: counts.participantsCount,
-    waitingListCount: counts.waitingListCount,
-    familyRegistrationsCount: counts.familyRegistrationsCount,
-    stats: {
-      participantsTotal: counts.participantsCount,
-      waitingListCount: counts.waitingListCount,
-      familyRegistrationsCount: counts.familyRegistrationsCount,
-    },
-  };
-
-  if (includeParticipantDetails) {
-    const participantBundle = normalizeWorkshopParticipants(src, {
-      adminView: true,
-      includeSensitiveFields,
-    });
-    payload.participants = participantBundle.participants;
-    payload.waitingList = (counts.waitingList || []).map((wl) =>
-      sanitizeWaitingListEntry(wl, { adminView: true, includeSensitiveFields })
-    );
-  }
-
-  return payload;
 };
 
 const resolveAccessScope = (req) => {
@@ -721,7 +302,7 @@ async function attachUserIfPresent(req) {
     if (!auth.startsWith("Bearer ")) return;
     const token = auth.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const entityKey = decoded.sub || decoded.entityKey;
+    const entityKey = decoded.sub || decoded.entityKey; // entityKey fallback supports legacy tokens only
     if (!entityKey) return;
     const user = await User.findOne({ entityKey }).select("_id name email entityKey +authorities");
     if (user && !user.authorities) user.authorities = {};
@@ -806,17 +387,12 @@ exports.getAllWorkshops = async (req, res) => {
       "endDate",
       "inactiveDates",
       "participantsCount",
+      "waitingListCount",
+      "familyRegistrationsCount",
     ];
 
-    baseSelectFields.push(
-      "familyRegistrations.parentKey",
-      "familyRegistrations.familyMemberKey"
-    );
-
-    if (isUserScope || isAdminScope) {
-      baseSelectFields.push("waitingList.parentKey", "waitingList.familyMemberKey");
-    } else {
-      baseSelectFields.push("waitingList.parentKey", "waitingList.familyMemberKey");
+    if (isUserScope) {
+      baseSelectFields.push("waitingList.parentKey");
     }
 
     const selectClause = baseSelectFields.join(" ");
@@ -833,12 +409,22 @@ exports.getAllWorkshops = async (req, res) => {
 
     const decorated = workshops.map((w) => {
       if (isUserScope) {
-        return {
+        const waitlisted =
+          Array.isArray(w.waitingList) &&
+          w.waitingList.some((wl) =>
+            matchesUserIdentity(wl?.parentKey || wl?.parentUser, {
+              userKey: registrationMaps.userKey,
+            })
+          );
+        const shaped = {
           ...w,
           __ownerKey: registrationMaps.userKey,
           __userRegistrationMap: registrationMaps.directWorkshopIds,
           __familyRegistrationMap: registrationMaps.familyWorkshopMap,
+          __userWaitlisted: waitlisted,
         };
+        delete shaped.waitingList;
+        return shaped;
       }
       return w;
     });
@@ -1000,7 +586,7 @@ exports.getWorkshopById = async (req, res) => {
     /* -------------------------------------------------
        1️⃣ Load workshop by ANY identifier
        ------------------------------------------------- */
-    let workshopDoc = await loadWorkshopByIdentifier(id);
+    let workshopDoc = await loadWorkshopByIdentifier(id, Workshop);
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -1010,14 +596,55 @@ exports.getWorkshopById = async (req, res) => {
     /* -------------------------------------------------
        3️⃣ Reload clean document (ALWAYS re-fetch)
        ------------------------------------------------- */
-    const workshop = await Workshop.findById(workshopDoc._id)
-      .select(
-        "_id title type description ageGroup coach city address studio startDate endDate inactiveDates days hour time startTime durationMinutes price image available adminHidden maxParticipants waitingListMax sessionsCount participants familyRegistrations waitingList participantsCount workshopKey"
-      )
-      .lean();
+    const selectFields = [
+      "_id",
+      "title",
+      "type",
+      "description",
+      "ageGroup",
+      "coach",
+      "city",
+      "address",
+      "studio",
+      "startDate",
+      "endDate",
+      "inactiveDates",
+      "days",
+      "hour",
+      "time",
+      "startTime",
+      "durationMinutes",
+      "price",
+      "image",
+      "available",
+      "adminHidden",
+      "maxParticipants",
+      "waitingListMax",
+      "sessionsCount",
+      "participantsCount",
+      "familyRegistrationsCount",
+      "waitingListCount",
+      "workshopKey",
+    ];
+
+    if (access.scope === "user") {
+      selectFields.push("waitingList.parentKey", "waitingList.parentUser");
+    }
+
+    const workshop = await Workshop.findById(workshopDoc._id).select(selectFields.join(" ")).lean();
 
     if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
+    }
+
+    if (access.scope !== "admin") {
+      const waitlisted =
+        Array.isArray(workshop.waitingList) &&
+        workshop.waitingList.some((wl) =>
+          matchesUserIdentity(wl?.parentKey || wl?.parentUser, { userKey: access.principal?.entityKey })
+        );
+      workshop.__userWaitlisted = waitlisted;
+      delete workshop.waitingList;
     }
 
     const normalized = selectWorkshopView(workshop, access, {
@@ -1081,7 +708,7 @@ exports.updateWorkshop = async (req, res) => {
     const { id } = req.params;
 
     // 1. Strict Lookup (Returns 404 if id is not a valid workshop UUID)
-    const existing = await loadWorkshopByIdentifier(id);
+    const existing = await loadWorkshopByIdentifier(id, Workshop);
     if (!existing) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -1444,7 +1071,7 @@ exports.createWorkshop = async (req, res) => {
  */
 exports.deleteWorkshop = async (req, res) => {
   try {
-    const workshopDoc = await loadWorkshopByIdentifier(req.params.id);
+    const workshopDoc = await loadWorkshopByIdentifier(req.params.id, Workshop);
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -1488,7 +1115,7 @@ exports.getWorkshopParticipants = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const workshopDoc = await loadWorkshopByIdentifier(req.params.id);
+    const workshopDoc = await loadWorkshopByIdentifier(req.params.id, Workshop);
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
     }
@@ -1573,7 +1200,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
     // Load workshop
-    const workshop = await loadWorkshopByIdentifier(workshopKey);
+    const workshop = await loadWorkshopByIdentifier(workshopKey, Workshop);
     if (!workshop)
       return res.status(404).json({ message: "Workshop not found" });
     if (rejectHiddenWorkshop(workshop, access, res)) return;
@@ -1793,7 +1420,7 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await loadWorkshopByIdentifier(workshopKey);
+    const workshop = await loadWorkshopByIdentifier(workshopKey, Workshop);
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
     if (rejectHiddenWorkshop(workshop, access, res)) return;
 
@@ -1922,7 +1549,7 @@ exports.addEntityToWaitlist = async (req, res) => {
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await loadWorkshopByIdentifier(id);
+    const workshop = await loadWorkshopByIdentifier(id, Workshop);
     if (!workshop)
       return res.status(404).json({ success: false, message: "Workshop not found" });
     if (rejectHiddenWorkshop(workshop, access, res)) return;
@@ -2059,7 +1686,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
-    const workshop = await loadWorkshopByIdentifier(id);
+    const workshop = await loadWorkshopByIdentifier(id, Workshop);
     if (!workshop)
       return res
         .status(404)
@@ -2167,7 +1794,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     // 1. Fetch Data
     // (Assuming loadWorkshopByIdentifier and Workshop model are imported)
-    const baseWorkshop = await loadWorkshopByIdentifier(workshopId);
+    const baseWorkshop = await loadWorkshopByIdentifier(workshopId, Workshop);
     if (!baseWorkshop) return res.status(404).json({ message: "Workshop not found" });
 
     const workshopDoc = await Workshop.findById(baseWorkshop._id)
@@ -2182,7 +1809,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     const workshop = toAdminWorkshop(workshopDoc, {
       includeParticipantDetails: true,
-      includeSensitiveFields: true,
+      includeContactFields: true,
     });
 
     // 2. Setup Excel Logic (Preserved from your code)
@@ -2359,7 +1986,7 @@ exports.getWaitlist = async (req, res) => {
     const skip = clampSkip(req.query.skip);
 
     // 1️⃣ Resolve workshopKey (UUID-only)
-    const workshopDoc = await loadWorkshopByIdentifier(id);
+    const workshopDoc = await loadWorkshopByIdentifier(id, Workshop);
 
     if (!workshopDoc) {
       return res.status(404).json({ message: "Workshop not found" });
@@ -2375,7 +2002,7 @@ exports.getWaitlist = async (req, res) => {
     }
 
     const normalized = (workshop.waitingList || []).map((entry) =>
-      formatWaitlistEntry(entry, { adminView: true })
+      sanitizeWaitingListEntry(entry, { adminView: true })
     );
     const total = normalized.length;
     const waitingList = normalized.slice(skip, Math.min(skip + limit, total));

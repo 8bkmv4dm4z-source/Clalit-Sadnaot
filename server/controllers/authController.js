@@ -15,7 +15,7 @@ const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { hashId } = require("../utils/hashId");
-const { sanitizeUserForResponse: sanitizeUserForResponseScoped } = require("../utils/sanitizeUser");
+const { toOwnerUser, toAdminUser } = require("../contracts/userContracts");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
 const {
   hashPassword,
@@ -86,7 +86,7 @@ function resolveEntityKeyForJwt(user) {
 function generateAccessToken(user) {
   const expiresIn = process.env.JWT_EXPIRY || "15m";
   const entityKey = resolveEntityKeyForJwt(user);
-  return jwt.sign({ sub: entityKey, entityKey }, process.env.JWT_SECRET, {
+  return jwt.sign({ sub: entityKey, jti: createJti() }, process.env.JWT_SECRET, {
     expiresIn,
   });
 }
@@ -99,7 +99,7 @@ function createJti() {
 function generateRefreshToken(user) {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
   const entityKey = resolveEntityKeyForJwt(user);
-  return jwt.sign({ sub: entityKey, entityKey, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
+  return jwt.sign({ sub: entityKey, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn,
   });
 }
@@ -272,9 +272,6 @@ function createPasswordResetArtifacts() {
 }
 
 const normalizeDigits = (value = "") => String(value || "").replace(/\D/g, "");
-function sanitizeUserForResponse(user, loggedInUser) {
-  return sanitizeUserForResponseScoped(user, loggedInUser, { scope: "profile" });
-}
 
 function normalizeFamilyMembers(familyMembers = [], defaults = {}) {
   const basePhone = defaults.phone || "";
@@ -686,7 +683,7 @@ exports.verifyRegistrationOtp = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Registration confirmed.",
-      user: sanitizeUserForResponse(user, user),
+      user: toOwnerUser(user),
     });
   } catch (e) {
     console.error("❌ verifyRegistrationOtp error:", e);
@@ -731,7 +728,7 @@ exports.loginUser = async (req, res) => {
     safeAuthLog("loginUser succeeded");
     return res.json({
       accessToken,
-      user: sanitizeUserForResponse(user, user),
+      user: toOwnerUser(user),
     });
   } catch (e) {
     console.error("❌ loginUser error:", e);
@@ -919,7 +916,7 @@ exports.verifyOtp = async (req, res) => {
 
   return res.json({
     accessToken,
-    user: sanitizeUserForResponse(user, user),
+    user: toOwnerUser(user),
   });
   } catch (e) {
     console.error("❌ verifyOtp error:", e);
@@ -1082,7 +1079,8 @@ exports.getUserProfile = async (req, res) => {
   try {
     const user = await User.findOne({ entityKey: req.user.entityKey }).select("-passwordHash -otpCode");
     if (!user) return res.status(404).json({ message: "User not found." });
-    res.json(sanitizeUserForResponse(user, req.user));
+    // Self-profile endpoint must use the owner-facing contract to avoid admin-shaped payloads.
+    res.json(toOwnerUser(user));
   } catch (e) {
     res.status(500).json({ message: "Server error retrieving profile." });
   }
@@ -1134,7 +1132,7 @@ exports.refreshAccessToken = async (req, res) => {
     if (!token) return res.status(401).json({ message: "No refresh token" });
 
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    const entityKey = payload.sub || payload.entityKey;
+    const entityKey = payload.sub || payload.entityKey; // entityKey fallback supports legacy tokens only
     if (!entityKey) {
       clearRefreshCookie(res);
       return res.status(401).json({ message: "Invalid refresh token" });
@@ -1198,7 +1196,7 @@ exports.logout = async (req, res) => {
     if (token) {
       try {
         const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-        const entityKey = payload.sub || payload.entityKey;
+        const entityKey = payload.sub || payload.entityKey; // legacy support
         const user = await User.findOne({ entityKey }).select(
           "+authorities"
         );

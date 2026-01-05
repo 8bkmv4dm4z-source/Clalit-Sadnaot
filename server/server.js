@@ -30,6 +30,7 @@ const jwt = require("jsonwebtoken");
 const { startAuditScheduler } = require("./services/auditService");
 const { runAllHashAudits } = require("./audit/hashAudit");
 const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
+const { enforceResponseContract } = require("./contracts/responseGuards");
 
 const app = express();
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS || 1);
@@ -199,6 +200,29 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 app.use(cookieParser());
 
+// Dev-only response contract enforcement to prevent privileged field leakage.
+app.use((req, res, next) => {
+  if (res.__responseContractWrapped) return next();
+
+  const originalJson = res.json.bind(res);
+  res.__responseContractWrapped = true;
+
+  res.json = (payload) => {
+    if (payload && typeof payload === "object") {
+      try {
+        enforceResponseContract(payload, {
+          context: `${req.method} ${req.originalUrl || req.url || "response"}`,
+        });
+      } catch (err) {
+        return next(err);
+      }
+    }
+    return originalJson(payload);
+  };
+
+  return next();
+});
+
 /* ----------------------------
  * Database
  * -------------------------- */
@@ -250,11 +274,9 @@ const workshopWriteLimiter = rateLimit({
       const auth = req.headers?.authorization || "";
       if (!auth.startsWith("Bearer ")) return false;
       const token = auth.split(" ")[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const uid = String(decoded.sub || decoded.entityKey || "").toLowerCase();
-      const email = String(decoded.email || "").toLowerCase();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const uid = String(decoded.sub || decoded.entityKey || "").toLowerCase(); // entityKey fallback is legacy-only
       if (uid && ADMIN_WHITELIST_IDS.includes(uid)) return true;
-      if (email && ADMIN_WHITELIST_EMAILS.includes(email)) return true;
     } catch {
       /* SECURITY: suppress JWT decode errors during limiter skip */
     }
