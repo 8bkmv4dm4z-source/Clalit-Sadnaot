@@ -17,14 +17,35 @@ const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded?.sub) {
-      console.warn("[AUTH] Token missing subject");
+    if (!decoded?.sub && !decoded?.id) {
+      console.warn("[AUTH] Token missing subject or id");
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
-    const user = await User.findOne({ entityKey: decoded.sub }).select(
-      "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash +authorities"
-    );
+    /*
+     * Resolve the authenticated user by its hashed entity identifier.  In the
+     * codex/fix-security-leak-in-/profile-api branch the JWT payload uses
+     * `sub` to store the user's `entityKey` rather than the raw Mongo
+     * ObjectId.  Some older tokens created on the main branch may still
+     * embed the ObjectId as `id`.  To support both flows while keeping
+     * security guarantees, we first try to resolve the principal using
+     * User.findByEntityKey (which matches either `entityKey` or
+     * `hashedId` and ensures those fields are set), and then fall back to
+     * User.findById for legacy tokens.  The projection excludes OTP fields
+     * and includes role and id integrity hashes and authorities to enforce
+     * integrity checks later.
+     */
+    let user = null;
+    if (decoded.sub) {
+      user = await User.findByEntityKey(decoded.sub, {
+        projection: "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash +authorities",
+      });
+    } else if (decoded.id) {
+      // 🔙 Legacy fallback: support older tokens containing `id` from the main branch.
+      user = await User.findById(decoded.id).select(
+        "-otpCode -otpExpires -otpAttempts +roleIntegrityHash +idNumberHash +authorities"
+      );
+    }
     if (!user) {
       console.warn("[AUTH] User not found for provided token");
       return res.status(401).json({ message: "Invalid or expired token" });
