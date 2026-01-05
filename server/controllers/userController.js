@@ -1,14 +1,17 @@
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
-const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
-const { hasAuthority } = require("../middleware/authMiddleware");
 const {
-  buildEntityFromUserDoc,
-  buildEntityFromFamilyMemberDoc,
-} = require("../services/entities/buildEntity");
+  toPublicUser,
+  toOwnerUser,
+  toAdminUser,
+  toListEntity,
+  toSelfProfileEntity,
+} = require("../contracts/userContracts");
+const { hasAuthority } = require("../middleware/authMiddleware");
+const { buildEntityFromUserDoc, buildEntityFromFamilyMemberDoc } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
 const { resolveEntity, resolveEntityByKey } = require("../services/entities/resolveEntity");
-const { hashId } = require("../utils/hashId");
+const { enforceResponseContract } = require("../contracts/responseGuards");
 const pickFields = (obj = {}, allowed = []) =>
   allowed.reduce((acc, key) => {
     if (obj[key] !== undefined) acc[key] = obj[key];
@@ -98,42 +101,17 @@ const normalizeBirthDate = (value) => {
   return null;
 };
 
-const ensureEntityKey = (doc, type) => {
-  if (!doc) return "";
-  if (doc.entityKey) return doc.entityKey;
-  if (doc._id) return hashId(type, String(doc._id));
-  return "";
-};
+const collectListEntitiesFromUserDoc = (userDoc, target = [], { includeFamily = true } = {}) => {
+  const userEntity = buildEntityFromUserDoc(userDoc);
+  if (userEntity) target.push(toListEntity(userEntity));
+  if (!includeFamily) return target;
 
-const toSafeString = (value) => {
-  if (value === undefined || value === null) return "";
-  return String(value);
-};
-
-const buildMinimalIdentityResponse = (userDoc = {}) => {
-  const entityKey = toSafeString(ensureEntityKey(userDoc, "user"));
-  const entities = [
-    {
-      entityKey,
-      name: toSafeString(userDoc.name),
-    },
-    ...(Array.isArray(userDoc.familyMembers)
-      ? userDoc.familyMembers.map((member) => ({
-          entityKey: toSafeString(ensureEntityKey(member, "family")),
-          name: toSafeString(member?.name),
-        }))
-      : []),
-  ];
-
-  return {
-    entityKey,
-    name: toSafeString(userDoc.name),
-    email: toSafeString(userDoc.email),
-    phone: toSafeString(userDoc.phone),
-    city: toSafeString(userDoc.city),
-    birthDate: normalizeBirthDate(userDoc.birthDate),
-    entities,
-  };
+  const members = userDoc?.familyMembers || [];
+  for (const member of members) {
+    const entity = buildEntityFromFamilyMemberDoc(member, userDoc);
+    if (entity) target.push(toListEntity(entity, userDoc));
+  }
+  return target;
 };
 
 /**
@@ -227,54 +205,6 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const searchableEntityFields = [
-  "name",
-  "email",
-  "phone",
-  "city",
-  "idNumber",
-  "parentName",
-  "parentEmail",
-  "parentPhone",
-  "parentCity",
-  "parentIdNumber",
-  "relation",
-];
-
-const entityMatchesQuery = (entity, normalizedQuery) => {
-  if (!normalizedQuery) return true;
-  return searchableEntityFields.some((field) => {
-    if (!entity[field]) return false;
-    const value = normalizeSearchQuery(entity[field]);
-    return value.includes(normalizedQuery);
-  });
-};
-
-const collectEntitiesFromUserDoc = (userDoc, target = []) => {
-  const userEntity = buildEntityFromUserDoc(userDoc);
-  if (userEntity) target.push(userEntity);
-  const members = userDoc?.familyMembers || [];
-  for (const member of members) {
-    const entity = buildEntityFromFamilyMemberDoc(member, userDoc);
-    if (entity) target.push(entity);
-  }
-  return target;
-};
-
-// analyzed (text/fuzzy)
-const SEARCH_ANALYZED = [
-  "name","email","city","idNumber","phone",
-  "familyMembers.name","familyMembers.email","familyMembers.city",
-  "familyMembers.idNumber","familyMembers.phone","familyMembers.relation",
-];
-
-// keyword (wildcard/regex true substring)
-const SEARCH_KEYWORD = [
-  "name_keyword","email_keyword","city_keyword","idNumber_keyword","phone_keyword",
-  "familyMembers.name_keyword","familyMembers.email_keyword","familyMembers.city_keyword",
-  "familyMembers.idNumber_keyword","familyMembers.phone_keyword",
-];
-
 /**
  * Identity:
  *   - Uses requester.entityKey to decide admin scope; ownership limited to caller’s family otherwise.
@@ -299,15 +229,10 @@ exports.searchUsers = async (req, res) => {
     // ONLY THESE FIELDS MAY MATCH (your rule)
     const allowedFields = [
       "name",
-      "email",
-      "phone",
       "city",
-      "idNumber",
       "familyMembers.name",
-      "familyMembers.email",
-      "familyMembers.phone",
       "familyMembers.city",
-      "familyMembers.idNumber",
+      "familyMembers.relation",
     ];
 
     // ============================================================
@@ -336,11 +261,13 @@ exports.searchUsers = async (req, res) => {
           {
             $project: {
               entityKey: 1,
-              name: 1, email: 1, phone: 1, idNumber: 1, city: 1, birthDate: 1,
-              canCharge: 1,
+              name: 1,
+              city: 1,
               familyMembers: {
-                entityKey: 1, name: 1, email: 1, phone: 1,
-                idNumber: 1, city: 1, birthDate: 1, relation: 1
+                entityKey: 1,
+                name: 1,
+                city: 1,
+                relation: 1,
               },
             }
           }
@@ -350,11 +277,9 @@ exports.searchUsers = async (req, res) => {
         const rx = new RegExp(escaped, "i");
         docs = await User.find({
           $or: [
-            { name: rx }, { email: rx }, { phone: rx }, { idNumber: rx }, { city: rx },
+            { name: rx },
+            { city: rx },
             { "familyMembers.name": rx },
-            { "familyMembers.email": rx },
-            { "familyMembers.phone": rx },
-            { "familyMembers.idNumber": rx },
             { "familyMembers.city": rx },
           ]
         })
@@ -363,19 +288,12 @@ exports.searchUsers = async (req, res) => {
       }
 
       const flat = [];
-      for (const doc of docs) collectEntitiesFromUserDoc(doc, flat);
+      for (const doc of docs) {
+        collectListEntitiesFromUserDoc(doc, flat);
+        if (flat.length >= limit) break;
+      }
 
-      // FINAL FILTER enforcing your rule
-      const normalized = q;
-      const clientMatch = (entity) => {
-        const fields = ["name", "email", "phone", "city", "idNumber"];
-        return fields.some((f) => {
-          if (!entity[f]) return false;
-          return normalizeSearchQuery(entity[f]).includes(normalized);
-        });
-      };
-
-      return res.json(flat.filter(clientMatch));
+      return res.json(flat.slice(0, limit));
     }
 
     // ============================================================
@@ -385,18 +303,18 @@ exports.searchUsers = async (req, res) => {
     if (!me) return res.status(404).json({ message: "User not found" });
 
     const flat = [];
-    collectEntitiesFromUserDoc(me, flat);
+    collectListEntitiesFromUserDoc(me, flat);
 
     const normalized = q;
     const match = (entity) => {
-      const fields = ["name", "email", "phone", "city", "idNumber"];
+      const fields = ["name", "city", "relation"];
       return fields.some((f) => {
         if (!entity[f]) return false;
         return normalizeSearchQuery(entity[f]).includes(normalized);
       });
     };
 
-    return res.json(flat.filter(match));
+    return res.json(flat.filter(match).slice(0, limit));
 
   } catch (err) {
     console.error("❌ searchUsers error:", err);
@@ -459,7 +377,7 @@ exports.getMe = async (req, res) => {
       });
     }
 
-    const response = sanitizeUserForResponse(user, req.user, { scope: "identity" });
+    const response = toOwnerUser(user);
 
     return res.status(200).json({
       success: true,
@@ -490,28 +408,11 @@ exports.getAllUsers = async (req, res) => {
     }
 
     const limit = Math.min(parseInt(req.query.limit || "1000", 10), 5000);
-    // compact projection for the list
+    // minimal contact card projection for bulk admin list
     const projection = {
       entityKey: 1,
       name: 1,
-      email: 1,
-      phone: 1,
-      idNumber: 1,
       city: 1,
-      birthDate: 1,
-      canCharge: 1,
-      createdAt: 1,
-      updatedAt: 1,
-      "familyMembers.entityKey": 1,
-      "familyMembers.name": 1,
-      "familyMembers.email": 1,
-      "familyMembers.phone": 1,
-      "familyMembers.idNumber": 1,
-      "familyMembers.city": 1,
-      "familyMembers.birthDate": 1,
-      "familyMembers.relation": 1,
-      "familyMembers.createdAt": 1,
-      "familyMembers.updatedAt": 1,
     };
 
     const users = await User.find({}, projection)
@@ -519,10 +420,9 @@ exports.getAllUsers = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const entities = [];
-    for (const userDoc of users) collectEntitiesFromUserDoc(userDoc, entities);
+    const entities = users.map((userDoc) => toPublicUser(userDoc));
 
-    return res.json(entities);
+    return res.json(entities.slice(0, limit));
   } catch (err) {
     console.error("❌ [getAllUsers] Error:", err);
     return res.status(500).json({ message: "Server error loading users", error: err.message });
@@ -540,7 +440,11 @@ exports.getAllUsers = async (req, res) => {
 exports.getUserAuditReport = async (_req, res) => {
   try {
     const report = await runUserIntegrityAudit({ reason: "admin-request", force: true });
-    return res.json({ success: true, report });
+    const sanitized = enforceResponseContract(report, {
+      context: "getUserAuditReport",
+      suppressThrow: true,
+    });
+    return res.json({ success: true, report: sanitized });
   } catch (err) {
     const snapshot = getAuditSnapshot();
     console.error("❌ [getUserAuditReport] Error:", err);
@@ -573,11 +477,14 @@ exports.getUserById = async (req, res) => {
 
     if (resolved.type === "user") {
       assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
-      return res.json(sanitizeUserForResponse(resolved.userDoc, requester));
+      const dto = hasAuthority(requester, "admin")
+        ? toAdminUser(resolved.userDoc)
+        : toOwnerUser(resolved.userDoc);
+      return res.json(dto);
     }
 
     assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
-    const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
+    const entity = toSelfProfileEntity(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching user" });
@@ -601,14 +508,16 @@ exports.getEntityById = async (req, res) => {
     const resolved = await resolveEntityByKey(entityKey);
     if (!resolved) return res.status(404).json({ message: "Entity not found" });
 
-    if (resolved.type === "user") {
+  if (resolved.type === "user") {
       assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
-      const entity = buildEntityFromUserDoc(resolved.userDoc);
-      return res.json(entity);
+      const dto = hasAuthority(requester, "admin")
+        ? toAdminUser(resolved.userDoc)
+        : toOwnerUser(resolved.userDoc);
+      return res.json(dto);
     }
 
     assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
-    const entity = buildEntityFromFamilyMemberDoc(resolved.memberDoc, resolved.userDoc);
+    const entity = toSelfProfileEntity(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching entity" });
@@ -650,7 +559,7 @@ exports.createUser = async (req, res) => {
 
     res.status(201).json({
       message: "User created successfully",
-      user: sanitizeUserForResponse(user, req.user),
+      user: toAdminUser(user),
     });
   } catch (err) {
     res.status(500).json({ message: "Server error creating user" });
@@ -703,7 +612,9 @@ exports.updateEntity = async (req, res) => {
       return res.json({
         success: true,
         message: "User updated successfully",
-        user: sanitizeUserForResponse(resolved.userDoc, requester),
+        user: hasAuthority(requester, "admin")
+          ? toAdminUser(resolved.userDoc)
+          : toOwnerUser(resolved.userDoc),
       });
     }
 
@@ -743,7 +654,9 @@ exports.updateEntity = async (req, res) => {
     return res.json({
       success: true,
       message: "Family member updated successfully (synced)",
-      user: sanitizeUserForResponse(resolved.userDoc, requester),
+      user: hasAuthority(requester, "admin")
+        ? toAdminUser(resolved.userDoc)
+        : toOwnerUser(resolved.userDoc),
     });
   } catch (err) {
     console.error("❌ [updateEntity] Error:", err);

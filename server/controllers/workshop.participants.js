@@ -1,42 +1,60 @@
 const Workshop = require("../models/Workshop");
+const { hasAuthority } = require("../middleware/authMiddleware");
+const { normalizeWorkshopParticipants } = require("../contracts/workshopContracts");
+const { safeAuditLog } = require("../services/SafeAuditLog");
+const { AuditEventTypes } = require("../services/AuditEventRegistry");
 
 /**
  * Identity:
- *   - Assumes caller authorized upstream via entityKey-bearing middleware; does not gate on _id.
+ *   - Requires admin authority derived from upstream middleware before any participant data is returned.
  * Storage:
- *   - Queries workshop by workshopKey and uses Mongo _id only inside population.
+ *   - Queries workshop by workshopKey; Mongo _id never leaves the handler.
  * Notes:
- *   - Responds with entityKey-based participant data to avoid leaking _id values.
+ *   - Defaults to minimal contact-card participant data; contact fields can be included explicitly by admins.
  */
 exports.getParticipants = async (req, res) => {
   try {
+    if (!hasAuthority(req.user, "admin")) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const includeContact = String(req.query.includeContact || "").toLowerCase() === "true";
+
     const id = req.params.id;
     const workshop = await Workshop.findOne({ workshopKey: id })
-      .populate("participants", "entityKey name email phone city birthDate canCharge")
-      .populate("familyRegistrations.familyMemberId", "entityKey name relation phone birthDate")
+      .populate("participants", "entityKey name city relation email phone")
+      .populate("familyRegistrations.familyMemberId", "entityKey name relation city email phone")
       .populate("familyRegistrations.parentUser", "entityKey")
       .lean();
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
+    const normalized = normalizeWorkshopParticipants(workshop, {
+      adminView: true,
+      includeContactFields: includeContact,
+    });
+
+    await safeAuditLog({
+      eventType: AuditEventTypes.SECURITY,
+      subjectType: "workshop",
+      subjectKey: workshop.workshopKey || null,
+      actorKey: req.user?.entityKey || null,
+      metadata: {
+        action: "workshop_participants_view_legacy_endpoint",
+        includeContact,
+        participantsReturned: normalized.participants?.length || 0,
+      },
+    });
+
     return res.json({
-      participants: (workshop.participants || []).map((p) => ({
-        entityKey: p.entityKey || null,
-        name: p.name,
-        email: p.email,
-        phone: p.phone,
-        city: p.city,
-        birthDate: p.birthDate,
-        canCharge: !!p.canCharge,
-      })),
-      familyRegistrations: (workshop.familyRegistrations || []).map((fr) => ({
-        familyMemberKey: fr.familyMemberId?.entityKey || null,
-        parentKey: fr.parentUser?.entityKey || null,
-        name: fr.name,
-        relation: fr.relation,
-        phone: fr.phone,
-        birthDate: fr.birthDate,
-      })),
+      success: true,
+      participants: normalized.participants || [],
+      participantsCount: normalized.participantsCount,
+      directCount: normalized.directCount,
+      familyCount: normalized.familyCount,
+      meta: {
+        includeContact,
+      },
     });
   } catch (err) {
     console.error("❌ getParticipants error:", err);
