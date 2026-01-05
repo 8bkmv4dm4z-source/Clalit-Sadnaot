@@ -207,9 +207,7 @@ const MONGODB_URI =
   "mongodb://127.0.0.1:27017/ClalitData";
 
 mongoose.connection.once("open", () => {
-  console.log(`✅ Connected to cluster: ${mongoose.connection.host}`);
-  console.log(`📂 Active database: ${mongoose.connection.name}`);
-});
+  });
 mongoose.connection.on("error", (err) => {
   console.error("Mongo connection error:", err?.message || err);
 });
@@ -336,12 +334,7 @@ app.use("/resetpassword", (req, res, next) => {
 
 if (SHOULD_SERVE_CLIENT) {
   const hasDist = fs.existsSync(CLIENT_DIST_PATH);
-  console.log(
-    "[STATIC] expecting build at:",
-    CLIENT_DIST_PATH,
-    "exists?",
-    hasDist
-  );
+  
 
   if (hasDist) {
     app.use(express.static(CLIENT_DIST_PATH));
@@ -360,7 +353,6 @@ if (SHOULD_SERVE_CLIENT) {
   );
 
   if (fallbackIndex) {
-    console.log("[STATIC] SPA fallback enabled from:", fallbackIndex);
     app.get(/^\/(?!api).*/, (_req, res, next) => {
       res.sendFile(fallbackIndex, (err) => {
         if (err) next(err);
@@ -404,9 +396,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 
     const server = app.listen(PORT, HOST, () => {
       const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
-      console.log(`🚀 Server listening on ${HOST}:${PORT}`);
-      console.log(`🔗 Open: ${url}`);
-      console.log("🌍 CORS allowed origins:", ALL_ALLOWED_ORIGINS);
+      
     });
 
     const shutdown = (sig) => () => {

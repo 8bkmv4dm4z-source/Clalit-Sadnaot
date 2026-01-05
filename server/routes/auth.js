@@ -39,8 +39,11 @@ const {
 // 🧱 Authentication middleware
 const { authenticate } = require("../middleware/authMiddleware");
 
-console.log("🧩 AUTH ROUTES INIT");
+// ============================================================
+// 🚦 Rate Limiting Middleware
+// ============================================================
 
+// Per-user rate limiter for sensitive auth endpoints (refresh, logout, etc.)
 const perUserAuthLimiter = perUserRateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 10,

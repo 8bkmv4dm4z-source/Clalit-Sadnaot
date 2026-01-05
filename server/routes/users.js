@@ -11,12 +11,13 @@ const {
   validateFamilyMember,
 } = require("../middleware/validation");
 
-console.log("🧩 USER ROUTES INIT");
 
 // ============================================================
 // 👤 Logged-in user (minimal identity view)
 // ============================================================
-router.get("/getMe", protect, usersController.getMe);
+router.get("/getMe", protect, (req, res, next) => {
+  next();
+}, usersController.getMe);
 
 // ============================================================
 // 🔍 Smart Search (NEW)
@@ -63,7 +64,6 @@ router.get("/:id/workshops", protect, authorizeAdmin, usersController.getUserWor
 router.get("/entity/:id", protect, usersController.getEntityById);
 
 // 🔹 Get user by id (after /entity/:id)
-router.get("/:id", protect, usersController.getUserById);
 
 // 🔹 Unified update (user or family)
 router.put("/update-entity", protect, validateUserEdit, usersController.updateEntity);

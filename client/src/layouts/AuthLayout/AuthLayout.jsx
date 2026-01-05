@@ -264,12 +264,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const res = await apiFetch("/api/users/getme", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
+        const res = await authFetch("/api/users/getMe");
 
         const raw = await safeJson(res);
 
@@ -293,7 +288,7 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
     },
-    [accessToken]
+    [authFetch]
   );
 
   /* ============================================================
