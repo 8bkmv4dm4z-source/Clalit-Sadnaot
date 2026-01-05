@@ -66,7 +66,7 @@ test('sanitization includes PII for admin family responses', () => {
 test('profile scope strips role and flattens family entities with keys', () => {
   const scoped = sanitizeUserForResponse(
     { ...baseUser, role: 'admin', passwordHash: 'secret' },
-    { authorities: { admin: true } },
+    { authorities: { admin: true }, entityKey: 'admin-key' },
     { scope: 'profile' }
   );
 
@@ -77,6 +77,18 @@ test('profile scope strips role and flattens family entities with keys', () => {
   assert.equal(selfEntity.entityKey, 'parent-key');
   assert.equal(familyEntity.entityKey, 'child-key');
   assert.equal(familyEntity.parentKey, 'parent-key');
+});
+
+test('sanitization emits access envelope instead of isAdmin flag', () => {
+  const scoped = sanitizeUserForResponse(
+    { ...baseUser, role: 'admin', authorities: { admin: true } },
+    { authorities: { admin: true }, entityKey: 'admin-key' },
+    { scope: 'profile' }
+  );
+
+  assert.equal(scoped.access.scope, 'admin');
+  assert.ok(!('isAdmin' in scoped));
+  assert.ok(scoped.access.proof);
 });
 
 test('toPublicWorkshop strips internal identifiers and relational arrays', () => {

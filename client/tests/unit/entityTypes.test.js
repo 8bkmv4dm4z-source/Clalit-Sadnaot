@@ -10,7 +10,7 @@ test('normalizeMePayload unwraps /getme envelope and strips privileged fields', 
       entityKey: 'user-123',
       name: 'Alice Example',
       email: 'alice@example.com',
-      isAdmin: true,
+      access: { scope: 'admin', proof: 'abc123' },
       role: 'admin',
       roleFingerprint: 'should-be-dropped',
       authorities: { admin: true },
@@ -27,6 +27,8 @@ test('normalizeMePayload unwraps /getme envelope and strips privileged fields', 
   assert.equal(normalized.name, 'Alice Example')
   assert.equal(normalized.email, 'alice@example.com')
   assert.equal(normalized.isAdmin, true)
+  assert.equal(normalized.access.scope, 'admin')
+  assert.equal(normalized.access.proof, 'abc123')
   assert.equal('role' in normalized, false)
   assert.equal('authorities' in normalized, false)
   normalized.entities.forEach((entity) => {
@@ -41,4 +43,21 @@ test('normalizeMePayload unwraps /getme envelope and strips privileged fields', 
 test('normalizeMePayload returns null when no entityKey is present', () => {
   const normalized = normalizeMePayload({ success: true, data: {} })
   assert.equal(normalized, null)
+})
+
+test('normalizeMePayload can consume access scope hints from metadata', () => {
+  const payload = {
+    success: true,
+    data: {
+      entityKey: 'user-999',
+      name: 'Meta User',
+      email: 'meta@example.com',
+      entities: [{ entityKey: 'user-999' }],
+    },
+  }
+
+  const normalized = normalizeMePayload(payload, { accessScope: 'admin', accessProof: 'proof-123' })
+  assert.equal(normalized.isAdmin, true)
+  assert.equal(normalized.access.scope, 'admin')
+  assert.equal(normalized.access.proof, 'proof-123')
 })

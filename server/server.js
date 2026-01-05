@@ -29,6 +29,7 @@ const { errors: celebrateErrors, CelebrateError } = require("celebrate");
 const jwt = require("jsonwebtoken");
 const { startAuditScheduler } = require("./services/auditService");
 const { runAllHashAudits } = require("./audit/hashAudit");
+const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
 
 const app = express();
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS || 1);
@@ -137,7 +138,7 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept","x-admin-password"
 , "X-CSRF-Token"
 ],
-  exposedHeaders: ["Content-Disposition"],
+  exposedHeaders: ["Content-Disposition", ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER],
   preflightContinue: false,
   optionsSuccessStatus: 204,
 };

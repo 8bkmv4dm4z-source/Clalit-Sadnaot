@@ -4,7 +4,7 @@
  * ------------------------------------
  * • Source: Credentials originate from login/register/OTP forms in pages/Login and pages/Register
  *   and are passed into AuthContext callbacks (loginWithPassword, completeLogin, registerUser,
- *   verifyOtp). The context stores access tokens in localStorage and keeps user + role metadata in
+ *   verifyOtp). The context stores access tokens in localStorage and keeps user + access metadata in
  *   React state.
  * • Path: Each auth action delegates to apiFetch -> backend /api/auth/* endpoints. Successful
  *   responses are normalized via normalizeMePayload (whitelisted fields only) and stored via
@@ -12,7 +12,8 @@
  *   uses useAuth to gate routes).
  * • Transformations: normalizeMePayload unwraps { success, data } and strips role/authority fields;
  *   refreshAccessToken rewrites Authorization headers; authFetch retries once on 401. Logout clears
- *   state and localStorage and navigates to /workshops.
+ *   state and localStorage and navigates to /workshops. Admin scope is derived from server-set
+ *   X-Access-* headers rather than trusting payload booleans.
  * • Downstream: Context values propagate to any component calling useAuth (e.g., AppShell,
  *   Profile page). Callbacks bubble events upward through window events and an EventBus so other
  *   parts (WorkshopContext) can refetch when auth changes.
@@ -21,13 +22,13 @@
  * --------
  * • Endpoints: /api/auth/login, /api/auth/verify, /api/auth/register, /api/auth/logout,
  *   /api/auth/refresh, /api/auth/request-password-reset, /api/auth/reset-password,
- *   /api/users/getme (returns { success, data } with minimal identity fields + isAdmin).
+ *   /api/users/getme (returns { success, data } with minimal identity fields + access envelope).
  * • Methods/Bodies: login/register send JSON credentials; verifyOtp posts { email, otp };
  *   refresh uses POST with cookies for refresh token; logout POST clears server session.
  * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL and includes credentials;
  *   authFetch injects Authorization: Bearer <token> and retries after hitting refresh endpoint.
  * • Responses: Expected JSON containing accessToken, user payload, and message; /getme is
- *   normalized to a whitelisted shape (entityKey + contact details + isAdmin) to avoid
+ *   normalized to a whitelisted shape (entityKey + contact details + access scope) to avoid
  *   rehydrating privileged fields like role/authorities; errors are translated via
  *   translateAuthError/translateNetworkError for user-friendly UI.
  *
@@ -267,19 +268,24 @@ export const AuthProvider = ({ children }) => {
         const res = await authFetch("/api/users/getMe");
 
         const raw = await safeJson(res);
+        const accessScope = res.headers.get("x-access-scope");
+        const accessProof = res.headers.get("x-access-proof");
 
         if (!res.ok || !raw) {
           throw new Error(raw?.message || "Failed to load profile");
         }
 
-        const normalized = normalizeMePayload(raw);
+        const normalized = normalizeMePayload(raw, {
+          accessScope,
+          accessProof,
+        });
         if (!normalized?.entityKey) {
           throw new Error("Invalid /getme payload");
         }
 
         setUser(normalized);
         setIsLoggedIn(true);
-        setIsAdmin(!!normalized.isAdmin);
+        setIsAdmin(normalized.access?.scope === "admin");
 
         log("✅ getme loaded:", normalized.entityKey);
         return normalized;

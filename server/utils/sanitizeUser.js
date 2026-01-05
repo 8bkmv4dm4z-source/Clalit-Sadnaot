@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const { hashId } = require("./hashId");
+const { deriveAccessScope } = require("./accessScope");
 
 /**
  * Normalize a Mongoose document or plain object into a plain object.
@@ -136,8 +137,8 @@ const pickAllowed = (source = {}, allowed = []) => {
  * Returns a user object safe for network transport.
  * - Adds a salted fingerprint of the role so the raw role value is hidden
  *   from non-admin consumers while remaining verifiable internally.
- * - Exposes a boolean `isAdmin` flag for client feature toggles without
- *   leaking the underlying role string.
+ * - Exposes access metadata via the `access` envelope (scope + proof) so the
+ *   client can react to admin privileges without trusting payload booleans.
  * - Removes all sensitive fields (passwords, OTP, integrity hashes, tokens).
  */
 function sanitizeUserForResponse(user, requester, { includeFull = false, scope = "default" } = {}) {
@@ -145,6 +146,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
   const raw = toPlain(user);
   const rawAuthorities = raw?.authorities || {};
   const clean = stripSensitiveFields(raw);
+  const access = deriveAccessScope(requester);
 
   clean.entityKey =
     clean.entityKey || (clean._id ? hashId("user", String(clean._id)) : undefined);
@@ -185,9 +187,9 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
 
     const roleFingerprint = User.computeRoleHash(safeUser.entityKey, clean.role);
 
-    safeUser.isAdmin = hasAdminAuthority;
     safeUser.roleFingerprint = roleFingerprint;
     safeUser.familyMembers = safeFamilyMembers;
+    safeUser.access = access;
 
     const safeSelf = { ...safeUser };
     delete safeSelf.entities;
@@ -258,7 +260,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
       phone: safeUser.phone ?? null,
       city: safeUser.city ?? null,
       birthDate: normalizeDate(safeUser.birthDate),
-      isAdmin: requesterHasAdminAuthority,
+      access,
       entities,
     };
   }
@@ -268,8 +270,8 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
     const normalizedUser = normalizeEntityShape(clean);
     const base = {
       ...withEntityFlags(normalizedUser, { isFamily: false }),
-      isAdmin: hasAdminAuthority,
       roleFingerprint: User.computeRoleHash(clean.entityKey, clean.role),
+      access,
     };
     delete base.role;
 
@@ -341,9 +343,9 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
 
   const roleFingerprint = User.computeRoleHash(safeUser.entityKey, clean.role);
 
-  safeUser.isAdmin = hasAdminAuthority;
   safeUser.roleFingerprint = roleFingerprint;
   safeUser.familyMembers = safeFamilyMembers;
+  safeUser.access = access;
 
   const safeSelf = { ...safeUser };
   delete safeSelf.entities;
