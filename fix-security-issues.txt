@@ -1,216 +1,256 @@
-Step-by-step implementation plan (least-privilege hardening)
-Phase 0 — Create the “rules of the system” (1 PR)
+ROLE
 
-Define a Public Response Contract (DTO policy)
+You are a Senior Backend Security Engineer executing a controlled refactor on an existing production MERN backend.
 
-Create /server/contracts/ (or /server/dtos/) with explicit DTO functions:
+You must follow the existing .txt audit / policy files exactly (including security diagnostics, refactor notes, and audit recommendations).
+Those text files are the source of truth.
 
-toPublicUser(userDoc)
+OBJECTIVE
 
-toOwnerUser(userDoc)
+Implement all required security hardening changes so that:
 
-toAdminUser(userDoc)
+No user data can be gathered or enumerated
 
-toPublicWorkshop(workshopDoc)
+Roles and authorities are hidden from all client-visible payloads
 
-toAdminWorkshop(workshopDoc)
+Authorization is backend-only and cannot be inferred from responses
 
-toPublicEntity(entity)
+All API responses strictly follow least-privilege principles
 
-Rule: Controllers must return DTO outputs only. Never res.json(doc) or lean() docs directly unless projected + DTO’d.
+The system must remain functional, but breaking API changes are allowed if they reduce attack surface.
 
-✅ Done when: every controller response goes through a DTO function.
+ABSOLUTE SECURITY RULES (NON-NEGOTIABLE)
 
-Add a “no roles to client” policy guard
+You MUST enforce all of the following:
 
-Add a small helper assertNoForbiddenResponseFields(payload) in dev/test:
+Client-visible ≠ client-trusted
 
-blocks keys like role, permissions, otpCode, passwordHash, refreshTokens, etc.
+JWT ≠ permission
 
-Use it in controllers right before res.json(...) (dev only).
+Roles are never exposed to the client
 
-✅ Done when: server throws loudly in dev if a forbidden field leaks.
+Derived metadata must never be reused for authorization
 
-Phase 1 — Kill the highest-risk foot-guns (1 PR)
+No client-controlled input reaches DB selectors
 
-Remove / hard-disable DEV destructive routes in production
+Controllers NEVER return raw DB documents
 
-Ensure /api/dev/* cannot mount unless an explicit env flag exists (not just NODE_ENV !== production).
+UI convenience never dictates API design
 
-Require both:
+If a field is not strictly required, it must not be returned
 
-ENABLE_DEV_ROUTES=true
+If any existing behavior violates these rules, you MUST fix it.
 
-and NODE_ENV !== production
+SCOPE OF WORK
 
-✅ Done when: a prod deploy can’t expose cleanup endpoints even by misconfig.
+You must modify ONLY backend code.
 
-Remove role from all user-facing payloads
+You must analyze and update:
 
-Update sanitizeUserForResponse (and DTOs) so non-admin responses never contain role.
+Authentication flow
 
-For admin screens: consider returning isAdmin: true/false only, but only on admin-only endpoints.
+Authorization middleware
 
-✅ Done when: GET /api/profile, GET /api/users/me, workshop endpoints never return role.
+JWT contents
 
-Phase 2 — Fix auth token + session model to avoid trust confusion (1–2 PRs)
+API response payloads
 
-Minimize JWT contents
+Admin-only endpoints
 
-Access token should contain only:
+Dev-only endpoints
 
-sub (internal user id) OR entityKey (choose one canonical)
-
-iat, exp, jti, iss, aud (optional but good)
-
-Do NOT include: role, email, phone, name, canCharge, etc.
-
-✅ Done when: decoding access token shows identity only.
-
-Server-only authorization (roles never derived from token)
-
-In authenticate middleware:
-
-verify token
-
-load user from DB by sub
-
-attach req.user (server truth)
-
-In authorizeAdmin middleware:
-
-check req.user.role === 'admin' only from DB-loaded user
-
-✅ Done when: even if attacker forges token claims, server ignores them.
-
-Hide “admin-ness” from normal UI
-
-Never return isAdmin on normal endpoints.
-
-The admin UI should learn “you are allowed” only because admin endpoints succeed.
-
-✅ Done when: there is no “admin indicator” available from normal APIs.
-
-Phase 3 — Stop user-data gathering (enumeration + correlation) (2–4 PRs)
-
-Important: you can’t prevent a logged-in user from seeing their own data, but you can prevent:
-
-seeing other users’ data,
-
-learning if other users exist,
-
-and correlating identities across endpoints.
-
-Remove/limit global search for non-admin
-
-For regular users:
-
-searches must be limited to their own family entities only (you already do this—keep it strict).
-
-For admin:
-
-return minimal list fields in results (more below).
-
-✅ Done when: user search can’t ever return unrelated entities.
-
-Reduce admin search/list payload to “contact card” level
-
-Admin results should be minimal, e.g.:
-
-entityKey, name, city, phoneLast4 (or full phone only if required), maybe createdAt
-
-Avoid returning:
-
-full idNumber, birthDate, emails of family members in bulk lists.
-
-Provide a separate admin detail endpoint that requires explicit lookup + extra audit log.
-
-✅ Done when: /admin list endpoints don’t dump sensitive fields at scale.
-
-Prevent ID correlation across endpoints
-
-If entityKey is stable and visible everywhere, it becomes a correlation handle.
-
-Strategy (pick one):
-
-A. Keep entityKey but scope where it appears (only in “my data” endpoints).
-
-B. Use per-resource public IDs (e.g., workshop registration IDs separate from entityKey).
-
-✅ Done when: a user cannot stitch together other users’ participation via stable IDs.
-
-Workshop participants exposure
-
-Public workshop payload must never include:
-
-other participants identities, phones, emails, entityKeys, idNumbers.
-
-Public workshop can include:
-
-counts: spotsLeft, isFull, waitlistCount (optional)
-
-user-specific flags: isRegistered (computed server-side for requester)
-
-Admin workshop endpoints can include participant lists, but:
-
-keep PII minimal by default
-
-require explicit “export” endpoints for full PII
-
-✅ Done when: normal user cannot retrieve participant lists.
-
-Phase 4 — Make “privacy by default” enforceable (tests + lint gates) (1–2 PRs)
-
-Add response-shape tests
-
-Add integration tests that assert:
-
-role never appears in non-admin responses
-
-idNumber, birthDate never appear in public endpoints
-
-admin endpoints require authorizeAdmin + admin hub password
-
-✅ Done when: CI fails if any forbidden field leaks.
-
-Add “projection required” rule for mongoose queries
-
-For endpoints returning user docs:
-
-enforce .select() minimal fields always
-
-never select("*") or omit select on admin bulk endpoints
-
-✅ Done when: code review rule + tests enforce it.
-
-Phase 5 — Operational tightening (1 PR + config)
-
-Rotate secrets after auth changes
-
-Rotate JWT secret(s), refresh token secret(s) if used, admin hub password.
-
-Invalidate all sessions after deployment (expected).
-
-✅ Done when: old tokens no longer work.
+DTO / response shaping
 
 Audit logging for sensitive access
 
-Log every admin read of sensitive profile fields or exports.
+PHASED EXECUTION PLAN (FOLLOW IN ORDER)
+PHASE 1 — RESPONSE CONTRACT ENFORCEMENT
 
-✅ Done when: you have a trail for “who accessed what”.
+Create a DTO / response contract layer
 
-Concrete “implementation order” (recommended PR sequence)
+Add /server/contracts/ (or /dtos/)
 
-PR-1: DTO layer + forbidden-field guard
+Implement explicit transformers:
 
-PR-2: Disable dev routes in prod + remove role from public payloads
+toPublicUser()
 
-PR-3: JWT minimization + server-derived authorization only
+toOwnerUser()
 
-PR-4: Workshop payload hardening + remove participants exposure from public endpoints
+toAdminUser()
 
-PR-5: Admin list minimization + add admin detail endpoint + extra audit logs
+toPublicEntity()
 
-PR-6: Tests + CI gates (no forbidden fields)
+toPublicWorkshop()
 
-PR-7: Rotate secrets + invalidate sessions
+toAdminWorkshop()
+
+Controllers must:
+
+NEVER return User, Workshop, or Entity docs directly
+
+ALWAYS return DTO output only
+
+Add a dev-only guard that throws if forbidden fields are about to be sent:
+
+Forbidden examples (not exhaustive):
+
+role
+
+permissions
+
+passwordHash
+
+otpCode
+
+refreshTokens
+
+internalIds
+
+canCharge
+
+auditFlags
+
+PHASE 2 — ROLE & AUTHORITY ELIMINATION FROM CLIENT
+
+Remove role from all non-admin API responses
+
+Including:
+
+/api/profile
+
+/api/users/me
+
+workshop responses
+
+entity responses
+
+Admin UI must not learn it is admin from data
+
+Admin status is inferred only because admin endpoints succeed
+
+No isAdmin, no role, no permissions in normal payloads
+
+PHASE 3 — JWT HARDENING
+
+Minimize JWT payload:
+
+Allowed claims:
+
+sub (or canonical entity id)
+
+iat, exp, jti
+
+Forbidden:
+
+role
+
+email
+
+permissions
+
+flags
+
+Authorization must:
+
+Load user from DB on every request
+
+Ignore all role/permission data from JWT
+
+Enforce admin access ONLY via DB-derived user
+
+PHASE 4 — USER DATA GATHERING PREVENTION
+
+Prevent enumeration:
+
+Non-admin search is strictly scoped to own entities only
+
+Admin search returns minimal contact-card fields only
+
+Reduce admin bulk payloads:
+
+Lists must NOT include:
+
+full ID numbers
+
+birth dates
+
+family member PII
+
+Full data requires explicit detail endpoints + audit logging
+
+Workshop exposure rules:
+
+Public workshop responses:
+
+NO participant identities
+
+NO entityKeys of others
+
+Counts only (spotsLeft, isRegistered computed server-side)
+
+Participant lists are admin-only and minimal by default
+
+PHASE 5 — DEV & FOOT-GUN REMOVAL
+
+Dev routes:
+
+Must require explicit ENABLE_DEV_ROUTES=true
+
+Must never mount in production accidentally
+
+Destructive dev endpoints must be double-gated
+
+PHASE 6 — ENFORCEMENT & TESTS
+
+Add tests that FAIL if:
+
+role appears in non-admin responses
+
+PII appears in public endpoints
+
+Admin endpoints work without admin middleware
+
+DTOs are bypassed
+
+Add comments warning future developers:
+
+Which fields are forbidden
+
+Why DTOs exist
+
+Why roles are hidden
+
+OUTPUT REQUIREMENTS
+
+For each phase you complete, you MUST:
+
+Modify code directly (no TODOs)
+
+Keep changes minimal but strict
+
+Preserve existing behavior where safe
+
+Add inline comments explaining why a field is excluded
+
+SUCCESS CRITERIA
+
+This task is successful only if:
+
+A malicious client cannot determine:
+
+if another user exists
+
+who is an admin
+
+what permissions exist
+
+Roles are never visible or inferable
+
+All authorization remains backend-only
+
+Future developers cannot accidentally re-expose sensitive fields
+
+FINAL NOTE
+
+If you encounter conflicts between existing behavior and least-privilege security, security wins.
+Document the break and apply the fix.
