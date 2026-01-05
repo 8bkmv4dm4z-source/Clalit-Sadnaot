@@ -266,14 +266,12 @@ const fetchMe = useCallback(
     log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
     if (!token) {
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
+      log("⚠️ fetchMe skipped: no token yet");
       return null;
     }
 
     try {
-      const res = await apiFetch("/api/users/me", {
+      const res = await apiFetch("/api/users/getme", {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -286,33 +284,18 @@ const fetchMe = useCallback(
         throw new Error(data?.message || "Failed to load profile");
       }
 
-        const normalizedUser = normalizeUserPayload(data);
-        const isAdminFlag = Boolean(
-          normalizedUser?.isAdmin || normalizedUser?.role === "admin"
-        );
+      if (!data?.entityKey) {
+        throw new Error("Invalid /getme payload");
+      }
 
-        setUser(normalizedUser);
-        setIsLoggedIn(true);
-        setIsAdmin(isAdminFlag);
-        log(
-          "✅ User loaded:",
-          normalizedUser?.name || normalizedUser?.email,
-          "| admin:",
-          isAdminFlag,
-          "| fingerprint:",
-          normalizedUser?.roleFingerprint
-            ? `${String(normalizedUser.roleFingerprint).slice(0, 8)}…`
-            : "none"
-        );
+      setUser(data);
+      setIsLoggedIn(true);
+      setIsAdmin(false);
 
-      return normalizedUser;
+      log("✅ getme loaded:", data.entityKey);
+      return data;
     } catch (err) {
       log("❌ fetchMe error:", err.message);
-      localStorage.removeItem("accessToken");
-      setAccessToken(null);
-      setUser(null);
-      setIsLoggedIn(false);
-      setIsAdmin(false);
       return null;
     }
   },
