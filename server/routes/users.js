@@ -14,9 +14,9 @@ const {
 console.log("🧩 USER ROUTES INIT");
 
 // ============================================================
-// 👤 Logged-in user
+// 👤 Logged-in user (minimal identity view)
 // ============================================================
-router.get("/me", protect, usersController.getMe);
+router.get("/getMe", protect, usersController.getMe);
 
 // ============================================================
 // 🔍 Smart Search (NEW)
