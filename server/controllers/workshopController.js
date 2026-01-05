@@ -407,10 +407,25 @@ async function loadWorkshopByIdentifier(identifier) {
   if (!identifier) return null;
   const id = String(identifier).trim();
 
-  // 🔒 STRICT: Only allow lookup by UUID workshopKey
-  if (!isUuid(id)) return null;
+  // 🔒 Preferred: lookup by UUID workshopKey
+  if (isUuid(id)) {
+    const byKey = await Workshop.findOne({ workshopKey: id });
+    if (byKey) return byKey;
+  }
 
-  return Workshop.findOne({ workshopKey: id });
+  // ♻️ Back-compat: hashedId (22-char base64url from hashId util)
+  if (/^[A-Za-z0-9_-]{16,}$/.test(id)) {
+    const byHash = await Workshop.findOne({ hashedId: id });
+    if (byHash) return byHash;
+  }
+
+  // ⚠️ Last resort: allow ObjectId only for existing records (no error if invalid)
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    const byObjectId = await Workshop.findById(id);
+    if (byObjectId) return byObjectId;
+  }
+
+  return null;
 }
 
 exports.loadWorkshopByIdentifier = loadWorkshopByIdentifier;
