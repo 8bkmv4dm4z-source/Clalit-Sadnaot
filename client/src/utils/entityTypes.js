@@ -42,10 +42,59 @@ export const withEntityFlags = (entity = {}) => {
     __entityKey: key,
   };
 };
-export const normalizeMePayload = (payload = {}) => {
-  if (!payload || !payload.data) return null;
+const ALLOWED_ME_FIELDS = ["entityKey", "name", "email", "phone", "city", "birthDate"];
 
-  return payload.data; // already server-normalized
+const pickAllowedMeFields = (src = {}) => {
+  const safe = {};
+  for (const key of ALLOWED_ME_FIELDS) {
+    if (src[key] !== undefined) safe[key] = src[key];
+  }
+  return safe;
+};
+
+export const normalizeMePayload = (payload = {}) => {
+  const raw = payload?.data ?? payload ?? {};
+  if (!raw.entityKey) return null;
+
+  // Strip privileged/sensitive fields (role, authorities) and flatten entities
+  const baseUser = withEntityFlags({
+    ...pickAllowedMeFields(raw),
+    isFamily: false,
+  });
+
+  const normalizedEntities = Array.isArray(raw.entities)
+    ? raw.entities
+        .map((entity) => withEntityFlags(pickAllowedMeFields(entity)))
+        .filter((e) => e.entityKey)
+    : [];
+
+  const deduped = new Map();
+  [baseUser, ...normalizedEntities].forEach((entity) => {
+    if (entity?.entityKey && !deduped.has(entity.entityKey)) {
+      deduped.set(entity.entityKey, entity);
+    }
+  });
+
+  const primaryKey = baseUser.entityKey;
+  const entities = Array.from(deduped.values()).map((entity) => {
+    if (entity.entityKey === primaryKey) return entity;
+
+    const withParent = entity.parentKey
+      ? entity
+      : { ...entity, parentKey: primaryKey, isFamily: true };
+
+    return withEntityFlags(withParent);
+  });
+
+  const userEntity = entities.find((e) => !e.isFamily) || baseUser;
+  const familyMembers = entities.filter((e) => e.isFamily);
+
+  return {
+    ...userEntity,
+    entities,
+    familyMembers,
+    isAdmin: !!raw.isAdmin,
+  };
 };
 
 export const flattenUserEntities = (user = {}) => {

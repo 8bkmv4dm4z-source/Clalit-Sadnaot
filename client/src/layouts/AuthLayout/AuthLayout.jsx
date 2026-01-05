@@ -7,11 +7,12 @@
  *   verifyOtp). The context stores access tokens in localStorage and keeps user + role metadata in
  *   React state.
  * • Path: Each auth action delegates to apiFetch -> backend /api/auth/* endpoints. Successful
- *   responses are normalized (flattenUserEntities) and stored via setUser/setIsLoggedIn/setIsAdmin
- *   before bubbling updates through context consumers (AppRoutes uses useAuth to gate routes).
- * • Transformations: normalizeUserPayload flattens entity structure; refreshAccessToken rewrites
- *   Authorization headers; authFetch retries once on 401. Logout clears state and localStorage and
- *   navigates to /workshops.
+ *   responses are normalized via normalizeMePayload (whitelisted fields only) and stored via
+ *   setUser/setIsLoggedIn/setIsAdmin before bubbling updates through context consumers (AppRoutes
+ *   uses useAuth to gate routes).
+ * • Transformations: normalizeMePayload unwraps { success, data } and strips role/authority fields;
+ *   refreshAccessToken rewrites Authorization headers; authFetch retries once on 401. Logout clears
+ *   state and localStorage and navigates to /workshops.
  * • Downstream: Context values propagate to any component calling useAuth (e.g., AppShell,
  *   Profile page). Callbacks bubble events upward through window events and an EventBus so other
  *   parts (WorkshopContext) can refetch when auth changes.
@@ -19,13 +20,16 @@
  * API FLOW
  * --------
  * • Endpoints: /api/auth/login, /api/auth/verify, /api/auth/register, /api/auth/logout,
- *   /api/auth/refresh, /api/auth/request-password-reset, /api/auth/reset-password.
+ *   /api/auth/refresh, /api/auth/request-password-reset, /api/auth/reset-password,
+ *   /api/users/getme (returns { success, data } with minimal identity fields + isAdmin).
  * • Methods/Bodies: login/register send JSON credentials; verifyOtp posts { email, otp };
  *   refresh uses POST with cookies for refresh token; logout POST clears server session.
  * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL and includes credentials;
  *   authFetch injects Authorization: Bearer <token> and retries after hitting refresh endpoint.
- * • Responses: Expected JSON containing accessToken, user payload, and message; errors are
- *   translated via translateAuthError/translateNetworkError for user-friendly UI.
+ * • Responses: Expected JSON containing accessToken, user payload, and message; /getme is
+ *   normalized to a whitelisted shape (entityKey + contact details + isAdmin) to avoid
+ *   rehydrating privileged fields like role/authorities; errors are translated via
+ *   translateAuthError/translateNetworkError for user-friendly UI.
  *
  * COMPONENT LOGIC
  * ---------------
@@ -64,7 +68,7 @@ import {
   translateAuthError,
   translateNetworkError,
 } from "../../utils/errorTranslator";
-import { flattenUserEntities,normalizeMePayload } from "../../utils/entityTypes";
+import { normalizeMePayload } from "../../utils/entityTypes";
 import { getCaptchaToken } from "../../utils/captcha";
 
 /* ------------------------------ Logger ------------------------------ */
@@ -97,17 +101,6 @@ function fireLoggedIn(extra = {}) {
 function fireLoggedOut(extra = {}) {
   window.dispatchEvent(new CustomEvent("auth-logged-out", { detail: { ...extra } }));
 }
-
-const normalizeUserPayload = (payload = {}) => {
-  const { userEntity, familyMembers, allEntities } = flattenUserEntities(payload);
-
-  return {
-    ...payload,
-    ...userEntity,
-    familyMembers,
-    entities: allEntities,
-  };
-};
 
 /* --------------------------- Context Shape -------------------------- */
 const AuthContext = createContext({
@@ -258,49 +251,50 @@ export const AuthProvider = ({ children }) => {
   /* ============================================================
    👤 fetchMe — load current user (MINIMAL, SERVER-AUTHORITATIVE)
    ============================================================ */
-const fetchMe = useCallback(
-  async (tokenOverride = null) => {
-    const token =
-      tokenOverride || accessToken || localStorage.getItem("accessToken");
+  const fetchMe = useCallback(
+    async (tokenOverride = null) => {
+      const token =
+        tokenOverride || accessToken || localStorage.getItem("accessToken");
 
-    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
+      log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-    if (!token) {
-      log("⚠️ fetchMe skipped: no token yet");
-      return null;
-    }
-
-    try {
-      const res = await apiFetch("/api/users/getme", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      const data = await safeJson(res);
-
-      if (!res.ok || !data) {
-        throw new Error(data?.message || "Failed to load profile");
+      if (!token) {
+        log("⚠️ fetchMe skipped: no token yet");
+        return null;
       }
 
-      if (!data?.entityKey) {
-        throw new Error("Invalid /getme payload");
+      try {
+        const res = await apiFetch("/api/users/getme", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        const raw = await safeJson(res);
+
+        if (!res.ok || !raw) {
+          throw new Error(raw?.message || "Failed to load profile");
+        }
+
+        const normalized = normalizeMePayload(raw);
+        if (!normalized?.entityKey) {
+          throw new Error("Invalid /getme payload");
+        }
+
+        setUser(normalized);
+        setIsLoggedIn(true);
+        setIsAdmin(!!normalized.isAdmin);
+
+        log("✅ getme loaded:", normalized.entityKey);
+        return normalized;
+      } catch (err) {
+        log("❌ fetchMe error:", err.message);
+        return null;
       }
-
-      setUser(data);
-      setIsLoggedIn(true);
-      setIsAdmin(false);
-
-      log("✅ getme loaded:", data.entityKey);
-      return data;
-    } catch (err) {
-      log("❌ fetchMe error:", err.message);
-      return null;
-    }
-  },
-  [accessToken]
-);
+    },
+    [accessToken]
+  );
 
   /* ============================================================
      🚀 On Mount

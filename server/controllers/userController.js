@@ -456,6 +456,9 @@ exports.getMe = async (req, res) => {
       });
     }
 
+    // Derive caller authorities without exposing raw roles/authorities
+    const isAdmin = !!req.user?.authorities?.admin;
+
     // Explicit normalization into SAFE API response
     const response = {
       entityKey: user.entityKey,
@@ -463,6 +466,7 @@ exports.getMe = async (req, res) => {
       email: user.email ?? null,
       phone: user.phone ?? null,
       city: user.city ?? null,
+      isAdmin,
 
       birthDate: user.birthDate
         ? user.birthDate.toISOString().slice(0, 10)
