@@ -121,6 +121,9 @@ const PROFILE_FAMILY_FIELDS = [
   "parentPhone",
 ];
 
+const IDENTITY_USER_FIELDS = ["entityKey", "name", "email", "phone", "city", "birthDate"];
+const IDENTITY_FAMILY_FIELDS = ["entityKey", "name", "relation"];
+
 const pickAllowed = (source = {}, allowed = []) => {
   const out = {};
   for (const key of allowed) {
@@ -198,6 +201,66 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
   // 🔐 Scoped minimal payload for /profile and /users/me
   if (scope === "profile") {
     return buildScopedPayload(PROFILE_USER_FIELDS, PROFILE_FAMILY_FIELDS, { stripRole: true });
+  }
+
+  // 🛡️ Identity-only payload for /getMe — safe, entityKey-first, no privileged fields
+  if (scope === "identity") {
+    const safeUser = normalizeEntityShape(
+      pickAllowed(
+        {
+          entityKey: clean.entityKey || hashId("user", String(clean._id)),
+          ...clean,
+        },
+        IDENTITY_USER_FIELDS
+      )
+    );
+
+    const normalizeDate = (value) => {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString().slice(0, 10);
+      const str = String(value);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      const parsed = new Date(str);
+      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+    };
+
+    const familyMembers = Array.isArray(clean.familyMembers)
+      ? clean.familyMembers.map((member) =>
+          normalizeEntityShape(
+            pickAllowed(
+              {
+                entityKey:
+                  member.entityKey ||
+                  (member._id ? hashId("family", String(member._id)) : undefined),
+                ...member,
+              },
+              IDENTITY_FAMILY_FIELDS
+            )
+          )
+        )
+      : [];
+
+    const entities = [
+      {
+        entityKey: safeUser.entityKey,
+        name: safeUser.name ?? null,
+      },
+      ...familyMembers.map((member) => ({
+        entityKey: member.entityKey,
+        name: member.name ?? null,
+      })),
+    ].filter((entity) => !!entity.entityKey);
+
+    return {
+      entityKey: safeUser.entityKey,
+      name: safeUser.name ?? null,
+      email: safeUser.email ?? null,
+      phone: safeUser.phone ?? null,
+      city: safeUser.city ?? null,
+      birthDate: normalizeDate(safeUser.birthDate),
+      isAdmin: requesterHasAdminAuthority,
+      entities,
+    };
   }
 
   // 📦 Full profile payload (for /me and admin views)

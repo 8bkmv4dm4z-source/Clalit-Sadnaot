@@ -227,6 +227,28 @@ UserSchema.pre("save", function (next) {
   next();
 });
 
+/**
+ * Resolve a user by entityKey/hashedId without ever querying by Mongo _id.
+ * Accepts optional projection + lean to support identity-only lookups.
+ */
+UserSchema.statics.findByEntityKey = async function (
+  entityKey,
+  { projection = null, lean = false } = {}
+) {
+  if (!entityKey) return null;
+
+  const query = { $or: [{ entityKey }, { hashedId: entityKey }] };
+
+  let cursor = this.findOne(query);
+  if (projection) cursor = cursor.select(projection);
+  if (lean) cursor = cursor.lean();
+
+  const doc = await cursor;
+  if (doc) ensureEntityKeys(doc);
+
+  return doc;
+};
+
 /* ============================================================
    Password Helpers
    ============================================================ */
