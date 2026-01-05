@@ -42,6 +42,11 @@ export const withEntityFlags = (entity = {}) => {
     __entityKey: key,
   };
 };
+export const normalizeMePayload = (payload = {}) => {
+  if (!payload || !payload.data) return null;
+
+  return payload.data; // already server-normalized
+};
 
 export const flattenUserEntities = (user = {}) => {
   const baseUser = withEntityFlags({ ...user, entityType: ENTITY_TYPE_USER, isFamily: false });

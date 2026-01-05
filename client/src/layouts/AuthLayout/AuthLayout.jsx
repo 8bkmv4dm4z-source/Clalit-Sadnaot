@@ -64,7 +64,7 @@ import {
   translateAuthError,
   translateNetworkError,
 } from "../../utils/errorTranslator";
-import { flattenUserEntities } from "../../utils/entityTypes";
+import { flattenUserEntities,normalizeMePayload } from "../../utils/entityTypes";
 import { getCaptchaToken } from "../../utils/captcha";
 
 /* ------------------------------ Logger ------------------------------ */
@@ -254,60 +254,70 @@ export const AuthProvider = ({ children }) => {
 );
 
 
-  /* ============================================================
-     👤 fetchMe — load current user
-     ============================================================ */
-  const fetchMe = useCallback(
-    async (tokenOverride = null) => {
-      const token =
-        tokenOverride || accessToken || localStorage.getItem("accessToken");
-      log("fetchMe called | token:", token ? "✅ found" : "❌ none");
 
-      if (!token) {
-        setUser(null);
-        setIsLoggedIn(false);
-        setIsAdmin(false);
-        return null;
+  /* ============================================================
+   👤 fetchMe — load current user (MINIMAL, SERVER-AUTHORITATIVE)
+   ============================================================ */
+const fetchMe = useCallback(
+  async (tokenOverride = null) => {
+    const token =
+      tokenOverride || accessToken || localStorage.getItem("accessToken");
+
+    log("fetchMe called | token:", token ? "✅ found" : "❌ none");
+
+    if (!token) {
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+      return null;
+    }
+
+    try {
+      const res = await apiFetch("/api/users/me", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = await safeJson(res);
+
+      if (!res.ok || !data) {
+        throw new Error(data?.message || "Failed to load profile");
       }
 
-      try {
-        const res = await apiFetch("/api/users/getMe", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-        const data = await safeJson(res);
-
-        if (!res.ok || !data) {
-          throw new Error(data?.message || "Failed to load profile");
-        }
-
         const normalizedUser = normalizeUserPayload(data);
+        const isAdminFlag = Boolean(
+          normalizedUser?.isAdmin || normalizedUser?.role === "admin"
+        );
 
         setUser(normalizedUser);
         setIsLoggedIn(true);
-        // 🚫 Roles/privileges are not communicated via /getMe
-        setIsAdmin(false);
+        setIsAdmin(isAdminFlag);
         log(
           "✅ User loaded:",
           normalizedUser?.name || normalizedUser?.email,
-          "| admin: false (suppressed by contract)"
+          "| admin:",
+          isAdminFlag,
+          "| fingerprint:",
+          normalizedUser?.roleFingerprint
+            ? `${String(normalizedUser.roleFingerprint).slice(0, 8)}…`
+            : "none"
         );
 
-        return normalizedUser;
-      } catch (err) {
-        log("❌ fetchMe error:", err.message);
-        localStorage.removeItem("accessToken");
-        setAccessToken(null);
-        setUser(null);
-        setIsLoggedIn(false);
-        setIsAdmin(false);
-        return null;
-      }
-    },
-    [accessToken]
-  );
+      return normalizedUser;
+    } catch (err) {
+      log("❌ fetchMe error:", err.message);
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
+      setUser(null);
+      setIsLoggedIn(false);
+      setIsAdmin(false);
+      return null;
+    }
+  },
+  [accessToken]
+);
 
   /* ============================================================
      🚀 On Mount
@@ -579,7 +589,7 @@ export const AuthProvider = ({ children }) => {
 
       const data = await fetchMe(newToken);
       fireAuthReady(true, { phase: "login-complete" });
-        fireLoggedIn({ userId: String(data?.entityKey || "") });
+      fireLoggedIn({ userId: String(data?._id || data?.id || "") });
       navigate("/workshops");
     },
     [fetchMe, navigate]
@@ -633,6 +643,7 @@ export const AuthProvider = ({ children }) => {
         }
 
         await completeLogin(token);
+        console.log(token);
         publishEvent({
           type: "success",
           title: "התחברות בוצעה",
@@ -661,7 +672,7 @@ export const AuthProvider = ({ children }) => {
     await fetchMe();
     window.dispatchEvent(
       new CustomEvent("auth-user-updated", {
-        detail: { at: Date.now(), userId: String(user?._id || "") },
+detail: { at: Date.now(), entityKey: user?.entityKey }
       })
     );
   };

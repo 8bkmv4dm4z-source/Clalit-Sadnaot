@@ -419,10 +419,21 @@ exports.searchUsers = async (req, res) => {
 // SECURITY CONTRACT:
 // /getMe intentionally returns a minimal identity view.
 // Roles, authorities, flags, and internal identifiers must NEVER be exposed here.
+// SECURITY CONTRACT:
+// /getMe returns a minimal identity view only.
+// Roles, authorities, flags, and internal identifiers MUST NEVER be exposed here.
+
 exports.getMe = async (req, res) => {
   try {
-    if (!req.user?.entityKey) return res.status(401).json({ message: "Unauthorized" });
+    // Authentication guard
+    if (!req.user?.entityKey) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
 
+    // Mongo projection: DB minimization (NOT the API contract)
     const projection = {
       entityKey: 1,
       name: 1,
@@ -432,15 +443,55 @@ exports.getMe = async (req, res) => {
       birthDate: 1,
       "familyMembers.entityKey": 1,
       "familyMembers.name": 1,
-      "familyMembers._id": 1,
     };
 
-    const user = await User.findOne({ entityKey: req.user.entityKey }).select(projection).lean();
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const user = await User.findOne({ entityKey: req.user.entityKey })
+      .select(projection)
+      .lean();
 
-    res.json(buildMinimalIdentityResponse(user));
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Explicit normalization into SAFE API response
+    const response = {
+      entityKey: user.entityKey,
+      name: user.name ?? null,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      city: user.city ?? null,
+
+      birthDate: user.birthDate
+        ? user.birthDate.toISOString().slice(0, 10)
+        : null,
+
+      entities: [
+        {
+          entityKey: user.entityKey,
+          name: user.name ?? null,
+        },
+        ...(Array.isArray(user.familyMembers)
+          ? user.familyMembers.map((fm) => ({
+              entityKey: fm.entityKey,
+              name: fm.name ?? null,
+            }))
+          : []),
+      ],
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
   } catch (err) {
-    res.status(500).json({ message: "Server error fetching user" });
+    console.error("getMe error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching user",
+    });
   }
 };
 
