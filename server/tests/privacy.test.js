@@ -41,6 +41,21 @@ test('sanitization hides PII for non-admin family responses', () => {
   assert.equal(child.idNumber, undefined);
 });
 
+test('sanitization strips role/authorities even when present', () => {
+  const sanitized = sanitizeUserForResponse(
+    { ...baseUser, role: 'admin', authorities: { admin: true } },
+    { authorities: { admin: true } },
+    { scope: 'profile' }
+  );
+
+  assert.equal(sanitized.role, undefined);
+  assert.equal(sanitized.authorities, undefined);
+  sanitized.entities.forEach((entity) => {
+    assert.equal(entity.role, undefined);
+    assert.equal(entity.authorities, undefined);
+  });
+});
+
 test('sanitization includes PII for admin family responses', () => {
   const sanitized = sanitizeUserForResponse(baseUser, { authorities: { admin: true } });
   const child = sanitized.familyMembers[0];
