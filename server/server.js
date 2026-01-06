@@ -29,6 +29,7 @@ const { errors: celebrateErrors, CelebrateError } = require("celebrate");
 const jwt = require("jsonwebtoken");
 const { startAuditScheduler } = require("./services/auditService");
 const { runAllHashAudits } = require("./audit/hashAudit");
+const { migrateLegacyAdmins } = require("./services/legacyAdminMigration");
 const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
 const { enforceResponseContract } = require("./contracts/responseGuards");
 
@@ -287,12 +288,18 @@ const workshopWriteLimiter = rateLimit({
 /* ----------------------------
  * Dev utilities (API only)
  * -------------------------- */
-if (process.env.NODE_ENV !== "production") {
+const devRoutesEnabled = process.env.ENABLE_DEV_ROUTES === "true";
+if (!isProd && devRoutesEnabled) {
   try {
-    api.use("/dev", require("./routes/dev"));
+    const devRouter = require("./routes/dev");
+    api.use("/dev", devRouter);
   } catch (e) {
     console.warn("⚠️ Dev routes not found (ok).");
   }
+} else {
+  console.info(
+    "[DEV ROUTES] Skipping mount — ENABLE_DEV_ROUTES must be \"true\" and NODE_ENV must not be production."
+  );
 }
 
 /* ----------------------------
@@ -408,6 +415,14 @@ const HOST = process.env.HOST || "0.0.0.0";
       autoIndex: true,
       serverSelectionTimeoutMS: 10000,
     });
+
+    if (process.env.MIGRATE_LEGACY_ADMINS === "true") {
+      try {
+        await migrateLegacyAdmins(console);
+      } catch (err) {
+        console.error("[P7 MIGRATION] Failed to migrate legacy admins:", err?.message || err);
+      }
+    }
 
     startAuditScheduler();
 

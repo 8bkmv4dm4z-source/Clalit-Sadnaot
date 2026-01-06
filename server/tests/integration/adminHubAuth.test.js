@@ -114,12 +114,19 @@ const stopServer = (server) =>
     server.close(() => resolve());
   });
 
-const createToken = (id = "user-id") => jwt.sign({ sub: id }, process.env.JWT_SECRET);
+const createToken = (id = "user-id") =>
+  jwt.sign({ sub: id, jti: "test-jti" }, process.env.JWT_SECRET, { expiresIn: "15m" });
 
 const fetchJson = async (server, path, { headers } = {}) => {
   const port = server.address().port;
   const res = await fetch(`http://127.0.0.1:${port}${path}`, { headers });
   return { status: res.status, body: await res.json() };
+};
+
+const fetchStatus = async (server, path, { headers } = {}) => {
+  const port = server.address().port;
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, { headers });
+  return { status: res.status, text: await res.text(), headers: res.headers };
 };
 
 test("rejects unauthenticated requests", async () => {
@@ -135,8 +142,79 @@ test("rejects unauthenticated requests", async () => {
   await stopServer(server);
 });
 
+test("admin access probe stays opaque for non-admins", async () => {
+  installUserStub("user", { authorities: {} });
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+
+  const token = createToken();
+  const response = await fetchStatus(server, "/api/admin/hub/access", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.text, "");
+  assert.equal(response.headers.get("x-access-scope"), null);
+  assert.equal(response.headers.get("x-access-proof"), null);
+  await stopServer(server);
+});
+
+test("admin access probe rejects role-only admins", async () => {
+  installUserStub("admin", { authorities: {} });
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+
+  const token = createToken();
+  const response = await fetchStatus(server, "/api/admin/hub/access", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 404);
+  assert.equal(response.text, "");
+  await stopServer(server);
+});
+
+test("admin access probe returns no content for admins", async () => {
+  installUserStub("admin", { authorities: { admin: true } });
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+
+  const token = createToken();
+  const response = await fetchStatus(server, "/api/admin/hub/access", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 204);
+  assert.equal(response.text, "");
+  assert.equal(response.headers.get("x-access-scope"), "public");
+  assert.equal(response.headers.get("x-access-proof"), null);
+  await stopServer(server);
+});
+
 test("rejects non-admin users", async () => {
   installUserStub("user");
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+
+  const token = createToken();
+  const response = await fetchJson(server, "/api/admin/hub/logs", {
+    headers: { Authorization: `Bearer ${token}`, "x-admin-password": "strong-secret" },
+  });
+
+  assert.equal(response.status, 403);
+  await stopServer(server);
+});
+
+test("rejects role-only admins without authority map", async () => {
+  installUserStub("admin", { authorities: {} });
   installAuditServiceStub(async () => []);
   installAdminHubServiceStub();
   const app = buildApp();

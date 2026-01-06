@@ -4,6 +4,17 @@ const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
 
+const isNonProduction = process.env.NODE_ENV !== "production";
+const devRoutesEnabled = process.env.ENABLE_DEV_ROUTES === "true";
+
+const requireDevSurface = (req, res, next) => {
+  if (!isNonProduction || !devRoutesEnabled) {
+    console.warn("[DEV ROUTES] Blocked request — dev surface disabled or running in production.");
+    return res.status(404).json({ message: "Not found" });
+  }
+  return next();
+};
+
 const requireDevAdminSecret = (req, res, next) => {
   const configuredSecret = process.env.DEV_ADMIN_SECRET;
   if (!configuredSecret) {
@@ -23,6 +34,15 @@ const requireDevAdminSecret = (req, res, next) => {
   return next();
 };
 
+const requireDestructiveAccess = (req, res, next) => {
+  const destructiveEnabled = process.env.ENABLE_DEV_DESTRUCTIVE === "true";
+  if (!destructiveEnabled || !isNonProduction || !devRoutesEnabled) {
+    console.warn("[DEV CLEANUP] Destructive dev route blocked by configuration or environment guard.");
+    return res.status(403).json({ message: "Dev destructive routes are disabled" });
+  }
+  return next();
+};
+
 const cleanupLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute window to avoid brute-force guessing
   limit: 5, // allow a handful of cleanup operations per minute
@@ -31,7 +51,9 @@ const cleanupLimiter = rateLimit({
   message: { message: "Too many cleanup attempts. Please slow down." },
 });
 
-router.delete("/cleanup-user", cleanupLimiter, requireDevAdminSecret, async (req, res) => {
+router.use(requireDevSurface);
+
+router.delete("/cleanup-user", cleanupLimiter, requireDevAdminSecret, requireDestructiveAccess, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });

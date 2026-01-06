@@ -83,8 +83,17 @@ function resolveEntityKeyForJwt(user) {
   return key;
 }
 
+function ensureJwtExpiry(envKey) {
+  // P7: Tokens must be time-bound; issuing without exp is forbidden.
+  const value = process.env[envKey];
+  if (!value) throw new Error(`${envKey} missing`);
+  if (!/^[0-9]+[smhd]$/i.test(value)) throw new Error(`${envKey} must be a duration string like 15m`);
+  return value;
+}
+
 function generateAccessToken(user) {
-  const expiresIn = process.env.JWT_EXPIRY || "15m";
+  // JWTs remain identity-only; no roles/permissions allowed in claims.
+  const expiresIn = ensureJwtExpiry("JWT_EXPIRY");
   const entityKey = resolveEntityKeyForJwt(user);
   return jwt.sign({ sub: entityKey, jti: createJti() }, process.env.JWT_SECRET, {
     expiresIn,
@@ -97,7 +106,8 @@ function createJti() {
 }
 
 function generateRefreshToken(user) {
-  const expiresIn = process.env.JWT_REFRESH_EXPIRY || "7d";
+  // Refresh tokens follow the same expiry discipline to prevent immortal sessions.
+  const expiresIn = ensureJwtExpiry("JWT_REFRESH_EXPIRY");
   const entityKey = resolveEntityKeyForJwt(user);
   return jwt.sign({ sub: entityKey, jti: createJti() }, process.env.JWT_REFRESH_SECRET, {
     expiresIn,
@@ -106,22 +116,24 @@ function generateRefreshToken(user) {
 
 function parseJwtExpToMs(exp) {
   const m = String(exp).match(/^(\d+)([smhd])$/i);
-  if (!m) return 7 * 24 * 60 * 60 * 1000;
+  if (!m) throw new Error("JWT expiry must include a numeric value and unit (s|m|h|d)");
   const n = parseInt(m[1], 10);
   const unit = m[2].toLowerCase();
   const map = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
   return n * map[unit];
 }
 
-const REFRESH_TOKEN_TTL_MS = parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d");
+const getRefreshTtlMs = () => parseJwtExpToMs(ensureJwtExpiry("JWT_REFRESH_EXPIRY"));
+const REFRESH_TOKEN_TTL_MS = getRefreshTtlMs();
 
 function setRefreshCookie(res, refreshToken) {
+  const refreshExpiry = ensureJwtExpiry("JWT_REFRESH_EXPIRY");
   const cookieOptions = {
     httpOnly: true,
     secure: REFRESH_COOKIE_SECURE,
     sameSite: REFRESH_COOKIE_SAMESITE,
     path: "/",
-    maxAge: parseJwtExpToMs(process.env.JWT_REFRESH_EXPIRY || "7d"),
+    maxAge: parseJwtExpToMs(refreshExpiry),
   };
 
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, cookieOptions);
