@@ -7,6 +7,12 @@ const User = require("../models/User");
  * - Idempotent and safe to re-run.
  */
 async function migrateLegacyAdmins(logger = console) {
+  const log = typeof logger?.info === "function"
+    ? logger.info.bind(logger)
+    : typeof logger === "function"
+    ? logger
+    : console.log;
+
   const filter = {
     role: "admin",
     $or: [
@@ -27,12 +33,12 @@ async function migrateLegacyAdmins(logger = console) {
     .lean();
 
   if (!candidates.length) {
-    logger.info("[P7 MIGRATION] No legacy admins needed migration.");
+    log("[P7 MIGRATION] No legacy admins needed migration.");
     return { matched: 0, modified: 0 };
   }
 
   candidates.forEach((u) =>
-    logger.info(
+    log(
       `[P7 MIGRATION] Promoting legacy admin ${u._id} (${u.email || "unknown"}) to authorities.admin=true`
     )
   );
@@ -40,7 +46,7 @@ async function migrateLegacyAdmins(logger = console) {
   const result = await User.updateMany(filter, update, { strict: true });
   const touched = result.modifiedCount || 0;
 
-  logger.info(`[P7 MIGRATION] Promoted ${touched} legacy admin(s) to authorities.admin=true.`);
+  log(`[P7 MIGRATION] Promoted ${touched} legacy admin(s) to authorities.admin=true.`);
 
   return { matched: candidates.length, modified: touched };
 }
