@@ -22,19 +22,27 @@ async function migrateLegacyAdmins(logger = console) {
     },
   };
 
-  const result = await User.updateMany(filter, update, { strict: false });
-  const touched = result.modifiedCount || 0;
-  const matched = result.matchedCount || 0;
+  const candidates = await User.find(filter)
+    .select("_id email entityKey role authorities")
+    .lean();
 
-  if (matched === 0) {
+  if (!candidates.length) {
     logger.info("[P7 MIGRATION] No legacy admins needed migration.");
-  } else if (touched > 0) {
-    logger.info(`[P7 MIGRATION] Promoted ${touched} legacy admin(s) to authorities.admin=true.`);
-  } else {
-    logger.info("[P7 MIGRATION] Legacy admins already migrated; no changes applied.");
+    return { matched: 0, modified: 0 };
   }
 
-  return { matched, modified: touched };
+  candidates.forEach((u) =>
+    logger.info(
+      `[P7 MIGRATION] Promoting legacy admin ${u._id} (${u.email || "unknown"}) to authorities.admin=true`
+    )
+  );
+
+  const result = await User.updateMany(filter, update, { strict: true });
+  const touched = result.modifiedCount || 0;
+
+  logger.info(`[P7 MIGRATION] Promoted ${touched} legacy admin(s) to authorities.admin=true.`);
+
+  return { matched: candidates.length, modified: touched };
 }
 
 module.exports = { migrateLegacyAdmins };
