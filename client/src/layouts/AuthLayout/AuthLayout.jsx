@@ -128,6 +128,8 @@ const AuthContext = createContext({
   refreshMe: async () => {},
 });
 
+export { AuthContext };
+
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
   const { publish: publishEvent } = useEventBus();
