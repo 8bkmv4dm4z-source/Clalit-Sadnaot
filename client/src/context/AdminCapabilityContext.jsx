@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useContext } from "react";
 import { apiFetch } from "../utils/apiFetch";
-import { AuthContext } from "../layouts/AuthLayout";
+import { AuthContext } from "../layouts/AuthLayout/AuthLayout.jsx";
 
 const AdminCapabilityContext = createContext(null);
 

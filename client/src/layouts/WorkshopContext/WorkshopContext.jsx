@@ -419,40 +419,7 @@ export const WorkshopProvider = ({ children }) => {
       else setLoading(false);
     }
   }, [userKey]);
-
-  /* 👈 NEW: refetch when auth scope changes so DTOs match access level */
-  useEffect(() => {
-    if (isChecking && isLoggedIn) return;
-    const nextScope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
-    setAccessScope((prev) => (prev === nextScope ? prev : nextScope));
-  }, [canAccessAdmin, isChecking, isLoggedIn]);
-
-  useEffect(() => {
-    // Avoid fetching admin datasets until the capability probe finishes to prevent public → admin flicker
-    if (isLoggedIn && isChecking) return;
-
-    fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0, scope: accessScope });
-
-    if (accessScope === "public") {
-      setRegisteredWorkshopIds([]);
-      setUserWorkshopMap({});
-      setFamilyWorkshopMap({});
-      setServerMapsLoaded(false);
-      setMapsReady(false);
-      return;
-    }
-
-    fetchRegisteredWorkshops();
-  }, [
-    accessScope,
-    fetchAllWorkshops,
-    fetchRegisteredWorkshops,
-    isChecking,
-    isLoggedIn,
-    pagination.limit,
-  ]);
-
-  /* ============================================================
+/* ============================================================
      📡 Fetch registered workshops (IDs only)
      ============================================================ */
   const fetchRegisteredWorkshops = useCallback(async () => {
@@ -540,6 +507,39 @@ export const WorkshopProvider = ({ children }) => {
       dbgCtx("fetchRegisteredWorkshops:done");
     }
   }, []);
+  /*  NEW: refetch when auth scope changes so DTOs match access level */
+  useEffect(() => {
+    if (isChecking && isLoggedIn) return;
+    const nextScope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
+    setAccessScope((prev) => (prev === nextScope ? prev : nextScope));
+  }, [canAccessAdmin, isChecking, isLoggedIn]);
+
+  useEffect(() => {
+    // Avoid fetching admin datasets until the capability probe finishes to prevent public → admin flicker
+    if (isLoggedIn && isChecking) return;
+
+    fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0, scope: accessScope });
+
+    if (accessScope === "public") {
+      setRegisteredWorkshopIds([]);
+      setUserWorkshopMap({});
+      setFamilyWorkshopMap({});
+      setServerMapsLoaded(false);
+      setMapsReady(false);
+      return;
+    }
+
+    fetchRegisteredWorkshops();
+  }, [
+    accessScope,
+    fetchAllWorkshops,
+    fetchRegisteredWorkshops,
+    isChecking,
+    isLoggedIn,
+    pagination.limit,
+  ]);
+
+  
 
   function fetchWorkshops(options = {}) {
     const opts = typeof options === "boolean" ? { force: options } : options;
