@@ -2217,6 +2217,7 @@ exports.searchWorkshops = async (req, res) => {
       availableParam !== undefined
         ? String(availableParam).toLowerCase() === "true"
         : undefined;
+    const shouldApplyAvailabilityFilter = availableFilter !== undefined && access.scope !== "admin";
 
     // Clean filter object
     const filterObj = {};
@@ -2226,7 +2227,7 @@ exports.searchWorkshops = async (req, res) => {
     if (hourFilter) filterObj.hour = { $regex: new RegExp(escapeRegex(hourFilter), "i") };
     if (dayFilter) filterObj.days = dayFilter;
     if (ageGroupFilter) filterObj.ageGroup = ageGroupFilter;
-    if (availableFilter !== undefined) filterObj.available = availableFilter;
+    if (shouldApplyAvailabilityFilter) filterObj.available = availableFilter;
     if (access.scope !== "admin") filterObj.adminHidden = { $ne: true };
 
     // Projection

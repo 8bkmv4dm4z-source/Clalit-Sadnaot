@@ -42,7 +42,20 @@ export const withEntityFlags = (entity = {}) => {
     __entityKey: key,
   };
 };
-const ALLOWED_ME_FIELDS = ["entityKey", "name", "email", "phone", "city", "birthDate"];
+const ALLOWED_ME_FIELDS = [
+  "entityKey",
+  "name",
+  "email",
+  "phone",
+  "city",
+  "birthDate",
+  "relation",
+  "idNumber",
+  "parentKey",
+  "parentName",
+  "parentEmail",
+  "parentPhone",
+];
 
 const pickAllowedMeFields = (src = {}) => {
   const safe = {};
@@ -57,34 +70,54 @@ export const normalizeMePayload = (payload = {}) => {
   if (!raw.entityKey) return null;
 
   // Strip privileged/sensitive fields (role, authorities) and flatten entities
-  const baseUser = withEntityFlags({
-    ...pickAllowedMeFields(raw),
-    isFamily: false,
-  });
+  const baseUser = withEntityFlags(pickAllowedMeFields(raw));
+
+  const normalizeEntity = (entity, { isFamily = false } = {}) =>
+    withEntityFlags({
+      ...pickAllowedMeFields(entity),
+      isFamily,
+    });
 
   const normalizedEntities = Array.isArray(raw.entities)
     ? raw.entities
-        .map((entity) => withEntityFlags(pickAllowedMeFields(entity)))
+        .map((entity) => normalizeEntity(entity, { isFamily: isFamilyEntity(entity) }))
+        .filter((e) => e.entityKey)
+    : [];
+
+  const normalizedFamily = Array.isArray(raw.familyMembers)
+    ? raw.familyMembers
+        .map((member) =>
+          normalizeEntity(
+            {
+              ...member,
+              parentKey: member.parentKey || raw.entityKey,
+            },
+            { isFamily: true }
+          )
+        )
         .filter((e) => e.entityKey)
     : [];
 
   const deduped = new Map();
-  [baseUser, ...normalizedEntities].forEach((entity) => {
-    if (entity?.entityKey && !deduped.has(entity.entityKey)) {
-      deduped.set(entity.entityKey, entity);
+  [baseUser, ...normalizedEntities, ...normalizedFamily].forEach((entity) => {
+    if (!entity?.entityKey) return;
+    const existing = deduped.get(entity.entityKey) || {};
+    const merged = {
+      ...existing,
+      ...entity,
+    };
+    if (merged.isFamily && !merged.parentKey) {
+      merged.parentKey = raw.entityKey;
     }
+    deduped.set(entity.entityKey, merged);
   });
 
   const primaryKey = baseUser.entityKey;
-  const entities = Array.from(deduped.values()).map((entity) => {
-    if (entity.entityKey === primaryKey) return entity;
-
-    const withParent = entity.parentKey
-      ? entity
-      : { ...entity, parentKey: primaryKey, isFamily: true };
-
-    return withEntityFlags(withParent);
-  });
+  const entities = Array.from(deduped.values()).map((entity) =>
+    entity.entityKey === primaryKey
+      ? { ...entity, isFamily: false }
+      : { ...entity, isFamily: true, parentKey: entity.parentKey || primaryKey }
+  );
 
   const userEntity = entities.find((e) => !e.isFamily) || baseUser;
   const familyMembers = entities.filter((e) => e.isFamily);

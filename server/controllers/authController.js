@@ -15,7 +15,7 @@ const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { hashId } = require("../utils/hashId");
-const { toOwnerUser, toAdminUser } = require("../contracts/userContracts");
+const { toOwnerUser } = require("../contracts/userContracts");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
 const {
   hashPassword,
@@ -23,6 +23,13 @@ const {
   upgradeHashIfNeeded,
   isBcryptHash,
 } = require("../utils/passwordHasher");
+const {
+  tokensMatch,
+  buildRefreshSession,
+  normalizeRefreshSessions,
+  rotateRefreshToken,
+  findSession,
+} = require("../services/refreshTokenService");
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
 const safeAuthLog = (message) => {
@@ -53,7 +60,7 @@ const GENERIC_REGISTRATION_VERIFY_FAILURE = Object.freeze({
 const enumerationDelay = () =>
   new Promise((resolve) => setTimeout(resolve, 150 + Math.floor(Math.random() * 200)));
 
-const REFRESH_COOKIE_NAME = "refreshToken";
+const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "refreshToken";
 const REFRESH_COOKIE_SAMESITE =
   process.env.REFRESH_COOKIE_SAMESITE || "Strict"; // prefer Strict, allow override to None/Lax if needed
 const REFRESH_COOKIE_SECURE =
@@ -62,6 +69,46 @@ const REFRESH_TOKEN_CAP = Number(process.env.REFRESH_TOKEN_CAP || 5);
 const OTP_SEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_LOCK_MS = 10 * 60 * 1000;
+
+const REQUIRED_ENV_VARS = [
+  "JWT_SECRET",
+  "JWT_EXPIRY",
+  "JWT_REFRESH_SECRET",
+  "JWT_REFRESH_EXPIRY",
+  "PUBLIC_ID_SECRET",
+];
+
+const warnEnv = (message) => {
+  if (process.env.NODE_ENV !== "test") {
+    console.warn(message);
+  }
+};
+
+function validateAuthEnv() {
+  const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+  if (missing.length) {
+    throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
+  }
+
+  if (!process.env.REFRESH_COOKIE_NAME) {
+    warnEnv(
+      `Using default refresh cookie name "${REFRESH_COOKIE_NAME}". Set REFRESH_COOKIE_NAME to override.`
+    );
+  }
+
+  if (!process.env.REFRESH_COOKIE_SAMESITE) {
+    warnEnv("REFRESH_COOKIE_SAMESITE not set; defaulting to Strict.");
+  }
+
+  if (!process.env.REFRESH_COOKIE_SECURE && process.env.NODE_ENV !== "production") {
+    warnEnv("REFRESH_COOKIE_SECURE not set; cookies will be secure in production by default.");
+  }
+
+  if (!process.env.CLIENT_URL && !process.env.PUBLIC_CLIENT_URL) {
+    warnEnv("CLIENT_URL/Public client URL missing; password reset links will fallback to localhost.");
+  }
+}
+validateAuthEnv();
 
 /* ============================================================
    🔐 JWT Helpers
@@ -149,31 +196,32 @@ function clearRefreshCookie(res) {
   });
 }
 
-function pruneRefreshSessions(user) {
-  if (!user || !Array.isArray(user.refreshTokens)) return;
-  const now = Date.now();
-
-  const filtered = user.refreshTokens
-    .filter((rt) => {
-      if (!rt?.token) return false;
-      const createdAt = rt.createdAt ? new Date(rt.createdAt).getTime() : 0;
-      if (!createdAt) return true; // keep if timestamp missing to avoid accidental lockouts
-      return now - createdAt < REFRESH_TOKEN_TTL_MS;
-    })
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-
-  user.refreshTokens = filtered.slice(0, REFRESH_TOKEN_CAP);
+function pruneRefreshSessions(user, { now = new Date() } = {}) {
+  if (!user) return { prunedExpired: 0, prunedCap: 0 };
+  const { sessions, prunedExpired, prunedCap } = normalizeRefreshSessions(user.refreshTokens, {
+    refreshTtlMs: REFRESH_TOKEN_TTL_MS,
+    maxSessions: REFRESH_TOKEN_CAP,
+    now,
+  });
+  user.refreshTokens = sessions;
+  if (prunedExpired || prunedCap) {
+    safeAuthLog(
+      `refresh sessions pruned | expired=${prunedExpired} capped=${prunedCap} user=${user.entityKey || "unknown"}`
+    );
+  }
+  return { prunedExpired, prunedCap };
 }
 
-function recordRefreshToken(user, hashedToken, userAgent = "") {
-  if (!user || !hashedToken) return;
-  user.refreshTokens = user.refreshTokens || [];
-  user.refreshTokens.unshift({
-    token: hashedToken,
+function recordRefreshToken(user, rawToken, userAgent = "", { now = new Date() } = {}) {
+  if (!user || !rawToken) return;
+  const session = buildRefreshSession(rawToken, {
     userAgent,
-    createdAt: new Date(),
+    refreshTtlMs: REFRESH_TOKEN_TTL_MS,
+    now,
   });
-  pruneRefreshSessions(user);
+  user.refreshTokens = user.refreshTokens || [];
+  user.refreshTokens.unshift(session);
+  pruneRefreshSessions(user, { now });
 }
 
 /* ============================================================
@@ -205,23 +253,6 @@ const PASSWORD_RESET_TOKEN_TTL_MS = PASSWORD_RESET_TOKEN_MINUTES * 60 * 1000;
 
 function hashResetToken(rawToken) {
   return crypto.createHash("sha256").update(String(rawToken)).digest("hex");
-}
-
-function hashRefreshToken(rawToken) {
-  return crypto.createHash("sha256").update(String(rawToken || "")).digest("hex");
-}
-
-function tokensMatch(storedToken, candidateToken) {
-  if (!storedToken || !candidateToken) return false;
-  const stored = Buffer.from(String(storedToken));
-  const candidateHashed = Buffer.from(hashRefreshToken(candidateToken));
-  const safeEqual = (a, b) => {
-    if (a.length !== b.length) return false;
-    try { return crypto.timingSafeEqual(a, b); } 
-    catch (err) { return false; }
-  };
-  if (safeEqual(stored, candidateHashed)) return true;
-  return safeEqual(stored, Buffer.from(String(candidateToken)));
 }
 
 function resolveClientBaseUrl(req) {
@@ -733,7 +764,7 @@ exports.loginUser = async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
+    recordRefreshToken(user, refreshToken, req.headers["user-agent"] || "");
     await user.save();
     setRefreshCookie(res, refreshToken);
 
@@ -921,7 +952,7 @@ exports.verifyOtp = async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-    recordRefreshToken(user, hashRefreshToken(refreshToken), req.headers["user-agent"] || "");
+    recordRefreshToken(user, refreshToken, req.headers["user-agent"] || "");
     await user.save();
 
     setRefreshCookie(res, refreshToken);
@@ -1149,14 +1180,14 @@ exports.refreshAccessToken = async (req, res) => {
       clearRefreshCookie(res);
       return res.status(401).json({ message: "Invalid refresh token" });
     }
-    const user = await User.findOne({ entityKey }).select(
-      "+authorities"
-    );
+    const user = await User.findOne({ entityKey }).select("+authorities");
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.passwordChangedAt) {
+    const now = new Date();
+    const lastPasswordChange = user.passwordChangedAt ? new Date(user.passwordChangedAt).getTime() : null;
+    if (lastPasswordChange) {
       const issuedAtMs = (payload.iat || 0) * 1000;
-      if (issuedAtMs && issuedAtMs < new Date(user.passwordChangedAt).getTime()) {
+      if (issuedAtMs && issuedAtMs < lastPasswordChange) {
         user.refreshTokens = [];
         await user.save();
         clearRefreshCookie(res);
@@ -1164,9 +1195,17 @@ exports.refreshAccessToken = async (req, res) => {
       }
     }
 
-    const session = user.refreshTokens.find((rt) => tokensMatch(rt.token, token));
-    if (!session) {
-      // Reuse detection: presented token is valid JWT but not in the persisted family.
+    const rotated = rotateRefreshToken(user.refreshTokens, {
+      token,
+      newToken: generateRefreshToken(user),
+      userAgent: req.headers["user-agent"] || "",
+      refreshTtlMs: REFRESH_TOKEN_TTL_MS,
+      maxSessions: REFRESH_TOKEN_CAP,
+      now,
+    });
+
+    if (rotated.reuseDetected) {
+      safeAuthLog(`🔴 refresh reuse detected | user=${user.entityKey || "unknown"}`);
       user.refreshTokens = [];
       await user.save();
       clearRefreshCookie(res);
@@ -1175,15 +1214,25 @@ exports.refreshAccessToken = async (req, res) => {
       });
     }
 
-    // Rotate refresh token: remove the old one, add a new hash, and return new access.
-    const accessToken = generateAccessToken(user);
-    const newRefreshToken = generateRefreshToken(user);
-    const hashedNew = hashRefreshToken(newRefreshToken);
+    if (!rotated.sessions || rotated.sessions.length === 0) {
+      user.refreshTokens = [];
+      await user.save();
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: "Refresh session expired. Please login again." });
+    }
 
-    user.refreshTokens = user.refreshTokens.filter((rt) => !tokensMatch(rt.token, token));
-    recordRefreshToken(user, hashedNew, req.headers["user-agent"] || "");
+    user.refreshTokens = rotated.sessions;
+    const accessToken = generateAccessToken(user);
     await user.save();
-    setRefreshCookie(res, newRefreshToken);
+    if (rotated.newSession?.rawToken) {
+      setRefreshCookie(res, rotated.newSession.rawToken);
+    } else {
+      clearRefreshCookie(res);
+    }
+
+    safeAuthLog(
+      `🔄 refresh rotated | user=${user.entityKey || "unknown"} capped=${rotated.prunedCap || 0} expired=${rotated.prunedExpired || 0}`
+    );
 
     return res.json({ accessToken });
   } catch (e) {
@@ -1214,7 +1263,7 @@ exports.logout = async (req, res) => {
         );
         if (user) {
           user.refreshTokens = user.refreshTokens.filter(
-            (rt) => !tokensMatch(rt.token, token)
+            (rt) => !tokensMatch(rt, token)
           );
           pruneRefreshSessions(user);
           await user.save();

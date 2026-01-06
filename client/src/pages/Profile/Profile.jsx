@@ -41,6 +41,7 @@ const normalizeProfilePayload = (payload = {}) => ({
     ? payload.entities.map((e) => ({
         entityKey: e?.entityKey || "",
         name: e?.name || "",
+        relation: e?.relation || "",
       }))
     : [],
 });
@@ -163,9 +164,6 @@ export default function Profile() {
             <h2 className="text-2xl font-bold text-gray-900 font-[Poppins]">
               {form.name || "משתמש"}
             </h2>
-            <p className="text-gray-600 mt-1 break-all text-sm">
-              מזהה ישות: {form.entityKey || "לא זמין"}
-            </p>
           </div>
         </div>
 
@@ -212,9 +210,11 @@ export default function Profile() {
               {form.entities.map((entity) => (
                 <li key={entity.entityKey} className="flex flex-col">
                   <span className="text-gray-800 font-medium">{entity.name || "ללא שם"}</span>
-                  <span className="text-gray-600 text-xs break-all">
-                    מזהה: {entity.entityKey || "לא זמין"}
-                  </span>
+                  {entity.relation && (
+                    <span className="text-gray-600 text-xs break-all">
+                      קשר: {entity.relation}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
