@@ -9,10 +9,7 @@ import React, {
 import { apiFetch } from "../utils/apiFetch";
 import { useAuth } from "../layouts/AuthLayout";
 
-const AdminCapabilityContext = createContext({
-  canAccessAdmin: false,
-  isChecking: true,
-});
+const AdminCapabilityContext = createContext(null);
 
 export const AdminCapabilityProvider = ({ children }) => {
   const { isLoggedIn, loading: authLoading } = useAuth();

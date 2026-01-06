@@ -35,10 +35,7 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 // 🧩 Pages
 import Home from "../../pages/Home";
@@ -64,8 +61,7 @@ import PublicLayout from "../../layouts/PublicLayout";
    ============================================================ */
 export default function AppRoutes() {
   const { isLoggedIn, loading } = useAuth();
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
   if (loading || (isLoggedIn && isChecking)) {
     return (

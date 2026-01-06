@@ -25,10 +25,7 @@ import {
   isFamilyEntity as isFamilyEntityHelper,
   withEntityFlags,
 } from "../../utils/entityTypes";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 /* ---------------- helpers ---------------- */
 const calcAge = (dateStr) => {
@@ -222,8 +219,7 @@ function ActionMenu({
 
 /* ---------------- main component ---------------- */
 export default function AllProfiles({ mode = "manage", onSelectUser, existingIds = [] }) {
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const {
     profiles: contextProfiles = [],
     updateEntity,
