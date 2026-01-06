@@ -31,13 +31,14 @@
  * - Never hold stale data: every mutation refetches from server.
  */
 
-import React,
-{
+import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
-  useState,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 import { useProfiles } from "../ProfileContext";
 import { apiFetch } from "../../utils/apiFetch";
@@ -112,12 +113,23 @@ export const WorkshopProvider = ({ children }) => {
     hasMore: true,
   });
   const [accessScope, setAccessScope] = useState("public");
+  const paginationRef = useRef(pagination);
+  const accessScopeRef = useRef(accessScope);
+  const fetchInFlightRef = useRef(false);
 
   // Derived maps (context-only, never mutated directly)
   const [userWorkshopMap, setUserWorkshopMap] = useState({});   // { [workshopId]: true }
   const [familyWorkshopMap, setFamilyWorkshopMap] = useState({}); // { [workshopId]: [familyId,...] }
   const [mapsReady, setMapsReady] = useState(false);
   const [serverMapsLoaded, setServerMapsLoaded] = useState(false);
+
+  useEffect(() => {
+    paginationRef.current = pagination;
+  }, [pagination]);
+
+  useEffect(() => {
+    accessScopeRef.current = accessScope;
+  }, [accessScope]);
 
   /* ───────────────────────── Derived user/family info ───────────────────────── */
 
@@ -144,19 +156,26 @@ export const WorkshopProvider = ({ children }) => {
   /* ============================================================
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
-  async function fetchAllWorkshops(options = {}) {
+  const fetchAllWorkshops = useCallback(async (options = {}) => {
     const opts = typeof options === "boolean" ? { force: options } : options;
+    const currentPagination = paginationRef.current;
+    const currentScope = accessScopeRef.current || "public";
     const {
       force = false,
-      limit = pagination.limit || 10,
-      skip = force ? 0 : pagination.skip || 0,
+      limit = currentPagination.limit || 10,
+      skip = force ? 0 : currentPagination.skip || 0,
       append = false,
-      scope = accessScope || "public",
+      scope = currentScope,
     } = opts;
 
     const effectiveScope = scope || "public";
 
-    setAccessScope((prev) => (prev === effectiveScope ? prev : effectiveScope));
+    if (fetchInFlightRef.current && !force) {
+      dbgCtx("fetchAllWorkshops:skip-inflight", { force, scope: effectiveScope });
+      return [];
+    }
+
+    fetchInFlightRef.current = true;
 
     log(
       `📡 Fetching all workshops (force=${force}, limit=${limit}, skip=${skip}, append=${append}, scope=${effectiveScope})`
@@ -399,10 +418,11 @@ export const WorkshopProvider = ({ children }) => {
       setError(err.message);
       return [];
     } finally {
+      fetchInFlightRef.current = false;
       if (append) setLoadingMore(false);
       else setLoading(false);
     }
-  }
+  }, [userKey]);
 
   /* 👈 NEW: refetch when auth scope changes so DTOs match access level */
   useEffect(() => {
@@ -427,13 +447,19 @@ export const WorkshopProvider = ({ children }) => {
     }
 
     fetchRegisteredWorkshops();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessScope, fetchAllWorkshops, isChecking, isLoggedIn, pagination.limit]);
+  }, [
+    accessScope,
+    fetchAllWorkshops,
+    fetchRegisteredWorkshops,
+    isChecking,
+    isLoggedIn,
+    pagination.limit,
+  ]);
 
   /* ============================================================
      📡 Fetch registered workshops (IDs only)
      ============================================================ */
-  async function fetchRegisteredWorkshops() {
+  const fetchRegisteredWorkshops = useCallback(async () => {
     log("📡 Fetching registered workshops (ids)...");
     dbgCtx("fetchRegisteredWorkshops:start");
     try {
@@ -517,7 +543,7 @@ export const WorkshopProvider = ({ children }) => {
       setLoading(false);
       dbgCtx("fetchRegisteredWorkshops:done");
     }
-  }
+  }, []);
 
   function fetchWorkshops(options = {}) {
     const opts = typeof options === "boolean" ? { force: options } : options;
@@ -577,11 +603,16 @@ export const WorkshopProvider = ({ children }) => {
 
     return () => {
       window.removeEventListener("auth-logged-out", onLoggedOut);
-      window.removeEventListener("auth-logged-in", onLoggedIn);
-      window.removeEventListener("auth-ready", onAuthReady);
-      window.removeEventListener("auth-user-updated", onUserUpdated);
-    };
-  }, [viewMode]);
+    window.removeEventListener("auth-logged-in", onLoggedIn);
+    window.removeEventListener("auth-ready", onAuthReady);
+    window.removeEventListener("auth-user-updated", onUserUpdated);
+  };
+  }, [
+    fetchAllWorkshops,
+    fetchRegisteredWorkshops,
+    pagination.limit,
+    viewMode,
+  ]);
 
   /* ============================================================
      🧭 Map lifecycle helpers
