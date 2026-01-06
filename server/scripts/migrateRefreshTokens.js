@@ -36,11 +36,20 @@ async function run() {
   for await (const user of cursor) {
     processed += 1;
     const beforeCount = (user.refreshTokens || []).length;
-    const normalized = normalizeRefreshSessions(user.refreshTokens, {
-      refreshTtlMs: REFRESH_TOKEN_TTL_MS,
-      maxSessions: REFRESH_TOKEN_CAP,
-      now: new Date(),
-    });
+    const normalized = {
+  sessions: (user.refreshTokens || []).map((s) => ({
+    tokenHash: s.tokenHash || s.token,
+    issuedAt: s.issuedAt || s.createdAt || new Date(),
+    expiresAt: null,
+    lastUsedAt: s.createdAt || new Date(),
+    userAgent: s.userAgent || "",
+    revokedAt: null,
+    replacedByJti: null,
+  })),
+  prunedExpired: 0,
+  prunedCap: 0,
+};
+
 
     // Ensure hashes live under tokenHash for any legacy 'token' properties
     const withHashes = normalized.sessions.map((session) => ({

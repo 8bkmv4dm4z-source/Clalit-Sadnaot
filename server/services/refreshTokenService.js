@@ -57,13 +57,24 @@ const normalizeRefreshSessions = (
 
   for (const session of sessions || []) {
     if (!session) continue;
-    const issuedAt = session.issuedAt ? new Date(session.issuedAt) : session.createdAt ? new Date(session.createdAt) : now;
-    const expiresAt =
-      session.expiresAt && !Number.isNaN(new Date(session.expiresAt))
-        ? new Date(session.expiresAt)
-        : refreshTtlMs
-          ? new Date(issuedAt.getTime() + refreshTtlMs)
-          : null;
+    const isLegacy = !!session.token && !session.tokenHash;
+
+const issuedAt = session.issuedAt
+  ? new Date(session.issuedAt)
+  : session.createdAt
+    ? new Date(session.createdAt)
+    : now;
+
+// 🔓 Legacy tokens get ONE refresh window
+const expiresAt =
+  session.expiresAt && !Number.isNaN(new Date(session.expiresAt))
+    ? new Date(session.expiresAt)
+    : isLegacy
+      ? new Date(now.getTime() + (refreshTtlMs || 0))
+      : refreshTtlMs
+        ? new Date(issuedAt.getTime() + refreshTtlMs)
+        : null;
+
 
     if (expiresAt && expiresAt <= now) {
       prunedExpired += 1;
