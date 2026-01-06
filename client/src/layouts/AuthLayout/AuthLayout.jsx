@@ -4,16 +4,15 @@
  * ------------------------------------
  * • Source: Credentials originate from login/register/OTP forms in pages/Login and pages/Register
  *   and are passed into AuthContext callbacks (loginWithPassword, completeLogin, registerUser,
- *   verifyOtp). The context stores access tokens in localStorage and keeps user + access metadata in
- *   React state.
+ *   verifyOtp). The context stores access tokens in localStorage and keeps user metadata in React
+ *   state.
  * • Path: Each auth action delegates to apiFetch -> backend /api/auth/* endpoints. Successful
  *   responses are normalized via normalizeMePayload (whitelisted fields only) and stored via
- *   setUser/setIsLoggedIn/setIsAdmin before bubbling updates through context consumers (AppRoutes
- *   uses useAuth to gate routes).
+ *   setUser/setIsLoggedIn before bubbling updates through context consumers (AppRoutes uses useAuth
+ *   to gate routes).
  * • Transformations: normalizeMePayload unwraps { success, data } and strips role/authority fields;
  *   refreshAccessToken rewrites Authorization headers; authFetch retries once on 401. Logout clears
- *   state and localStorage and navigates to /workshops. Admin scope is derived from server-set
- *   X-Access-* headers rather than trusting payload booleans.
+ *   state and localStorage and navigates to /workshops.
  * • Downstream: Context values propagate to any component calling useAuth (e.g., AppShell,
  *   Profile page). Callbacks bubble events upward through window events and an EventBus so other
  *   parts (WorkshopContext) can refetch when auth changes.
@@ -28,18 +27,18 @@
  * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL and includes credentials;
  *   authFetch injects Authorization: Bearer <token> and retries after hitting refresh endpoint.
  * • Responses: Expected JSON containing accessToken, user payload, and message; /getme is
- *   normalized to a whitelisted shape (entityKey + contact details + access scope) to avoid
- *   rehydrating privileged fields like role/authorities; errors are translated via
- *   translateAuthError/translateNetworkError for user-friendly UI.
+ *   normalized to a whitelisted shape (entityKey + contact details) to avoid rehydrating privileged
+ *   fields; errors are translated via translateAuthError/translateNetworkError for user-friendly
+ *   UI.
  *
  * COMPONENT LOGIC
  * ---------------
  * • Purpose: Provide AuthContext with stateful login/logout helpers and mount children under
  *   <AuthProvider> so routing can check authentication. It also emits browser events signalling
  *   auth-ready/login/logout for other modules.
- * • State: isLoggedIn, isAdmin, user, filters/searchQuery (used by Workshops filter), loading,
- *   accessToken. These states coordinate API requests, control which routes display, and persist
- *   tokens between reloads.
+ * • State: isLoggedIn, user, filters/searchQuery (used by Workshops filter), loading, accessToken.
+ *   These states coordinate API requests, control which routes display, and persist tokens between
+ *   reloads.
  * • Effects: useEffect on mount to verify existing access token and fetch /api/auth/me; also uses
  *   refs to avoid duplicate verification. Navigation side-effects occur after login/logout.
  * • Props: Accepts children to render; does not receive external props.
@@ -106,13 +105,11 @@ function fireLoggedOut(extra = {}) {
 /* --------------------------- Context Shape -------------------------- */
 const AuthContext = createContext({
   isLoggedIn: false,
-  isAdmin: false,
   loading: true,
   user: null,
   filters: {},
   searchQuery: "",
   setIsLoggedIn: () => {},
-  setIsAdmin: () => {},
   setUser: () => {},
   setFilters: () => {},
   setSearchQuery: () => {},
@@ -136,7 +133,6 @@ export const AuthProvider = ({ children }) => {
   const { publish: publishEvent } = useEventBus();
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [user, setUser] = useState(null);
   const [filters, setFilters] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -165,7 +161,6 @@ export const AuthProvider = ({ children }) => {
       setAccessToken(null);
       setUser(null);
       setIsLoggedIn(false);
-      setIsAdmin(false);
 
       log("🚪 Logged out (local + server)");
 
@@ -268,24 +263,18 @@ export const AuthProvider = ({ children }) => {
         const res = await authFetch("/api/users/getMe");
 
         const raw = await safeJson(res);
-        const accessScope = res.headers.get("x-access-scope");
-        const accessProof = res.headers.get("x-access-proof");
 
         if (!res.ok || !raw) {
           throw new Error(raw?.message || "Failed to load profile");
         }
 
-        const normalized = normalizeMePayload(raw, {
-          accessScope,
-          accessProof,
-        });
+        const normalized = normalizeMePayload(raw);
         if (!normalized?.entityKey) {
           throw new Error("Invalid /getme payload");
         }
 
         setUser(normalized);
         setIsLoggedIn(true);
-        setIsAdmin(normalized.access?.scope === "admin");
 
         log("✅ getme loaded:", normalized.entityKey);
         return normalized;
@@ -735,14 +724,12 @@ detail: { at: Date.now(), entityKey: user?.entityKey }
     <AuthContext.Provider
       value={{
         isLoggedIn,
-        isAdmin,
         user,
         loading,
         filters,
         searchQuery,
         setUser,
         setIsLoggedIn,
-        setIsAdmin,
         setFilters,
         setSearchQuery,
         logout,

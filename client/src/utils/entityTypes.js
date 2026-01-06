@@ -52,24 +52,9 @@ const pickAllowedMeFields = (src = {}) => {
   return safe;
 };
 
-const normalizeAccessScope = (rawScope) => {
-  if (!rawScope) return null;
-  const scope = String(rawScope).toLowerCase();
-  return ["admin", "user", "public"].includes(scope) ? scope : null;
-};
-
-export const normalizeMePayload = (payload = {}, meta = {}) => {
+export const normalizeMePayload = (payload = {}) => {
   const raw = payload?.data ?? payload ?? {};
   if (!raw.entityKey) return null;
-
-  const accessScope =
-    normalizeAccessScope(raw.access?.scope) ||
-    normalizeAccessScope(meta.accessScope);
-
-  const access = {
-    scope: accessScope || "user",
-    proof: raw.access?.proof || meta.accessProof || null,
-  };
 
   // Strip privileged/sensitive fields (role, authorities) and flatten entities
   const baseUser = withEntityFlags({
@@ -108,8 +93,6 @@ export const normalizeMePayload = (payload = {}, meta = {}) => {
     ...userEntity,
     entities,
     familyMembers,
-    access,
-    isAdmin: access.scope === "admin",
   };
 };
 

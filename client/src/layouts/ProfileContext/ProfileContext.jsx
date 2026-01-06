@@ -18,6 +18,10 @@ import React, {
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
 import { withEntityFlags } from "../../utils/entityTypes"; // kept only for icons/roles
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -54,7 +58,9 @@ const rowMatchesQuery = (row, normalizedQuery) => {
 };
 
 export function ProfileProvider({ children }) {
-  const { isLoggedIn, isAdmin, loading: authLoading } = useAuth();
+  const { isLoggedIn, loading: authLoading } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -105,29 +111,29 @@ export function ProfileProvider({ children }) {
     const onInvalidate = () => {
       clearTimeout(window.__profilesInvalidateTO);
       window.__profilesInvalidateTO = setTimeout(() => {
-        if (!isAdmin) return;
+        if (!canAccessAdmin || isChecking) return;
         searchCache.current.clear();
         fetchProfiles({ limit: 1000, compact: 1 });
       }, 80);
     };
     window.addEventListener("profiles:invalidate", onInvalidate);
     return () => window.removeEventListener("profiles:invalidate", onInvalidate);
-  }, [fetchProfiles, isAdmin]);
+  }, [canAccessAdmin, fetchProfiles, isChecking]);
 
   // -----------------------------
   // AUTH change → load or reset
   // -----------------------------
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || isChecking) return;
 
-    if (!isLoggedIn || !isAdmin) {
+    if (!isLoggedIn || !canAccessAdmin) {
       resetProfiles();
       setLoading(false);
       return;
     }
 
     fetchProfiles({ limit: 1000, compact: 1 });
-  }, [authLoading, isLoggedIn, isAdmin, fetchProfiles, resetProfiles]);
+  }, [authLoading, canAccessAdmin, fetchProfiles, isChecking, isLoggedIn, resetProfiles]);
 
   // -----------------------------
   // Cache default set

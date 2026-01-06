@@ -14,10 +14,16 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../components/WorkshopCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 export default function Workshops() {
   const navigate = useNavigate();
-  const { isLoggedIn, isAdmin, user } = useAuth();
+  const { isLoggedIn, user } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
 
   // 🔹 Local state
   const [searchBy, setSearchBy] = useState("all");
@@ -83,9 +89,10 @@ export default function Workshops() {
   }, []);
 
   useEffect(() => {
-    const scope = isAdmin ? "admin" : isLoggedIn ? "user" : "public";
+    if (isChecking && isLoggedIn) return;
+    const scope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
     if (typeof setAccessScope === "function") setAccessScope(scope);
-  }, [isAdmin, isLoggedIn, setAccessScope]);
+  }, [canAccessAdmin, isChecking, isLoggedIn, setAccessScope]);
 
   // 🔽 Infinite scroll / swipe-to-load for mobile
   const loadMoreRef = useRef(null);
@@ -368,7 +375,6 @@ export default function Workshops() {
                     key={w._id}
                     _id={w._id}
                     isLoggedIn={isLoggedIn}
-                    isAdmin={isAdmin}
                     searchQuery={searchQuery}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
@@ -400,7 +406,6 @@ export default function Workshops() {
                   <WorkshopCard
                     _id={w._id}
                     isLoggedIn={isLoggedIn}
-                    isAdmin={isAdmin}
                     searchQuery={searchQuery}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}

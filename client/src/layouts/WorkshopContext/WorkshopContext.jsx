@@ -43,6 +43,10 @@ import { useProfiles } from "../ProfileContext";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
 import { normalizeEntity } from "../../utils/normalizeEntity";
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 /* ───────────────────────── Debug Helpers ───────────────────────── */
 // Enable via query string: ?debug=ws
@@ -86,7 +90,9 @@ const sid = (x) => String(x ?? "");
 /* ================================================================== */
 
 export const WorkshopProvider = ({ children }) => {
-  const { user, isAdmin, isLoggedIn } = useAuth();
+  const { user, isLoggedIn } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
   const { fetchProfiles } = useProfiles();
 
   const [workshops, setWorkshops] = useState([]);
@@ -400,11 +406,15 @@ export const WorkshopProvider = ({ children }) => {
 
   /* 👈 NEW: refetch when auth scope changes so DTOs match access level */
   useEffect(() => {
-    const nextScope = isAdmin ? "admin" : isLoggedIn ? "user" : "public";
+    if (isChecking && isLoggedIn) return;
+    const nextScope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
     setAccessScope((prev) => (prev === nextScope ? prev : nextScope));
-  }, [isAdmin, isLoggedIn]);
+  }, [canAccessAdmin, isChecking, isLoggedIn]);
 
   useEffect(() => {
+    // Avoid fetching admin datasets until the capability probe finishes to prevent public → admin flicker
+    if (isLoggedIn && isChecking) return;
+
     fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0, scope: accessScope });
 
     if (accessScope === "public") {
@@ -418,7 +428,7 @@ export const WorkshopProvider = ({ children }) => {
 
     fetchRegisteredWorkshops();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessScope]);
+  }, [accessScope, fetchAllWorkshops, isChecking, isLoggedIn, pagination.limit]);
 
   /* ============================================================
      📡 Fetch registered workshops (IDs only)
