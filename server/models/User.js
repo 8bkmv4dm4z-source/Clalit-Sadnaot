@@ -110,9 +110,14 @@ const UserSchema = new mongoose.Schema(
       type: [
         new mongoose.Schema(
           {
-            token: { type: String, required: true },
+            tokenHash: { type: String, required: true },
+            jti: { type: String, default: null },
+            issuedAt: { type: Date, default: Date.now },
+            expiresAt: { type: Date, default: null },
+            lastUsedAt: { type: Date, default: Date.now },
+            revokedAt: { type: Date, default: null },
+            replacedByJti: { type: String, default: null },
             userAgent: { type: String, default: "" },
-            createdAt: { type: Date, default: Date.now },
           },
           { _id: true }
         ),

@@ -1,5 +1,4 @@
 const { hashId } = require("../utils/hashId");
-const { sanitizeUserForResponse } = require("../utils/sanitizeUser");
 const {
   buildEntityFromUserDoc,
   buildEntityFromFamilyMemberDoc,
@@ -27,13 +26,24 @@ const resolveEntityKey = (doc, type = "user") => {
   return null;
 };
 
-const shapeOwnerFamilyMember = (member = {}, parent = {}) => ({
-  entityKey: resolveEntityKey(member, "family"),
-  name: member.name || "",
-  relation: member.relation || "",
-  birthDate: normalizeDate(member.birthDate),
-  city: member.city || parent.city || "",
-});
+const shapeOwnerFamilyMember = (member = {}, parent = {}) =>
+  enforceResponseContract(
+    {
+      entityKey: resolveEntityKey(member, "family"),
+      name: member.name || "",
+      relation: member.relation || "",
+      birthDate: normalizeDate(member.birthDate),
+      city: member.city || parent.city || "",
+      phone: member.phone || parent.phone || "",
+      email: member.email || parent.email || "",
+      idNumber: member.idNumber || "",
+      parentKey: resolveEntityKey(parent),
+      parentName: parent.name || "",
+      parentEmail: parent.email || "",
+      parentPhone: parent.phone || "",
+    },
+    { context: "toOwnerUser.familyMember" }
+  );
 
 const shapeSelfEntityProfile = (entity = {}, parent = {}) =>
   enforceResponseContract(
@@ -45,6 +55,7 @@ const shapeSelfEntityProfile = (entity = {}, parent = {}) =>
       city: entity.city || parent.city || "",
       relation: entity.relation || "",
       birthDate: normalizeDate(entity.birthDate),
+      idNumber: entity.idNumber || "",
     },
     { context: "toSelfEntityProfile" }
   );
@@ -81,47 +92,70 @@ function toOwnerUser(userDoc) {
     phone: user.phone || "",
     city: user.city || "",
     birthDate: normalizeDate(user.birthDate),
+    idNumber: user.idNumber || "",
   };
 
   const familyMembers = Array.isArray(user.familyMembers)
     ? user.familyMembers.map((member) => shapeOwnerFamilyMember(member, base))
     : [];
 
+  const entities = [
+    enforceResponseContract(
+      {
+        entityKey,
+        name: base.name,
+        email: base.email,
+        phone: base.phone,
+        city: base.city,
+        birthDate: base.birthDate,
+      },
+      { context: "toOwnerUser.entity" }
+    ),
+    ...familyMembers.map((member) =>
+      enforceResponseContract(
+        {
+          entityKey: member.entityKey,
+          name: member.name,
+          relation: member.relation,
+          birthDate: member.birthDate,
+          city: member.city,
+          email: member.email,
+          phone: member.phone,
+          idNumber: member.idNumber || "",
+          parentKey: member.parentKey || entityKey,
+        },
+        { context: "toOwnerUser.entity.family" }
+      )
+    ),
+  ];
+
   const payload = {
     ...base,
     familyMembers,
+    entities: entities.filter(Boolean),
   };
 
   return enforceResponseContract(payload, { context: "toOwnerUser" });
 }
 
 function toAdminUser(userDoc) {
-  const sanitized = sanitizeUserForResponse(
-    userDoc,
-    { authorities: { admin: true } },
-    { includeFull: true }
-  );
-  const cleaned = { ...sanitized };
+  const user = toPlain(userDoc);
+  const entityKey = resolveEntityKey(user);
+  const familyMembers = Array.isArray(user.familyMembers) ? user.familyMembers : [];
+  const payload = {
+    _id: user._id ? String(user._id) : null,
+    entityKey,
+    name: user.name || "",
+    email: user.email || "",
+    phone: user.phone || "",
+    city: user.city || "",
+    familySummary: {
+      total: familyMembers.length,
+      hasFamily: familyMembers.length > 0,
+    },
+  };
 
-  // Remove any authority indicators or privileged flags.
-  delete cleaned.canCharge;
-  delete cleaned.roleFingerprint;
-  delete cleaned.access;
-  delete cleaned.entities;
-
-  cleaned.familyMembers = Array.isArray(sanitized.familyMembers)
-    ? sanitized.familyMembers.map((member) => {
-        const safeMember = { ...member };
-        delete safeMember.canCharge;
-        delete safeMember.roleFingerprint;
-        delete safeMember.access;
-        delete safeMember.entities;
-        return enforceResponseContract(safeMember, { context: "toAdminUser.familyMember" });
-      })
-    : [];
-
-  // sanitizeUserForResponse already strips sensitive fields, but we enforce forbidden-field guard as defense-in-depth.
-  return enforceResponseContract(cleaned, { context: "toAdminUser" });
+  return enforceResponseContract(payload, { context: "toAdminUser" });
 }
 
 function toPublicEntity(entityDoc, parentDoc = null) {

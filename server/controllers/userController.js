@@ -410,9 +410,13 @@ exports.getAllUsers = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit || "1000", 10), 5000);
     // minimal contact card projection for bulk admin list
     const projection = {
+      _id: 1,
       entityKey: 1,
       name: 1,
+      email: 1,
+      phone: 1,
       city: 1,
+      familyMembers: 1,
     };
 
     const users = await User.find({}, projection)
@@ -420,7 +424,7 @@ exports.getAllUsers = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const entities = users.map((userDoc) => toPublicUser(userDoc));
+    const entities = users.map((userDoc) => toAdminUser(userDoc));
 
     return res.json(entities.slice(0, limit));
   } catch (err) {
