@@ -27,6 +27,12 @@ const authenticate = async (req, res, next) => {
       applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "Invalid or expired token" });
     }
+    if (!decoded.exp) {
+      // P7: Tokens must be time-bound; reject any token without an explicit exp.
+      console.warn("[AUTH] Token missing exp");
+      applyAccessHeaders(res, deriveAccessScope(null));
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
 
     /*
      * Resolve the authenticated user by its hashed entity identifier.  In the
@@ -114,7 +120,11 @@ const authenticate = async (req, res, next) => {
 /**
  * 🔑 Middleware: Authorize only admins
  */
-const hasAuthority = (user, key) => !!user?.authorities?.[key];
+const hasAuthority = (user, key) => {
+  // P7: Roles are inert metadata. Authorization must derive only from persisted authorities.
+  const authorities = user?.authorities || {};
+  return !!authorities[key];
+};
 
 const requireAuthority = (authorityKey) => (req, res, next) => {
   if (hasAuthority(req.user, authorityKey)) return next();

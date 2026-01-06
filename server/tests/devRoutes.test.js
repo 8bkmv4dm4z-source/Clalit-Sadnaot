@@ -5,6 +5,10 @@ const express = require('express');
 process.env.NODE_ENV = 'test';
 process.env.DEV_ADMIN_SECRET = 'super-secret-key';
 process.env.PUBLIC_ID_SECRET = process.env.PUBLIC_ID_SECRET || 'test-public-id-secret';
+const originalDevRoutesFlag = process.env.ENABLE_DEV_ROUTES;
+const originalDevDestructiveFlag = process.env.ENABLE_DEV_DESTRUCTIVE;
+process.env.ENABLE_DEV_ROUTES = "true";
+process.env.ENABLE_DEV_DESTRUCTIVE = "true";
 
 const User = require('../models/User');
 
@@ -30,9 +34,31 @@ async function withServer(app, handler) {
 
 test.afterEach(() => {
   User.findOneAndDelete = originalFindOneAndDelete;
+  process.env.ENABLE_DEV_ROUTES = "true";
+  process.env.ENABLE_DEV_DESTRUCTIVE = "true";
+});
+
+test.after(() => {
+  process.env.ENABLE_DEV_ROUTES = originalDevRoutesFlag;
+  process.env.ENABLE_DEV_DESTRUCTIVE = originalDevDestructiveFlag;
 });
 
 const originalFindOneAndDelete = User.findOneAndDelete;
+
+test('fails closed when dev routes are disabled', async () => {
+  process.env.ENABLE_DEV_ROUTES = "false";
+  const app = buildTestApp();
+
+  await withServer(app, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/dev/cleanup-user`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'blocked@example.com' }),
+    });
+
+    assert.equal(res.status, 404);
+  });
+});
 
 test('rejects cleanup when admin secret is missing', async () => {
   const app = buildTestApp();
@@ -71,6 +97,26 @@ test('returns 200 when cleanup succeeds with valid secret', async () => {
     assert.equal(res.status, 200);
     assert.equal(deleteCalledWith.email, 'delete-me@example.com');
     assert.equal(data.message, 'Deleted');
+  });
+});
+
+test('requires destructive flag for cleanup', async () => {
+  process.env.ENABLE_DEV_DESTRUCTIVE = "false";
+  const app = buildTestApp();
+
+  await withServer(app, async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/dev/cleanup-user`, {
+      method: 'DELETE',
+      headers: {
+        'content-type': 'application/json',
+        'x-dev-admin-key': process.env.DEV_ADMIN_SECRET,
+      },
+      body: JSON.stringify({ email: 'cannot-delete@example.com' }),
+    });
+
+    const data = await res.json();
+    assert.equal(res.status, 403);
+    assert.match(data.message, /disabled/i);
   });
 });
 

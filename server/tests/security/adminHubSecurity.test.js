@@ -15,7 +15,8 @@ const adminHubServicePath = require.resolve("../../services/AdminHubService");
 const adminHubRouterPath = require.resolve("../../routes/adminHub");
 const adminHubControllerPath = require.resolve("../../controllers/adminHubController");
 
-const createToken = (id = "user-id") => jwt.sign({ sub: id }, process.env.JWT_SECRET);
+const createToken = (id = "user-id") =>
+  jwt.sign({ sub: id, jti: "test-jti" }, process.env.JWT_SECRET, { expiresIn: "15m" });
 
 const installUserStub = (role = "admin") => {
   delete require.cache[userModelPath];
