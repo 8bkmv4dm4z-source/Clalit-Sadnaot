@@ -18,6 +18,7 @@ build/
 .tmp/
 .vite/
 vite.config.ts.timestamp*
+client/dist*
 
 # ----------------------
 # Environment / Secrets
