@@ -35,25 +35,10 @@ const adminParticipantViewLimiter = perUserRateLimit({
    ============================================================ */
 
 // 1. Audit (Moved to top so it's not caught by /:id)
-router.get("/audit/run", async (req, res) => {
+router.get("/audit/run", protect, authorizeAdmin, async (_req, res) => {
   try {
-    const adminKey = req.query.key;
-    const SERVER_KEY = process.env.ADMIN_KEY;
-
-    // 1. Try cookie/JWT admin first
-    if (req.user && req.user.authorities?.admin) {
-      const result = await runWorkshopAudit();
-      return res.json({ success: true, result });
-    }
-
-    // 2. Fallback: admin key in query
-    if (adminKey && SERVER_KEY && adminKey === SERVER_KEY) {
-      const result = await runWorkshopAudit();
-      return res.json({ success: true, result });
-    }
-
-    return res.status(401).json({ message: "Unauthorized" });
-
+    const result = await runWorkshopAudit();
+    return res.json({ success: true, result });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   }

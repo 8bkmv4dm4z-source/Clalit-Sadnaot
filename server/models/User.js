@@ -74,7 +74,16 @@ const UserSchema = new mongoose.Schema(
 
     // 🔑 Role & Access
     role: { type: String, enum: ["user", "admin"], default: "user" },
-    authorities: { type: mongoose.Schema.Types.Mixed, default: {}, select: false },
+    authorities: {
+      type: new mongoose.Schema(
+        {
+          admin: { type: Boolean, default: false },
+        },
+        { _id: false, strict: true }
+      ),
+      default: {},
+      select: false,
+    },
 
     // Integrity hashes
     roleIntegrityHash: { type: String, select: false },
