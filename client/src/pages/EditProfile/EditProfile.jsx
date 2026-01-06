@@ -10,6 +10,10 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { apiFetch } from "../../utils/apiFetch";
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 const calcAge = (dateStr) => {
   if (!dateStr) return null;
@@ -25,7 +29,9 @@ const calcAge = (dateStr) => {
 export default function EditProfile() {
   const { id } = useParams(); // ID יכול להיות user או family
   const navigate = useNavigate();
-  const { isAdmin, updateEntity } = useAuth();
+  const { updateEntity } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
 
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -64,19 +70,19 @@ export default function EditProfile() {
       setSaving(true);
 
       const entityKey = form?.entityKey || form?._id;
-      const payload = isFamilyProfile
-        ? {
-            entityKey,
-            updates: {
-              name: form.name,
-              relation: form.relation || "",
-              idNumber: form.idNumber || "",
-              phone: form.phone || "",
-              email: form.email || form.parentEmail || "", // ✅ fallback to parent
-              birthDate: form.birthDate || "",
-              city: form.city || "",
-            },
-          }
+    const payload = isFamilyProfile
+      ? {
+          entityKey,
+          updates: {
+            name: form.name,
+            relation: form.relation || "",
+            idNumber: form.idNumber || "",
+            phone: form.phone || "",
+            email: form.email || form.parentEmail || "", // ✅ fallback to parent
+            birthDate: form.birthDate || "",
+            city: form.city || "",
+          },
+        }
         : {
             entityKey,
             updates: {
@@ -85,8 +91,7 @@ export default function EditProfile() {
               phone: form.phone || "",
               city: form.city || "",
               birthDate: form.birthDate || "",
-              canCharge: !!form.canCharge,
-              role: form.role || "user",
+              ...(canAccessAdmin ? { canCharge: !!form.canCharge } : {}),
             },
           };
 
@@ -174,6 +179,20 @@ export default function EditProfile() {
   };
 
   /* ==================== UI ==================== */
+  if (isChecking)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500 animate-pulse">
+        ⏳ בודק הרשאות...
+      </div>
+    );
+
+  if (!canAccessAdmin)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-600">
+        ⛔ אין לך הרשאה לערוך משתמשים.
+      </div>
+    );
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500 animate-pulse">
@@ -291,7 +310,7 @@ export default function EditProfile() {
           )}
 
           {/* Admin-only for main user */}
-          {isAdmin && !isFamilyProfile && (
+          {canAccessAdmin && !isFamilyProfile && (
             <>
               <label className="flex items-center gap-3 text-gray-700 font-medium">
                 <input
@@ -301,18 +320,6 @@ export default function EditProfile() {
                   className="w-5 h-5 accent-indigo-600"
                 />
                 הרשאה לגבייה
-              </label>
-
-              <label className="block">
-                <span className="text-gray-700 font-medium">תפקיד:</span>
-                <select
-                  value={form.role || "user"}
-                  onChange={(e) => handleChange("role", e.target.value)}
-                  className="input mt-1"
-                >
-                  <option value="user">משתמש</option>
-                  <option value="admin">מנהל</option>
-                </select>
               </label>
             </>
           )}

@@ -18,7 +18,6 @@ import { createPortal } from "react-dom";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MoreVertical } from "lucide-react";
-import { useAuth } from "../../layouts/AuthLayout";
 import { useProfiles } from "../../layouts/ProfileContext";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import {
@@ -26,6 +25,10 @@ import {
   isFamilyEntity as isFamilyEntityHelper,
   withEntityFlags,
 } from "../../utils/entityTypes";
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 /* ---------------- helpers ---------------- */
 const calcAge = (dateStr) => {
@@ -219,7 +222,8 @@ function ActionMenu({
 
 /* ---------------- main component ---------------- */
 export default function AllProfiles({ mode = "manage", onSelectUser, existingIds = [] }) {
-  const { isAdmin } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
   const {
     profiles: contextProfiles = [],
     updateEntity,
@@ -369,7 +373,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       }
 
       const baseUserFields = ["name", "email", "phone", "city", "birthDate", "idNumber"];
-      const userAllowed = isAdmin ? [...baseUserFields, "canCharge"] : baseUserFields;
+      const userAllowed = canAccessAdmin ? [...baseUserFields, "canCharge"] : baseUserFields;
       const allowedKeys = isFamily
         ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
         : userAllowed;
@@ -535,7 +539,14 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   };
 
   /* ---- guards ---- */
-  if (!isAdmin)
+  if (isChecking)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500">
+        ⏳ בודק הרשאות...
+      </div>
+    );
+
+  if (!canAccessAdmin)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-600 text-lg">
         ⛔ אין לך הרשאה לצפות בעמוד זה.

@@ -13,13 +13,19 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useProfiles } from "../../layouts/ProfileContext";
 import { CalendarDays } from "lucide-react"; // 📅 modern lightweight icon
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  useAdminCapability,
+  useAdminCapabilityStatus,
+} from "../../context/AdminCapabilityContext";
 
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { isAdmin, logout, user } = useAuth();
+  const { logout, user } = useAuth();
+  const canAccessAdmin = useAdminCapability();
+  const { isChecking } = useAdminCapabilityStatus();
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
 
@@ -103,7 +109,7 @@ export default function Header() {
         </NavLink>
 
         {/* Admin Tools */}
-        {isAdmin && (
+        {canAccessAdmin && !isChecking && (
           <>
             <NavLink
               to="/profiles"
@@ -137,7 +143,8 @@ export default function Header() {
       </div>
     ),
     [
-      isAdmin,
+      canAccessAdmin,
+      isChecking,
       linkActive,
       linkBase,
       linkIdle,

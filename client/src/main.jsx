@@ -37,17 +37,20 @@ import { AuthProvider } from "./layouts/AuthLayout";
 import { WorkshopProvider } from "./layouts/WorkshopContext";
 import { ProfileProvider } from "./layouts/ProfileContext";
 import { EventProvider } from "./layouts/EventContext";
+import { AdminCapabilityProvider } from "./context/AdminCapabilityContext";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
       <EventProvider>
         <AuthProvider>
-          <ProfileProvider>
-            <WorkshopProvider>
-              <App />
-            </WorkshopProvider>
-          </ProfileProvider>
+          <AdminCapabilityProvider>
+            <ProfileProvider>
+              <WorkshopProvider>
+                <App />
+              </WorkshopProvider>
+            </ProfileProvider>
+          </AdminCapabilityProvider>
         </AuthProvider>
       </EventProvider>
     </BrowserRouter>
