@@ -18,10 +18,7 @@ import React, {
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
 import { withEntityFlags } from "../../utils/entityTypes"; // kept only for icons/roles
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -59,8 +56,7 @@ const rowMatchesQuery = (row, normalizedQuery) => {
 
 export function ProfileProvider({ children }) {
   const { isLoggedIn, loading: authLoading } = useAuth();
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

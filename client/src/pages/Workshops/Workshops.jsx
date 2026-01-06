@@ -14,16 +14,12 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../components/WorkshopCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 export default function Workshops() {
   const navigate = useNavigate();
   const { isLoggedIn, user } = useAuth();
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
   // 🔹 Local state
   const [searchBy, setSearchBy] = useState("all");

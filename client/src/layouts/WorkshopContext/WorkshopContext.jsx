@@ -44,10 +44,7 @@ import { useProfiles } from "../ProfileContext";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
 import { normalizeEntity } from "../../utils/normalizeEntity";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 /* ───────────────────────── Debug Helpers ───────────────────────── */
 // Enable via query string: ?debug=ws
@@ -92,8 +89,7 @@ const sid = (x) => String(x ?? "");
 
 export const WorkshopProvider = ({ children }) => {
   const { user, isLoggedIn } = useAuth();
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const { fetchProfiles } = useProfiles();
 
   const [workshops, setWorkshops] = useState([]);

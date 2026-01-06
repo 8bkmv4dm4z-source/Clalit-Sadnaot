@@ -10,10 +10,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { apiFetch } from "../../utils/apiFetch";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 const calcAge = (dateStr) => {
   if (!dateStr) return null;
@@ -30,8 +27,7 @@ export default function EditProfile() {
   const { id } = useParams(); // ID יכול להיות user או family
   const navigate = useNavigate();
   const { updateEntity } = useAuth();
-  const canAccessAdmin = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);

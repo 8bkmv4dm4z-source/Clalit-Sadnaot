@@ -5,10 +5,7 @@ import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
 import { useNavigate } from "react-router-dom";
-import {
-  useAdminCapability,
-  useAdminCapabilityStatus,
-} from "../../context/AdminCapabilityContext";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 // 1. Import the Image Helper
 import { getWorkshopImage } from "../../constants/workshopImages";
@@ -53,8 +50,7 @@ export default function WorkshopCard({
   onDeleteWorkshop,
 }) {
   const { user, isLoggedIn } = useAuth();
-  const adminCapability = useAdminCapability();
-  const { isChecking } = useAdminCapabilityStatus();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const navigate = useNavigate();
 
   const {
@@ -76,7 +72,7 @@ export default function WorkshopCard({
     ? workshops.find((w) => str(w._id) === wid) || {}
     : {};
 
-  const adminEnabled = !isChecking && adminCapability;
+  const adminEnabled = !isChecking && canAccessAdmin;
 
   // -------- UI state --------
   const [showFamilyModal, setShowFamilyModal] = useState(false);
