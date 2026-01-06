@@ -1,18 +1,12 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import React, { createContext, useCallback, useEffect, useRef, useState } from "react";
+import { useContext } from "react";
 import { apiFetch } from "../utils/apiFetch";
-import { useAuth } from "../layouts/AuthLayout";
+import { AuthContext } from "../layouts/AuthLayout";
 
 const AdminCapabilityContext = createContext(null);
 
 export const AdminCapabilityProvider = ({ children }) => {
-  const { isLoggedIn, loading: authLoading } = useAuth();
+  const { isLoggedIn, loading: authLoading } = useContext(AuthContext);
   const [canAccessAdmin, setCanAccessAdmin] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const canAccessAdminRef = useRef(false);
