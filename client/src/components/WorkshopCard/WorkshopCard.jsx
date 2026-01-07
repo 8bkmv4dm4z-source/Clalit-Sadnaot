@@ -290,6 +290,14 @@ export default function WorkshopCard({
       };
     }
 
+    if (!available) {
+      return {
+        label: "לא זמינה",
+        color: "bg-gray-200 text-gray-500 shadow-inner",
+        action: null,
+      };
+    }
+
     if (isHidden) {
       return {
         label: "סדנה מוסתרת",
@@ -321,6 +329,7 @@ export default function WorkshopCard({
     selfOnWaitlist,
     isWorkshopFull,
     isHidden,
+    available,
     familyRegisteredIdSet,
     waitRows,
   ]);

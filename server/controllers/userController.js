@@ -8,6 +8,7 @@ const {
   toSelfProfileEntity,
 } = require("../contracts/userContracts");
 const { hasAuthority } = require("../middleware/authMiddleware");
+const { deriveEntityScope, applyEntityScopeHeader } = require("../utils/accessScope");
 const { buildEntityFromUserDoc, buildEntityFromFamilyMemberDoc } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
 const { resolveEntity, resolveEntityByKey } = require("../services/entities/resolveEntity");
@@ -424,7 +425,11 @@ exports.getAllUsers = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const entities = users.map((userDoc) => toAdminUser(userDoc));
+    const entities = [];
+    for (const userDoc of users) {
+      collectListEntitiesFromUserDoc(userDoc, entities);
+      if (entities.length >= limit) break;
+    }
 
     return res.json(entities.slice(0, limit));
   } catch (err) {
@@ -512,15 +517,32 @@ exports.getEntityById = async (req, res) => {
     const resolved = await resolveEntityByKey(entityKey);
     if (!resolved) return res.status(404).json({ message: "Entity not found" });
 
-  if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
-      const dto = hasAuthority(requester, "admin")
-        ? toAdminUser(resolved.userDoc)
-        : toOwnerUser(resolved.userDoc);
+    const targetKey =
+      resolved.type === "user"
+        ? resolved.userDoc.entityKey
+        : resolved.memberDoc?.entityKey;
+    const parentKey =
+      resolved.type === "familyMember" ? resolved.userDoc.entityKey : null;
+    const entityAccess = deriveEntityScope({
+      requester,
+      entityKey: targetKey,
+      parentKey,
+    });
+
+    applyEntityScopeHeader(res, entityAccess.scope);
+
+    if (entityAccess.scope === "none") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (resolved.type === "user") {
+      const dto =
+        entityAccess.scope === "admin"
+          ? toAdminUser(resolved.userDoc)
+          : toOwnerUser(resolved.userDoc);
       return res.json(dto);
     }
 
-    assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const entity = toSelfProfileEntity(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
   } catch (err) {
@@ -592,6 +614,15 @@ exports.updateEntity = async (req, res) => {
 
     const resolved = await resolveEntityByKey(entityKey);
     if (!resolved) return res.status(404).json({ message: "Entity not found" });
+    const parentKey = resolved.type === "familyMember" ? resolved.userDoc.entityKey : null;
+    const entityAccess = deriveEntityScope({
+      requester,
+      entityKey,
+      parentKey,
+    });
+    if (entityAccess.scope === "none") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
 
     const baseAllowedKeys = ["name", "phone", "city", "email"];
     const userAllowed = [...baseAllowedKeys, "birthDate", "idNumber"];
@@ -599,8 +630,10 @@ exports.updateEntity = async (req, res) => {
     const userAllowedFields = isAdmin ? [...userAllowed, ...adminOnlyKeys] : userAllowed;
     const familyAllowed = [...baseAllowedKeys, "relation", "birthDate", "idNumber"];
 
-  if (resolved.type === "user") {
-      assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
+    if (resolved.type === "user") {
+      if (entityAccess.scope !== "self" && entityAccess.scope !== "admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
 
       const updates = pickFields(rawUpdates, userAllowedFields);
       const requestedKeys = Object.keys(rawUpdates || {});
@@ -622,6 +655,10 @@ exports.updateEntity = async (req, res) => {
       });
     }
 
+    if (entityAccess.scope !== "self" && entityAccess.scope !== "parent" && entityAccess.scope !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     const updates = pickFields(rawUpdates, familyAllowed);
     const requestedKeys = Object.keys(rawUpdates || {});
     const invalidKeys = requestedKeys.filter((key) => !familyAllowed.includes(key));
@@ -631,7 +668,6 @@ exports.updateEntity = async (req, res) => {
         .json({ message: "Invalid fields for family member", fields: invalidKeys });
     }
 
-    assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const member = resolved.memberDoc;
     Object.assign(member, updates);
 

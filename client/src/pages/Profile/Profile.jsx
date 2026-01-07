@@ -7,10 +7,12 @@
  * ✅ Prevents local-only updates (server is always authority)
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { apiFetch } from "../../utils/apiFetch";
+import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import EditEntityModal from "../../components/people/EditEntityModal";
 
 const normalizeBirthDate = (value) => {
   if (!value) return "";
@@ -37,27 +39,45 @@ const normalizeProfilePayload = (payload = {}) => ({
   phone: payload.phone || "",
   city: payload.city || "",
   birthDate: normalizeBirthDate(payload.birthDate),
-  entities: Array.isArray(payload.entities)
-    ? payload.entities.map((e) => ({
-        entityKey: e?.entityKey || "",
-        name: e?.name || "",
-        relation: e?.relation || "",
-      }))
-    : [],
 });
 
 export default function Profile() {
   const { user, updateEntity } = useAuth();
   const { fetchWorkshops } = useWorkshops();
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
   // 🔹 Local UI state
   const [form, setForm] = useState(normalizeProfilePayload(user));
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingFamilyMember, setEditingFamilyMember] = useState(null);
+  const [familyEntityKeys, setFamilyEntityKeys] = useState([]);
+  const [familyEntities, setFamilyEntities] = useState([]);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/users/getMe");
+      const data = await res.json();
+      if (res.ok && data?.data?.entityKey) {
+        const payload = data.data;
+        setForm(normalizeProfilePayload(payload));
+        const keys = Array.isArray(payload.familyMembers)
+          ? payload.familyMembers.map((member) => member?.entityKey).filter(Boolean)
+          : [];
+        setFamilyEntityKeys(keys);
+      }
+    } catch (err) {
+      console.warn("⚠️ Failed to refresh user data:", err.message);
+    }
+  }, []);
 
   useEffect(() => {
     if (user) {
       setForm(normalizeProfilePayload(user));
+      const keys = Array.isArray(user.familyMembers)
+        ? user.familyMembers.map((member) => member?.entityKey).filter(Boolean)
+        : [];
+      setFamilyEntityKeys(keys);
     }
   }, [user]);
 
@@ -65,19 +85,8 @@ export default function Profile() {
      🔄 Refresh user info from backend (single source of truth)
   ------------------------------------------------------------ */
   useEffect(() => {
-    const refreshUser = async () => {
-      try {
-        const res = await apiFetch("/api/users/getMe");
-        const data = await res.json();
-        if (res.ok && data?.entityKey) {
-          setForm(normalizeProfilePayload(data));
-        }
-      } catch (err) {
-        console.warn("⚠️ Failed to refresh user data:", err.message);
-      }
-    };
     refreshUser();
-  }, []);
+  }, [refreshUser]);
 
   /* ------------------------------------------------------------
      🧩 Controlled input updates
@@ -131,6 +140,44 @@ export default function Profile() {
     const diff = new Date() - new Date(birthDate);
     return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
   };
+
+  const familyMembers = useMemo(() => familyEntities, [familyEntities]);
+
+  const canEditFamily = !!user?.entityKey && (!isChecking && (canAccessAdmin || user?.entityKey === form.entityKey));
+
+  const fetchEntityDetails = useCallback(async (entityKey) => {
+    const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityKey)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.message || "Failed to load entity");
+    }
+    return data;
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const loadFamilyEntities = async () => {
+      if (!familyEntityKeys.length) {
+        if (alive) setFamilyEntities([]);
+        return;
+      }
+      try {
+        const results = await Promise.all(
+          familyEntityKeys.map((key) => fetchEntityDetails(key).catch(() => null))
+        );
+        if (!alive) return;
+        setFamilyEntities(results.filter(Boolean));
+      } catch (err) {
+        if (!alive) return;
+        console.warn("⚠️ Failed to load family entities:", err.message);
+        setFamilyEntities([]);
+      }
+    };
+    loadFamilyEntities();
+    return () => {
+      alive = false;
+    };
+  }, [familyEntityKeys, fetchEntityDetails]);
 
   /* ------------------------------------------------------------
      ⏳ Guard: wait for user
@@ -200,24 +247,63 @@ export default function Profile() {
           />
         </div>
 
-        {/* Linked entities */}
-        <div className="mt-8 p-4 rounded-xl border border-indigo-200 bg-indigo-50">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">ישויות מקושרות</h3>
-          {form.entities.length === 0 ? (
-            <p className="text-gray-600 text-sm">לא נמצאו ישויות נוספות.</p>
+        {/* Family members */}
+        <div className="mt-6 p-4 rounded-xl border border-indigo-200 bg-indigo-50">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">בני משפחה</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            ניתן לערוך בני משפחה באמצעות כפתור עריכה לצד כל כרטיס.
+          </p>
+          {familyMembers.length === 0 ? (
+            <p className="text-gray-600 text-sm">לא נמצאו בני משפחה.</p>
           ) : (
-            <ul className="space-y-2">
-              {form.entities.map((entity) => (
-                <li key={entity.entityKey} className="flex flex-col">
-                  <span className="text-gray-800 font-medium">{entity.name || "ללא שם"}</span>
-                  {entity.relation && (
-                    <span className="text-gray-600 text-xs break-all">
-                      קשר: {entity.relation}
+            <div className="space-y-3">
+              {familyMembers.map((member) => (
+                <div
+                  key={member.entityKey}
+                  className="flex flex-col gap-2 rounded-xl border border-indigo-100 bg-white/80 p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-gray-800 font-semibold">
+                        {member.name || "ללא שם"}
+                      </div>
+                      {member.relation && (
+                        <div className="text-xs text-gray-500">
+                          קשר: {member.relation}
+                        </div>
+                      )}
+                    </div>
+                    {canEditFamily && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary px-3 py-1.5 text-xs"
+                        onClick={async () => {
+                          try {
+                            const entity = await fetchEntityDetails(member.entityKey);
+                            setEditingFamilyMember(entity);
+                          } catch (err) {
+                            alert(`❌ שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
+                          }
+                        }}
+                      >
+                        ✏️ ערוך
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+                    <span>ת.ז: {member.idNumber || "-"}</span>
+                    <span>טלפון: {member.phone || "-"}</span>
+                    <span>עיר: {member.city || "-"}</span>
+                    <span>
+                      תאריך לידה:{" "}
+                      {member.birthDate
+                        ? new Date(member.birthDate).toLocaleDateString("he-IL")
+                        : "-"}
                     </span>
-                  )}
-                </li>
+                  </div>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </div>
 
@@ -250,6 +336,17 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      {editingFamilyMember && (
+        <EditEntityModal
+          entity={editingFamilyMember}
+          onClose={() => setEditingFamilyMember(null)}
+          onSave={async () => {
+            setEditingFamilyMember(null);
+            await refreshUser();
+          }}
+        />
+      )}
     </div>
   );
 }

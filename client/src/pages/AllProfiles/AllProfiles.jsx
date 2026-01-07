@@ -9,7 +9,7 @@
  * ✅ Optimistic inline edit -> soft revalidate via context
  *
  * Entity identity:
- * - We normalize every row via withEntityFlags(row)
+ * - Rows are delivered by the server as entity records
  * - Identity is based primarily on `entityKey` (same as WorkshopContext, waitlist, etc.)
  * - existingIds (from WorkshopParticipantsModal) are treated as entityKey strings
  */
@@ -22,8 +22,6 @@ import { useProfiles } from "../../layouts/ProfileContext";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import {
   getEntityIdentifiers,
-  isFamilyEntity as isFamilyEntityHelper,
-  withEntityFlags,
 } from "../../utils/entityTypes";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
@@ -38,8 +36,6 @@ const calcAge = (dateStr) => {
   if (m < 0 || (m === 0 && t.getDate() < d.getDate())) a--;
   return a;
 };
-
-const isFamilyEntity = (row) => isFamilyEntityHelper(row);
 
 /**
  * Normalize local search string (similar to backend normalizeSearchQuery)
@@ -76,7 +72,7 @@ const rowMatchesQuery = (row, normalizedQuery) => {
 /**
  * Build a stable identity key for any entity row.
  * Priority:
- * 1. explicit entityKey / __entityKey (from server / withEntityFlags)
+ * 1. explicit entityKey / __entityKey (from server)
  * 2. getEntityIdentifiers(row).entityKey
  * 3. fallback to getEntityIdentifiers(row).key
  * 4. fallback to _id / id
@@ -268,10 +264,16 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   const [modalLoading, setModalLoading] = useState(false);
 
   // Flat entities from ProfileContext + basic flags
-  const allRows = useMemo(
-    () => (contextProfiles || []).map((row) => withEntityFlags(row)),
-    [contextProfiles]
-  );
+  const allRows = useMemo(() => {
+    const deduped = new Map();
+    (contextProfiles || []).forEach((row) => {
+      const key = buildEntityKey(row);
+      if (!key || deduped.has(String(key))) return;
+      deduped.set(String(key), row);
+    });
+
+    return Array.from(deduped.values());
+  }, [contextProfiles]);
 
   // Final list used by UI:
   // - no search -> first 100 from context
@@ -304,9 +306,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       try {
         // Remote search (may be noisy)
         const result = await searchProfiles(q);
-        const list = Array.isArray(result)
-          ? result.map((r) => withEntityFlags(r))
-          : [];
+        const list = Array.isArray(result) ? result : [];
 
         // Local filter to enforce your exact rule:
         // ✅ match only by own: name/email/phone/city/idNumber
@@ -675,24 +675,23 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                 </tr>
               ) : (
                 effectiveProfiles.map((r, idx) => {
-                  const normalizedRow = withEntityFlags(r);
-                  const rowKey = buildEntityKey(normalizedRow);
+                  const rowKey = buildEntityKey(r);
                   const alreadySelected = existingKeySet.has(String(rowKey));
                   const isEditing = editingId === rowKey;
                   const busy = busyRowKey === rowKey;
                   const isDeleting = deletingRowId === rowKey;
-                  const isFamily = normalizedRow.isFamily;
+                  const isFamily = r.isFamily || r.entityType === "familyMember";
 
-                  const displayEmail = normalizedRow.email || "-";
-                  const displayPhone = normalizedRow.phone || "-";
-                  const displayCity = normalizedRow.city || "-";
-                  const displayIdNumber = normalizedRow.idNumber || "-";
+                  const displayEmail = r.email || "-";
+                  const displayPhone = r.phone || "-";
+                  const displayCity = r.city || "-";
+                  const displayIdNumber = r.idNumber || "-";
 
                   const displayAge =
-                    typeof normalizedRow.age === "number"
-                      ? normalizedRow.age
-                      : normalizedRow.birthDate
-                      ? calcAge(normalizedRow.birthDate)
+                    typeof r.age === "number"
+                      ? r.age
+                      : r.birthDate
+                      ? calcAge(r.birthDate)
                       : null;
 
                   return (
@@ -711,52 +710,52 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       }
                     >
                    {/* --- 1. NAME --- */}
-<td className="p-3 font-medium text-gray-800" title={normalizedRow.name}>
+<td className="p-3 font-medium text-gray-800" title={r.name}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full"> 
     {isEditing
-      ? renderEditInput("name", editBuffer?.name ?? normalizedRow.name)
-      : normalizedRow.name}
+                        ? renderEditInput("name", editBuffer?.name ?? r.name)
+                        : r.name}
   </div>
   {/* (Tags code remains the same...) */}
 </td>
 
 {/* --- 2. ID --- */}
-<td className="p-3 text-gray-600" title={normalizedRow.idNumber}>
+<td className="p-3 text-gray-600" title={r.idNumber}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full">
     {isEditing
-      ? renderEditInput("idNumber", editBuffer?.idNumber ?? normalizedRow.idNumber)
+      ? renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)
       : displayIdNumber}
   </div>
 </td>
 
 {/* --- 3. PHONE --- */}
-<td className="p-3 text-gray-600" dir="ltr" title={normalizedRow.phone}>
+<td className="p-3 text-gray-600" dir="ltr" title={r.phone}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full text-right">
     {isEditing
-      ? renderEditInput("phone", editBuffer?.phone ?? normalizedRow.phone)
+      ? renderEditInput("phone", editBuffer?.phone ?? r.phone)
       : displayPhone}
   </div>
 </td>
 
 {/* --- 4. EMAIL --- */}
-<td className="p-3 text-gray-600" dir="ltr" title={normalizedRow.email}>
+<td className="p-3 text-gray-600" dir="ltr" title={r.email}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full text-right">
     {isEditing
-      ? renderEditInput("email", editBuffer?.email ?? normalizedRow.email)
+      ? renderEditInput("email", editBuffer?.email ?? r.email)
       : displayEmail}
   </div>
 </td>
 
 {/* --- 5. CITY --- */}
-<td className="p-3 text-gray-600" title={normalizedRow.city}>
+<td className="p-3 text-gray-600" title={r.city}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full">
     {isEditing
-      ? renderEditInput("city", editBuffer?.city ?? normalizedRow.city)
+      ? renderEditInput("city", editBuffer?.city ?? r.city)
       : displayCity}
   </div>
 </td>
@@ -781,7 +780,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                             {editBuffer?.canCharge ? "✅" : "❌"}
                           </button>
                         ) : (
-                          <span>{normalizedRow.canCharge ? "✅" : "❌"}</span>
+                          <span>{r.canCharge ? "✅" : "❌"}</span>
                         )}
                       </td>
 
@@ -814,7 +813,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                             <button
                               className="btn bg-indigo-600 text-white text-xs px-3 py-1 disabled:opacity-50"
                               onClick={() =>
-                                onSelectUser?.(withEntityFlags(normalizedRow))
+                                onSelectUser?.(r)
                               }
                               disabled={alreadySelected}
                             >
@@ -829,13 +828,13 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                         ) : (
                           <div className="inline-block relative z-[2000]">
                             <ActionMenu
-                              onEdit={() => startEdit(normalizedRow)}
-                              onShowWorkshops={() => showWorkshops(normalizedRow)}
+                              onEdit={() => startEdit(r)}
+                              onShowWorkshops={() => showWorkshops(r)}
                               onDeleteFromWorkshops={() =>
-                                bulkRemoveFromWorkshops(normalizedRow)
+                                bulkRemoveFromWorkshops(r)
                               }
                               onDeleteEntity={() =>
-                                handleDeleteEntity(normalizedRow)
+                                handleDeleteEntity(r)
                               }
                               disabled={busy || isDeleting}
                             />
@@ -878,23 +877,22 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
             </div>
           ) : (
             effectiveProfiles.map((r) => {
-              const normalizedRow = withEntityFlags(r);
-              const rowKey = buildEntityKey(normalizedRow);
+              const rowKey = buildEntityKey(r);
               const alreadySelected = existingKeySet.has(String(rowKey));
               const isEditing = editingId === rowKey;
               const busy = busyRowKey === rowKey;
               const isDeleting = deletingRowId === rowKey;
-              const isFamily = normalizedRow.isFamily;
+              const isFamily = r.isFamily || r.entityType === "familyMember";
 
-              const displayEmail = normalizedRow.email || "-";
-              const displayPhone = normalizedRow.phone || "-";
-              const displayCity = normalizedRow.city || "-";
-              const displayIdNumber = normalizedRow.idNumber || "-";
+              const displayEmail = r.email || "-";
+              const displayPhone = r.phone || "-";
+              const displayCity = r.city || "-";
+              const displayIdNumber = r.idNumber || "-";
               const displayAge =
-                typeof normalizedRow.age === "number"
-                  ? normalizedRow.age
-                  : normalizedRow.birthDate
-                  ? calcAge(normalizedRow.birthDate)
+                typeof r.age === "number"
+                  ? r.age
+                  : r.birthDate
+                  ? calcAge(r.birthDate)
                   : null;
 
               return (
@@ -920,13 +918,13 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       {isEditing
                         ? renderEditInput(
                             "name",
-                            editBuffer?.name ?? normalizedRow.name
+                            editBuffer?.name ?? r.name
                           )
-                        : normalizedRow.name}
+                        : r.name}
                     </div>
                     {isFamily && (
                       <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        בן משפחה של {normalizedRow.parentName}
+                        בן משפחה של {r.parentName}
                       </span>
                     )}
                     {!isEditing && (
@@ -935,7 +933,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                           <button
                             className="btn bg-indigo-600 text-white text-xs px-3 py-1 disabled:opacity-50"
                             onClick={() =>
-                              onSelectUser?.(withEntityFlags(normalizedRow))
+                            onSelectUser?.(r)
                             }
                             disabled={alreadySelected}
                           >
@@ -943,12 +941,12 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                           </button>
                         ) : (
                           <ActionMenu
-                            onEdit={() => startEdit(normalizedRow)}
-                            onShowWorkshops={() => showWorkshops(normalizedRow)}
+                            onEdit={() => startEdit(r)}
+                            onShowWorkshops={() => showWorkshops(r)}
                             onDeleteFromWorkshops={() =>
-                              bulkRemoveFromWorkshops(normalizedRow)
+                              bulkRemoveFromWorkshops(r)
                             }
-                            onDeleteEntity={() => handleDeleteEntity(normalizedRow)}
+                            onDeleteEntity={() => handleDeleteEntity(r)}
                             disabled={busy || isDeleting}
                           />
                         )}
@@ -963,7 +961,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       value={displayEmail}
                       input={renderEditInput(
                         "email",
-                        editBuffer?.email ?? normalizedRow.email
+                        editBuffer?.email ?? r.email
                       )}
                     />
                     <Field
@@ -972,7 +970,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       value={displayPhone}
                       input={renderEditInput(
                         "phone",
-                        editBuffer?.phone ?? normalizedRow.phone
+                        editBuffer?.phone ?? r.phone
                       )}
                     />
                     <Field
@@ -981,7 +979,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       value={displayCity}
                       input={renderEditInput(
                         "city",
-                        editBuffer?.city ?? normalizedRow.city
+                        editBuffer?.city ?? r.city
                       )}
                     />
                     <Field
@@ -990,7 +988,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       value={displayIdNumber}
                       input={renderEditInput(
                         "idNumber",
-                        editBuffer?.idNumber ?? normalizedRow.idNumber
+                        editBuffer?.idNumber ?? r.idNumber
                       )}
                     />
                     <Field
@@ -1017,7 +1015,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                         </button>
                       ) : (
                         <span className="text-lg">
-                          {normalizedRow.canCharge ? "✅" : "❌"}
+                          {r.canCharge ? "✅" : "❌"}
                         </span>
                       )}
                     </div>
