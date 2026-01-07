@@ -801,6 +801,12 @@ export const WorkshopProvider = ({ children }) => {
     const target = (workshops || []).find(
       (w) => sid(w?.workshopKey || w?._id) === sid(workshopKey)
     );
+    if (target?.available === false) {
+      return {
+        success: false,
+        message: "הסדנה אינה זמינה להרשמה",
+      };
+    }
     if (target?.adminHidden) {
       return {
         success: false,
@@ -890,6 +896,12 @@ export const WorkshopProvider = ({ children }) => {
     const target = (workshops || []).find(
       (w) => sid(w?.workshopKey || w?._id) === sid(workshopKey)
     );
+    if (target?.available === false) {
+      return {
+        success: false,
+        message: "הסדנה אינה זמינה להרשמה",
+      };
+    }
     if (target?.adminHidden) {
       return {
         success: false,

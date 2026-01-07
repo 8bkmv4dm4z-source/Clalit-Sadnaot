@@ -17,7 +17,6 @@ import React, {
 } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
-import { withEntityFlags } from "../../utils/entityTypes"; // kept only for icons/roles
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 const ProfileCtx = createContext(null);
@@ -81,10 +80,7 @@ export function ProfileProvider({ children }) {
 
       const list = Array.isArray(data) ? data : [];
 
-      // A1: Apply ONLY basic flags, do NOT flatten
-      const final = list.map((e) => withEntityFlags(e));
-
-      setRows(final);
+      setRows(list);
     } catch (e) {
       console.error("❌ [profiles] fetchProfiles", e);
       setRows([]);
@@ -169,10 +165,9 @@ export function ProfileProvider({ children }) {
         if (!res.ok) throw new Error(data?.message || "Failed to search users");
 
         const list = Array.isArray(data) ? data : [];
-        const final = list.map((e) => withEntityFlags(e));
 
-        searchCache.current.set(normalized, final);
-        return final;
+        searchCache.current.set(normalized, list);
+        return list;
       } catch (err) {
         console.warn("[profiles] remote search failed, fallback local", err);
       }
