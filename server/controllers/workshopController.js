@@ -1123,21 +1123,29 @@ exports.getWorkshopParticipants = async (req, res) => {
     const limit = clampLimit(req.query.limit, 25, 100);
     const skip = clampSkip(req.query.skip);
 
+    const includeContactFields = req.access?.scope === "admin";
+
     const workshop = await Workshop.findById(workshopDoc._id)
-      .populate("participants", "name email phone city canCharge entityKey")
+      .populate(
+        "participants",
+        "name email phone city birthDate idNumber canCharge entityKey"
+      )
       .populate(
         "familyRegistrations.parentUser",
-        "name email phone city canCharge entityKey"
+        "name email phone city birthDate idNumber canCharge entityKey"
       )
       .populate(
         "familyRegistrations.familyMemberId",
-        "name relation phone email city entityKey"
+        "name relation phone email city birthDate idNumber entityKey"
       )
       .lean();
 
     if (!workshop) return res.status(404).json({ message: "Workshop not found" });
 
-    const normalized = normalizeWorkshopParticipants(workshop, { adminView: true });
+    const normalized = normalizeWorkshopParticipants(workshop, {
+      adminView: true,
+      includeContactFields,
+    });
     const total = normalized.participantsCount || 0;
     const participants = (normalized.participants || []).slice(
       skip,
@@ -1800,7 +1808,10 @@ exports.exportWorkshopExcel = async (req, res) => {
     const workshopDoc = await Workshop.findById(baseWorkshop._id)
       .populate("participants", "name email phone city birthDate idNumber canCharge")
       .populate("familyRegistrations.parentUser", "name email phone city canCharge")
-      .populate("familyRegistrations.familyMemberId", "name relation idNumber phone birthDate")
+      .populate(
+        "familyRegistrations.familyMemberId",
+        "name relation idNumber phone birthDate email city"
+      )
       .populate("waitingList.parentUser", "name email phone city canCharge")
       .populate("waitingList.familyMemberId", "name relation idNumber phone birthDate email city")
       .lean();
@@ -1822,6 +1833,25 @@ exports.exportWorkshopExcel = async (req, res) => {
     const exportType = String(req.query.type || "").toLowerCase();
     const includeParticipants = !exportType || exportType === "current";
     const includeWaitlist = !exportType || exportType === "waitlist";
+    const exportAudience = String(req.query.audience || "admin").toLowerCase();
+
+    const exportSchemas = {
+      admin: [
+        "p_name",
+        "p_relation",
+        "p_email",
+        "p_phone",
+        "p_id",
+        "p_birth",
+        "p_age",
+        "p_cancharge",
+        "origin",
+      ],
+      participant: ["p_name", "p_relation", "p_email", "p_phone", "origin"],
+      limited: ["p_name", "p_relation", "origin"],
+    };
+
+    const schemaKeys = exportSchemas[exportAudience] || exportSchemas.admin;
 
     // Create Workbook
     const workbook = new ExcelJS.Workbook();
@@ -1845,8 +1875,17 @@ exports.exportWorkshopExcel = async (req, res) => {
     headerRow.font = { bold: true };
     headerRow.alignment = { horizontal: "center", vertical: "middle" };
 
+    const sanitizeExportRow = (rowObj) => {
+      const sanitized = {};
+      for (const col of sheet.columns) {
+        const key = col.key;
+        sanitized[key] = schemaKeys.includes(key) ? rowObj[key] ?? "" : "";
+      }
+      return sanitized;
+    };
+
     const addRowRTL = (rowObj) => {
-      const r = sheet.addRow(rowObj);
+      const r = sheet.addRow(sanitizeExportRow(rowObj));
       r.eachCell((cell, colNumber) => {
         const key = sheet.columns[colNumber - 1].key;
         cell.alignment = (key === "p_age" || key === "p_cancharge") 
@@ -1860,20 +1899,15 @@ exports.exportWorkshopExcel = async (req, res) => {
     if (includeParticipants) {
       (workshop.participants || []).forEach((p) => {
         addRowRTL({
-          p_name: p.name || "", p_relation: "עצמי", p_email: p.email || "",
-          p_phone: p.phone || "", p_id: p.idNumber || "", p_birth: toHebDate(p.birthDate),
-          p_age: calcAge(p.birthDate), p_cancharge: p.canCharge ? "כן" : "לא", origin: "משתתף",
-        });
-      });
-
-      (workshop.familyRegistrations || []).forEach((fr) => {
-        const fm = fr.familyMemberId || {};
-        const parent = fr.parentUser || {};
-        addRowRTL({
-          p_name: fm.name || fr.name || "", p_relation: fm.relation || fr.relation || "בן משפחה",
-          p_email: fm.email || parent.email || "", p_phone: fm.phone || parent.phone || "",
-          p_id: fm.idNumber || fr.idNumber || "", p_birth: toHebDate(fm.birthDate || fr.birthDate),
-          p_age: calcAge(fm.birthDate || fr.birthDate), p_cancharge: parent.canCharge ? "כן" : "לא", origin: "משתתף",
+          p_name: p.name || "",
+          p_relation: p.relation || "עצמי",
+          p_email: p.email || "",
+          p_phone: p.phone || "",
+          p_id: p.idNumber || "",
+          p_birth: toHebDate(p.birthDate),
+          p_age: calcAge(p.birthDate),
+          p_cancharge: p.canCharge ? "כן" : "לא",
+          origin: "משתתף",
         });
       });
     }
@@ -1891,12 +1925,16 @@ exports.exportWorkshopExcel = async (req, res) => {
     // Populate Waitlist
     if (includeWaitlist) {
       (workshop.waitingList || []).forEach((wl) => {
-        const parent = wl.parentUser || {};
         addRowRTL({
-          p_name: wl.name || "", p_relation: wl.relation || (wl.familyMemberId ? "בן משפחה" : "עצמי"),
-          p_email: wl.email || parent.email || "", p_phone: wl.phone || parent.phone || "",
-          p_id: wl.idNumber || "", p_birth: toHebDate(wl.birthDate),
-          p_age: calcAge(wl.birthDate), p_cancharge: parent.canCharge ? "כן" : "לא", origin: "רשימת המתנה",
+          p_name: wl.name || "",
+          p_relation: wl.relation || "רשימת המתנה",
+          p_email: wl.email || "",
+          p_phone: wl.phone || "",
+          p_id: wl.idNumber || "",
+          p_birth: toHebDate(wl.birthDate),
+          p_age: calcAge(wl.birthDate),
+          p_cancharge: wl.canCharge ? "כן" : "לא",
+          origin: "רשימת המתנה",
         });
       });
     }
@@ -1907,7 +1945,8 @@ exports.exportWorkshopExcel = async (req, res) => {
     // 4. Prepare Email Content
     const maxCap = Number(workshop.maxParticipants ?? 0);
     const capStr = maxCap === 0 ? "∞" : String(maxCap);
-    const currentCount = (workshop.participantsCount ?? ((workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0)));
+    const currentCount =
+      workshop.participantsCount ?? (workshop.participants?.length || 0);
     const waitCount = workshop.waitingList?.length || 0;
     
     const htmlBody = `
@@ -1993,16 +2032,24 @@ exports.getWaitlist = async (req, res) => {
     }
 
     // 2️⃣ Load lean workshop document
+    const includeContactFields = req.access?.scope === "admin";
+
     const workshop = await Workshop.findById(workshopDoc._id)
-      .populate("waitingList.parentUser", "name email phone city canCharge entityKey")
-      .populate("waitingList.familyMemberId", "name relation email phone city entityKey")
+      .populate(
+        "waitingList.parentUser",
+        "name email phone city birthDate idNumber canCharge entityKey"
+      )
+      .populate(
+        "waitingList.familyMemberId",
+        "name relation email phone city birthDate idNumber entityKey"
+      )
       .lean();
     if (!workshop) {
       return res.status(404).json({ message: "Workshop not found" });
     }
 
     const normalized = (workshop.waitingList || []).map((entry) =>
-      sanitizeWaitingListEntry(entry, { adminView: true })
+      sanitizeWaitingListEntry(entry, { adminView: true, includeContactFields })
     );
     const total = normalized.length;
     const waitingList = normalized.slice(skip, Math.min(skip + limit, total));

@@ -87,8 +87,11 @@ const log = (msg) => {
 const sid = (x) => String(x ?? "");
 /* ================================================================== */
 
+const WORKSHOP_ERROR_MESSAGE =
+  "Something went wrong while loading workshops. Please try refreshing.";
+
 export const WorkshopProvider = ({ children }) => {
-  const { user, isLoggedIn } = useAuth();
+  const { user, isLoggedIn, loading: authLoading, logoutInProgress } = useAuth();
   const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const { fetchProfiles } = useProfiles();
 
@@ -99,6 +102,7 @@ export const WorkshopProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [hasError, setHasError] = useState(false);
 
   const [viewMode, setViewMode] = useState("all"); // "all" | "mine"
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
@@ -127,6 +131,20 @@ export const WorkshopProvider = ({ children }) => {
     accessScopeRef.current = accessScope;
   }, [accessScope]);
 
+  const setWorkshopError = useCallback((message = null) => {
+    setError(message);
+    setHasError(!!message);
+  }, []);
+
+  const canFetchWorkshops = useCallback(
+    ({ allowPublic = true } = {}) => {
+      if (authLoading || logoutInProgress) return false;
+      if (!isLoggedIn && !allowPublic) return false;
+      return true;
+    },
+    [authLoading, isLoggedIn, logoutInProgress]
+  );
+
   /* ───────────────────────── Derived user/family info ───────────────────────── */
 
   const userKey = useMemo(() => {
@@ -153,6 +171,14 @@ export const WorkshopProvider = ({ children }) => {
      📡 Fetch all workshops (server → normalized list)
      ============================================================ */
   const fetchAllWorkshops = useCallback(async (options = {}) => {
+    if (!canFetchWorkshops({ allowPublic: true })) {
+      dbgCtx("fetchAllWorkshops:skip-auth", {
+        authLoading,
+        logoutInProgress,
+        isLoggedIn,
+      });
+      return [];
+    }
     const opts = typeof options === "boolean" ? { force: options } : options;
     const currentPagination = paginationRef.current;
     const currentScope = accessScopeRef.current || "public";
@@ -179,7 +205,7 @@ export const WorkshopProvider = ({ children }) => {
     dbgCtx("fetchAllWorkshops:start", { force, limit, skip, append });
     if (append) setLoadingMore(true);
     else setLoading(true);
-    setError(null);
+    setWorkshopError(null);
 
     if (force && !append) {
       setPagination((prev) => ({
@@ -411,18 +437,34 @@ export const WorkshopProvider = ({ children }) => {
       return updatedList;
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchAllWorkshops error:", err);
-      setError(err.message);
+      setWorkshopError(WORKSHOP_ERROR_MESSAGE);
       return [];
     } finally {
       fetchInFlightRef.current = false;
       if (append) setLoadingMore(false);
       else setLoading(false);
     }
-  }, [userKey]);
+  }, [
+    authLoading,
+    canFetchWorkshops,
+    isLoggedIn,
+    logoutInProgress,
+    setWorkshopError,
+    userKey,
+  ]);
 /* ============================================================
      📡 Fetch registered workshops (IDs only)
      ============================================================ */
   const fetchRegisteredWorkshops = useCallback(async () => {
+    if (!canFetchWorkshops({ allowPublic: false })) {
+      dbgCtx("fetchRegisteredWorkshops:skip-auth", {
+        authLoading,
+        logoutInProgress,
+        isLoggedIn,
+      });
+      setLoading(false);
+      return;
+    }
     log("📡 Fetching registered workshops (ids)...");
     dbgCtx("fetchRegisteredWorkshops:start");
     try {
@@ -499,23 +541,31 @@ export const WorkshopProvider = ({ children }) => {
       setServerMapsLoaded(false);
     } catch (err) {
       console.error("❌ [WORKSHOP] fetchRegisteredWorkshops error:", err);
-      setError(err.message);
+      setWorkshopError(WORKSHOP_ERROR_MESSAGE);
       dbgCtx("fetchRegisteredWorkshops:error", { message: err.message });
       setServerMapsLoaded(false);
     } finally {
       setLoading(false);
       dbgCtx("fetchRegisteredWorkshops:done");
     }
-  }, []);
+  }, [
+    authLoading,
+    canFetchWorkshops,
+    isLoggedIn,
+    logoutInProgress,
+    setWorkshopError,
+  ]);
   /*  NEW: refetch when auth scope changes so DTOs match access level */
   useEffect(() => {
+    if (authLoading || logoutInProgress) return;
     if (isChecking && isLoggedIn) return;
     const nextScope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
     setAccessScope((prev) => (prev === nextScope ? prev : nextScope));
-  }, [canAccessAdmin, isChecking, isLoggedIn]);
+  }, [authLoading, canAccessAdmin, isChecking, isLoggedIn, logoutInProgress]);
 
   useEffect(() => {
     // Avoid fetching admin datasets until the capability probe finishes to prevent public → admin flicker
+    if (authLoading || logoutInProgress) return;
     if (isLoggedIn && isChecking) return;
 
     fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0, scope: accessScope });
@@ -534,8 +584,10 @@ export const WorkshopProvider = ({ children }) => {
     accessScope,
     fetchAllWorkshops,
     fetchRegisteredWorkshops,
+    authLoading,
     isChecking,
     isLoggedIn,
+    logoutInProgress,
     pagination.limit,
   ]);
 
@@ -554,6 +606,7 @@ export const WorkshopProvider = ({ children }) => {
   useEffect(() => {
     const onLoggedOut = () => {
       dbgCtx("event:auth-logged-out");
+      if (authLoading || logoutInProgress) return;
       setUserWorkshopMap({});
       setFamilyWorkshopMap({});
       setMapsReady(false);
@@ -569,6 +622,7 @@ export const WorkshopProvider = ({ children }) => {
 
     const onLoggedIn = () => {
       dbgCtx("event:auth-logged-in");
+      if (authLoading || logoutInProgress) return;
       // load both public list (for maps) and private registrations
       fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       fetchRegisteredWorkshops();
@@ -577,6 +631,7 @@ export const WorkshopProvider = ({ children }) => {
     const onAuthReady = (e) => {
       const loggedIn = !!e?.detail?.loggedIn;
       dbgCtx("event:auth-ready", { loggedIn });
+      if (authLoading || logoutInProgress) return;
       if (loggedIn) {
         fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
         fetchRegisteredWorkshops();
@@ -587,6 +642,7 @@ export const WorkshopProvider = ({ children }) => {
 
     const onUserUpdated = () => {
       dbgCtx("event:auth-user-updated");
+      if (authLoading || logoutInProgress) return;
       // user/family changed → safe to refetch so maps rebuild
       fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       if (viewMode === "mine") fetchRegisteredWorkshops();
@@ -604,8 +660,10 @@ export const WorkshopProvider = ({ children }) => {
     window.removeEventListener("auth-user-updated", onUserUpdated);
   };
   }, [
+    authLoading,
     fetchAllWorkshops,
     fetchRegisteredWorkshops,
+    logoutInProgress,
     pagination.limit,
     viewMode,
   ]);
@@ -740,6 +798,16 @@ export const WorkshopProvider = ({ children }) => {
       return { success: false, message: "Missing entityKey" };
     }
 
+    const target = (workshops || []).find(
+      (w) => sid(w?.workshopKey || w?._id) === sid(workshopKey)
+    );
+    if (target?.adminHidden) {
+      return {
+        success: false,
+        message: "סדנה מוסתרת אינה זמינה להרשמה",
+      };
+    }
+
     try {
       const res = await apiFetch(
         `/api/workshops/${workshopKey}/register-entity`,
@@ -817,6 +885,16 @@ export const WorkshopProvider = ({ children }) => {
     if (!entityKey) {
       console.error("❌ registerToWaitlist called WITHOUT entityKey");
       return { success: false, message: "Missing entityKey" };
+    }
+
+    const target = (workshops || []).find(
+      (w) => sid(w?.workshopKey || w?._id) === sid(workshopKey)
+    );
+    if (target?.adminHidden) {
+      return {
+        success: false,
+        message: "סדנה מוסתרת אינה זמינה להרשמה",
+      };
     }
 
     try {
@@ -972,8 +1050,12 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
-  const exportWorkshop = async (workshopId, type = "current") => {
-    dbgCtx("exportWorkshop:start", { workshopId, type });
+  const exportWorkshop = async (
+    workshopId,
+    type = "current",
+    audience = "admin"
+  ) => {
+    dbgCtx("exportWorkshop:start", { workshopId, type, audience });
 
     if (!workshopId) {
       console.error("❌ exportWorkshop called WITHOUT workshopId");
@@ -981,12 +1063,12 @@ export const WorkshopProvider = ({ children }) => {
     }
 
     try {
-      const res = await apiFetch(
-        `/api/workshops/${workshopId}/export?type=${type}`,
-        {
-          method: "POST",
-        }
-      );
+      const params = new URLSearchParams();
+      params.set("type", type);
+      params.set("audience", audience);
+      const res = await apiFetch(`/api/workshops/${workshopId}/export?${params.toString()}`, {
+        method: "POST",
+      });
 
       const data = await res.json();
 
@@ -1081,6 +1163,7 @@ export const WorkshopProvider = ({ children }) => {
         loading,
         loadingMore,
         error,
+        hasError,
         viewMode,
         setViewMode,
         selectedWorkshop,

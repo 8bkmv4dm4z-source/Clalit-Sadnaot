@@ -21,7 +21,7 @@ const pickFields = (src = {}, allowlist = []) =>
   }, {});
 
 const PARTICIPANT_CONTACT_CARD_FIELDS = ["entityKey", "name", "relation", "status", "city"];
-const ADMIN_CONTACT_FIELDS = ["email", "phone"];
+const ADMIN_CONTACT_FIELDS = ["email", "phone", "birthDate", "idNumber", "canCharge"];
 
 const toPlainWorkshop = (workshop) =>
   workshop?.toObject ? workshop.toObject() : { ...(workshop || {}) };
@@ -111,6 +111,9 @@ const formatParticipant = (
     relation: participant.relation || (isFamily ? "" : "self"),
     status: participant.status || "registered",
     city: participant.city || "",
+    birthDate: participant.birthDate || "",
+    idNumber: participant.idNumber || "",
+    canCharge: participant.canCharge || false,
   };
 
   if (adminView && includeContactFields) {
@@ -137,6 +140,9 @@ const formatWaitlistEntry = (
     relation: entry.relation || entry.familyMemberId?.relation || "",
     status: "waitlist",
     city: entry.city || entry.familyMemberId?.city || entry.parentUser?.city || "",
+    birthDate: entry.birthDate || entry.familyMemberId?.birthDate || "",
+    idNumber: entry.idNumber || entry.familyMemberId?.idNumber || "",
+    canCharge: entry.canCharge || entry.parentUser?.canCharge || false,
   };
 
   if (adminView && includeContactFields) {
@@ -177,9 +183,12 @@ const normalizeWorkshopParticipants = (
         parentKey: toEntityKey(parent, "user"),
         name: f.name || member.name || "",
         relation: f.relation || member.relation || "",
-        email: member.email || "",
-        phone: member.phone || "",
-        city: member.city || "",
+        email: member.email || parentFields.email || "",
+        phone: member.phone || parentFields.phone || "",
+        city: member.city || parentFields.city || "",
+        birthDate: member.birthDate || "",
+        idNumber: member.idNumber || "",
+        canCharge: parent.canCharge || false,
         isFamily: true,
         status: "registered",
       },

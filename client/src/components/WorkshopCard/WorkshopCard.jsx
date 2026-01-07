@@ -221,6 +221,8 @@ export default function WorkshopCard({
   const isWorkshopFull =
     maxParticipants > 0 && participantsCount >= maxParticipants;
 
+  const isHidden = !!adminHidden;
+
   // -------- self registered logic (per-entity only) --------
   const isSelfRegistered = useMemo(() => {
     if (!userKey || !wid) return false;
@@ -288,6 +290,14 @@ export default function WorkshopCard({
       };
     }
 
+    if (isHidden) {
+      return {
+        label: "סדנה מוסתרת",
+        color: "bg-gray-200 text-gray-500 shadow-inner",
+        action: null,
+      };
+    }
+
     if (isWorkshopFull) {
       return {
         label: "הירשם לרשימת המתנה",
@@ -310,6 +320,7 @@ export default function WorkshopCard({
     isSelfRegistered,
     selfOnWaitlist,
     isWorkshopFull,
+    isHidden,
     familyRegisteredIdSet,
     waitRows,
   ]);
