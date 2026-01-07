@@ -55,6 +55,15 @@ export const AdminCapabilityProvider = ({ children }) => {
   }, [canAccessAdmin]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("admin-capability-checking", {
+        detail: { isChecking },
+      })
+    );
+  }, [isChecking]);
+
+  useEffect(() => {
     if (authLoading) return;
 
     if (!isLoggedIn) {

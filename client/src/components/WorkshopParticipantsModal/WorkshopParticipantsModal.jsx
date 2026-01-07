@@ -397,9 +397,10 @@ export default function WorkshopParticipantsModal({
   /** Export */
   const handleExport = useCallback(async () => {
     const type = view === "participants" ? "current" : "waitlist";
+    const audience = accessScope === "admin" ? "admin" : "participant";
 
     try {
-      const result = await exportWorkshop(activeWorkshopKey, type);
+      const result = await exportWorkshop(activeWorkshopKey, type, audience);
       if (!result?.success) {
         throw new Error(result?.message || 'שגיאה ביצוא דו"ח');
       }
@@ -408,7 +409,7 @@ export default function WorkshopParticipantsModal({
     } catch (e) {
       alert("❌ " + e.message);
     }
-  }, [exportWorkshop, activeWorkshopKey, view]);
+  }, [accessScope, exportWorkshop, activeWorkshopKey, view]);
 
   /** Render waitlist item */
   const renderWaitlistItem = (wl) => {

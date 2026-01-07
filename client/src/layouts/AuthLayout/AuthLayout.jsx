@@ -106,6 +106,7 @@ function fireLoggedOut(extra = {}) {
 const AuthContext = createContext({
   isLoggedIn: false,
   loading: true,
+  logoutInProgress: false,
   user: null,
   filters: {},
   searchQuery: "",
@@ -139,17 +140,35 @@ export const AuthProvider = ({ children }) => {
   const [filters, setFilters] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [logoutInProgress, setLogoutInProgress] = useState(false);
   const [accessToken, setAccessToken] = useState(
     localStorage.getItem("accessToken") || null
   );
 
   const didVerifyRef = useRef(false);
+  const logoutInProgressRef = useRef(false);
+  const refreshInFlightRef = useRef(null);
+  const fetchMeRequestIdRef = useRef(0);
+  const capabilityProbePendingRef = useRef(false);
+
+  useEffect(() => {
+    logoutInProgressRef.current = logoutInProgress;
+  }, [logoutInProgress]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      capabilityProbePendingRef.current = !!event?.detail?.isChecking;
+    };
+    window.addEventListener("admin-capability-checking", handler);
+    return () => window.removeEventListener("admin-capability-checking", handler);
+  }, []);
 
   /* ============================================================
      🚪 Logout
      ============================================================ */
   const logout = useCallback(
     async (silent = false) => {
+      setLogoutInProgress(true);
       try {
         await apiFetch("/api/auth/logout", {
           method: "POST",
@@ -169,6 +188,9 @@ export const AuthProvider = ({ children }) => {
       fireAuthReady(false, { phase: "logout" });
       fireLoggedOut();
 
+      logoutInProgressRef.current = false;
+      setLogoutInProgress(false);
+
       if (!silent) navigate("/workshops");
     },
     [navigate]
@@ -178,7 +200,15 @@ export const AuthProvider = ({ children }) => {
      🔁 Refresh Access Token
      ============================================================ */
   const refreshAccessToken = useCallback(async () => {
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current;
+    }
+    const refreshPromise = (async () => {
     try {
+      if (logoutInProgressRef.current) {
+        log("⚠️ refreshAccessToken skipped during logout");
+        return null;
+      }
       const res = await apiFetch("/api/auth/refresh", {
         method: "POST",
         credentials: "include",
@@ -188,6 +218,10 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data?.message || "Refresh token invalid");
       }
       if (data?.accessToken) {
+        if (logoutInProgressRef.current) {
+          log("⚠️ refreshAccessToken ignored: logout in progress");
+          return null;
+        }
         localStorage.setItem("accessToken", data.accessToken);
         setAccessToken(data.accessToken);
         log("🔄 Token refreshed successfully");
@@ -199,6 +233,14 @@ export const AuthProvider = ({ children }) => {
       await logout(true);
       return null;
     }
+    })();
+
+    refreshInFlightRef.current = refreshPromise;
+    try {
+      return await refreshPromise;
+    } finally {
+      refreshInFlightRef.current = null;
+    }
   }, [logout]);
 
   /* ============================================================
@@ -206,9 +248,13 @@ export const AuthProvider = ({ children }) => {
      ============================================================ */
   const authFetch = useCallback(
   async (url, options = {}) => {
+    if (logoutInProgressRef.current) {
+      throw new Error("Logout in progress");
+    }
+    const { skipRefresh = false, ...fetchOptions } = options;
     const token = accessToken || localStorage.getItem("accessToken");
     const headers = {
-      ...(options.headers || {}),
+      ...(fetchOptions.headers || {}),
       Authorization: token ? `Bearer ${token}` : undefined,
       "Content-Type": "application/json",
     };
@@ -216,20 +262,20 @@ export const AuthProvider = ({ children }) => {
     try {
       // ✅ Always include credentials so refresh cookies work
       let res = await apiFetch(url, { 
-        ...options, 
+        ...fetchOptions, 
         headers, 
         credentials: "include" 
       });
 
       // ⚠️ If unauthorized, try refresh once
-      if (res.status === 401) {
+      if (res.status === 401 && !skipRefresh) {
         log("⚠️ 401 detected — attempting refresh...");
         const newToken = await refreshAccessToken();
         if (!newToken) throw new Error("Session expired");
 
         const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
         res = await apiFetch(url, { 
-          ...options, 
+          ...fetchOptions, 
           headers: headers2, 
           credentials: "include" // 🔁 include again on retry
         });
@@ -242,7 +288,7 @@ export const AuthProvider = ({ children }) => {
     }
   },
   [accessToken, refreshAccessToken]
-);
+  );
 
 
 
@@ -250,7 +296,25 @@ export const AuthProvider = ({ children }) => {
    👤 fetchMe — load current user (MINIMAL, SERVER-AUTHORITATIVE)
    ============================================================ */
   const fetchMe = useCallback(
-    async (tokenOverride = null) => {
+    async (tokenOverride = null, { allowDuringLoading = false } = {}) => {
+      if (logoutInProgressRef.current) {
+        log("⚠️ fetchMe skipped: logout in progress");
+        return null;
+      }
+      if (!allowDuringLoading && loading) {
+        log("⚠️ fetchMe skipped: auth loading");
+        return null;
+      }
+      if (refreshInFlightRef.current) {
+        log("⚠️ fetchMe waiting: refresh in progress");
+        await refreshInFlightRef.current;
+      }
+      if (capabilityProbePendingRef.current) {
+        log("⚠️ fetchMe skipped: capability probe pending");
+        return null;
+      }
+
+      const requestId = ++fetchMeRequestIdRef.current;
       const token =
         tokenOverride || accessToken || localStorage.getItem("accessToken");
 
@@ -262,7 +326,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const res = await authFetch("/api/users/getMe");
+        const res = await authFetch("/api/users/getMe", { skipRefresh: true });
 
         const raw = await safeJson(res);
 
@@ -275,6 +339,14 @@ export const AuthProvider = ({ children }) => {
           throw new Error("Invalid /getme payload");
         }
 
+        if (
+          logoutInProgressRef.current ||
+          requestId !== fetchMeRequestIdRef.current
+        ) {
+          log("⚠️ fetchMe ignored: stale response");
+          return null;
+        }
+
         setUser(normalized);
         setIsLoggedIn(true);
 
@@ -282,10 +354,13 @@ export const AuthProvider = ({ children }) => {
         return normalized;
       } catch (err) {
         log("❌ fetchMe error:", err.message);
+        if (!logoutInProgressRef.current) {
+          await logout(true);
+        }
         return null;
       }
     },
-    [authFetch]
+    [accessToken, authFetch, loading, logout]
   );
 
   /* ============================================================
@@ -297,9 +372,9 @@ export const AuthProvider = ({ children }) => {
     log("🔹 Mounted AuthProvider");
 
     (async () => {
-      await fetchMe();
+      const me = await fetchMe(null, { allowDuringLoading: true });
       setLoading(false);
-      fireAuthReady(!!(accessToken || localStorage.getItem("accessToken")));
+      fireAuthReady(!!me);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -556,10 +631,14 @@ export const AuthProvider = ({ children }) => {
       setAccessToken(newToken);
       log("💾 Access token stored, loading user directly...");
 
-      const data = await fetchMe(newToken);
+      const data = await fetchMe(newToken, { allowDuringLoading: true });
+      if (!data) {
+        return;
+      }
       fireAuthReady(true, { phase: "login-complete" });
       fireLoggedIn({ userId: String(data?._id || data?.id || "") });
       navigate("/workshops");
+      return data;
     },
     [fetchMe, navigate]
   );
@@ -611,8 +690,14 @@ export const AuthProvider = ({ children }) => {
           return { success: false, status: res.status, message: friendly };
         }
 
-        await completeLogin(token);
-        console.log(token);
+        const me = await completeLogin(token);
+        if (!me) {
+          return {
+            success: false,
+            status: res.status,
+            message: "Session validation failed",
+          };
+        }
         publishEvent({
           type: "success",
           title: "התחברות בוצעה",
@@ -638,7 +723,8 @@ export const AuthProvider = ({ children }) => {
      ♻️ Refresh Me
      ============================================================ */
   const refreshMe = async () => {
-    await fetchMe();
+    const data = await fetchMe();
+    if (!data) return;
     window.dispatchEvent(
       new CustomEvent("auth-user-updated", {
 detail: { at: Date.now(), entityKey: user?.entityKey }
@@ -744,13 +830,14 @@ detail: { at: Date.now(), entityKey: user?.entityKey }
         verifyOtp,
         requestPasswordReset,
         completePasswordReset,
-        updateEntity,
-        saveEntity,
-        refreshMe,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+      updateEntity,
+      saveEntity,
+      refreshMe,
+      logoutInProgress,
+    }}
+  >
+    {children}
+  </AuthContext.Provider>
   );
 };
 
