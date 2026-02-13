@@ -113,7 +113,6 @@ export default function WorkshopCard({
   const [visibilityLoading, setVisibilityLoading] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [viewport, setViewport] = useState("desktop");
-  const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   const adminMenuRef = useRef(null);
 
@@ -141,11 +140,44 @@ export default function WorkshopCard({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+// -------- Destructure workshop with defaults --------
+  const {
+    title = "",
+    type = "",
+    description = "",
+    coach = "",
+    city = "",
+    address = "",
+    studio = "",
+    days = [],
+    hour,
+    price,
+    image,
+    available = true,
+    adminHidden = false,
+    participants = [],
+    waitingList = [],
+    waitingListMax = 0,
+    participantsCount: participantsCountRaw,
+    waitingListCount = 0,
+    familyRegistrationsCount = 0,
+    registrationStatus = "not_registered",
+    isUserInWaitlist = false,
+    maxParticipants: maxParticipantsRaw,
+    startDate,
+    endDate,
+    inactiveDates = [],
+    userFamilyRegistrations = [],
+    
+  } = workshop;
+  const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   useEffect(() => {
     setLocalHidden(!!adminHidden);
   }, [adminHidden, wid]);
 
+
+  
   // 2. Resolve Image URL (Preset ID or Custom URL)
   const imageUrl = getWorkshopImage(image);
 
