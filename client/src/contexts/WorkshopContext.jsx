@@ -898,7 +898,20 @@ export const WorkshopProvider = ({ children }) => {
         ok: true,
         message: data?.message,
       });
-      await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
+      const serverWorkshop = data?.workshop || data?.data || null;
+      setWorkshops((prev) =>
+        (prev || []).map((w) => {
+          if (sid(w?._id) !== sid(workshopId) && sid(w?.workshopKey) !== sid(workshopId)) {
+            return w;
+          }
+          return {
+            ...w,
+            ...(payload || {}),
+            ...(serverWorkshop && typeof serverWorkshop === "object" ? serverWorkshop : {}),
+            _id: sid(serverWorkshop?._id || serverWorkshop?.workshopKey || w?._id),
+          };
+        })
+      );
       return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to update workshop");

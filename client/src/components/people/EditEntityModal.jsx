@@ -25,17 +25,20 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
     try {
       setSaving(true);
 
-      const { entityKey, _id, parentId, isFamily, ...rest } = form;
-      const updates = { ...rest };
-      if (isFamily) {
-        delete updates.idNumber;
-        delete updates.city;
-      }
-      const targetKey = entityKey || _id;
+      const { entityKey, familyEntityKey, isFamily, ...rest } = form;
+      const targetKey = entityKey || familyEntityKey;
 
       if (!targetKey) {
-        throw new Error("Missing entity key for update");
+        throw new Error("Missing entityKey for update");
       }
+
+      const updates = {};
+      Object.entries(rest).forEach(([key, value]) => {
+        if (isFamily && (key === "idNumber" || key === "city")) return;
+        if (typeof value === "string" && value.trim() === "") return;
+        if (value === null || value === undefined) return;
+        updates[key] = value;
+      });
 
       const res = await apiFetch(`/api/users/update-entity`, {
         method: "PUT",
