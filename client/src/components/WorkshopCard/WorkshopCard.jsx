@@ -103,6 +103,7 @@ export default function WorkshopCard({
     inactiveDates = [],
     userFamilyRegistrations = [],
   } = workshop;
+const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   // -------- UI state --------
   const [showFamilyModal, setShowFamilyModal] = useState(false);
@@ -140,37 +141,6 @@ export default function WorkshopCard({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-// -------- Destructure workshop with defaults --------
-  const {
-    title = "",
-    type = "",
-    description = "",
-    coach = "",
-    city = "",
-    address = "",
-    studio = "",
-    days = [],
-    hour,
-    price,
-    image,
-    available = true,
-    adminHidden = false,
-    participants = [],
-    waitingList = [],
-    waitingListMax = 0,
-    participantsCount: participantsCountRaw,
-    waitingListCount = 0,
-    familyRegistrationsCount = 0,
-    registrationStatus = "not_registered",
-    isUserInWaitlist = false,
-    maxParticipants: maxParticipantsRaw,
-    startDate,
-    endDate,
-    inactiveDates = [],
-    userFamilyRegistrations = [],
-    
-  } = workshop;
-  const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   useEffect(() => {
     setLocalHidden(!!adminHidden);
