@@ -10,6 +10,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { apiFetch } from "../../utils/apiFetch";
+import { normalizeError } from "../../utils/normalizeError";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 
 const calcAge = (dateStr) => {
@@ -43,10 +44,16 @@ export default function EditProfile() {
       try {
         const res = await apiFetch(`/api/users/${id}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "User not found");
+        if (!res.ok) {
+          throw (
+            res.normalizedError ||
+            normalizeError(null, { status: res.status, payload: data, fallbackMessage: "User not found" })
+          );
+        }
         setForm(data);
       } catch (err) {
-        setError(err.message);
+        const normalized = normalizeError(err, { fallbackMessage: "User not found" });
+        setError(normalized.message);
       } finally {
         setLoading(false);
       }
@@ -134,7 +141,12 @@ export default function EditProfile() {
       // refresh local form from server (via apiFetch)
       const res = await apiFetch(`/api/users/${form._id}`);
       const refreshed = await res.json();
-      if (!res.ok) throw new Error(refreshed.message || "Failed to refresh user");
+      if (!res.ok) {
+        throw (
+          res.normalizedError ||
+          normalizeError(null, { status: res.status, payload: refreshed, fallbackMessage: "Failed to refresh user" })
+        );
+      }
       setForm(refreshed);
 
       setEditingFamilyId(null);
@@ -142,7 +154,8 @@ export default function EditProfile() {
       setAddingFamily(false);
       alert("✅ בן המשפחה נשמר בהצלחה!");
     } catch (err) {
-      alert("❌ שגיאה: " + err.message);
+      const normalized = normalizeError(err, { fallbackMessage: "Failed to update profile" });
+      alert("❌ שגיאה: " + normalized.message);
     } finally {
       setSaving(false);
     }

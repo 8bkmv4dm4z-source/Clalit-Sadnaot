@@ -207,6 +207,9 @@ export default function WorkshopCard({
     });
   }, [waitingList]);
 
+  const waitlistTotal =
+    typeof waitingListCount === "number" ? waitingListCount : waitRows.length;
+
   // -------- true self waitlist logic --------
   const selfOnWaitlist = useMemo(
     () =>
@@ -619,7 +622,7 @@ export default function WorkshopCard({
                 {showWaitlist ? (
                   <>
                     <Hourglass size={16} className="text-amber-600" />
-                    {`${waitRows.length}/${waitingListMax || "∞"}`}
+                    {`${waitlistTotal}/${waitingListMax || "∞"}`}
                     <ChevronUp size={16} />
                   </>
                 ) : (

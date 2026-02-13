@@ -59,7 +59,10 @@ const normalizeLocalQuery = (value) => {
  */
 const rowMatchesQuery = (row, normalizedQuery) => {
   if (!normalizedQuery) return true;
-  const fields = ["name", "email", "phone", "city", "idNumber"];
+  const isFamily = row?.isFamily || row?.entityType === "familyMember";
+  const fields = isFamily
+    ? ["name", "email", "phone", "relation"]
+    : ["name", "email", "phone", "city", "idNumber"];
 
   return fields.some((field) => {
     const val = row[field];
@@ -371,7 +374,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       const baseUserFields = ["name", "email", "phone", "city", "birthDate", "idNumber"];
       const userAllowed = canAccessAdmin ? [...baseUserFields, "canCharge"] : baseUserFields;
       const allowedKeys = isFamily
-        ? ["name", "relation", "idNumber", "phone", "birthDate", "email", "city"]
+        ? ["name", "relation", "phone", "birthDate", "email"]
         : userAllowed;
 
       const updates = {};
@@ -684,8 +687,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
                   const displayEmail = r.email || "-";
                   const displayPhone = r.phone || "-";
-                  const displayCity = r.city || "-";
-                  const displayIdNumber = r.idNumber || "-";
+                  const displayCity = isFamily ? "-" : r.city || "-";
+                  const displayIdNumber = isFamily ? "-" : r.idNumber || "-";
 
                   const displayAge =
                     typeof r.age === "number"
@@ -721,11 +724,13 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 </td>
 
 {/* --- 2. ID --- */}
-<td className="p-3 text-gray-600" title={r.idNumber}>
+                      <td className="p-3 text-gray-600" title={isFamily ? "" : r.idNumber}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full">
     {isEditing
-      ? renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)
+      ? isFamily
+        ? displayIdNumber
+        : renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)
       : displayIdNumber}
   </div>
 </td>
@@ -751,11 +756,13 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 </td>
 
 {/* --- 5. CITY --- */}
-<td className="p-3 text-gray-600" title={r.city}>
+<td className="p-3 text-gray-600" title={isFamily ? "" : r.city}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full">
     {isEditing
-      ? renderEditInput("city", editBuffer?.city ?? r.city)
+      ? isFamily
+        ? displayCity
+        : renderEditInput("city", editBuffer?.city ?? r.city)
       : displayCity}
   </div>
 </td>
@@ -766,7 +773,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
                       {/* --- 7. CHARGE --- */}
                       <td className="p-3 text-center">
-                        {isEditing ? (
+                        {isFamily ? (
+                          <span>-</span>
+                        ) : isEditing ? (
                           <button
                             type="button"
                             onClick={toggleCanCharge}
@@ -886,8 +895,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
               const displayEmail = r.email || "-";
               const displayPhone = r.phone || "-";
-              const displayCity = r.city || "-";
-              const displayIdNumber = r.idNumber || "-";
+              const displayCity = isFamily ? "-" : r.city || "-";
+              const displayIdNumber = isFamily ? "-" : r.idNumber || "-";
               const displayAge =
                 typeof r.age === "number"
                   ? r.age
@@ -977,19 +986,27 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       label="עיר"
                       isEditing={isEditing}
                       value={displayCity}
-                      input={renderEditInput(
-                        "city",
-                        editBuffer?.city ?? r.city
-                      )}
+                      input={
+                        isFamily
+                          ? displayCity
+                          : renderEditInput(
+                              "city",
+                              editBuffer?.city ?? r.city
+                            )
+                      }
                     />
                     <Field
                       label="ת.ז"
                       isEditing={isEditing}
                       value={displayIdNumber}
-                      input={renderEditInput(
-                        "idNumber",
-                        editBuffer?.idNumber ?? r.idNumber
-                      )}
+                      input={
+                        isFamily
+                          ? displayIdNumber
+                          : renderEditInput(
+                              "idNumber",
+                              editBuffer?.idNumber ?? r.idNumber
+                            )
+                      }
                     />
                     <Field
                       label="גיל"
@@ -1001,7 +1018,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
 
                     <div className="col-span-2">
                       <div className="text-xs text-gray-500 mb-1">חיוב</div>
-                      {isEditing ? (
+                      {isFamily ? (
+                        <span className="text-lg">-</span>
+                      ) : isEditing ? (
                         <button
                           type="button"
                           onClick={toggleCanCharge}

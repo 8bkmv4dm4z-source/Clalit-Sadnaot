@@ -49,7 +49,6 @@ const normalizeUser = (entity = {}) => {
   return {
     ...base,
     entityType: "user",
-    isAdmin: !!entity.isAdmin,
     isFamily: false,
   };
 };

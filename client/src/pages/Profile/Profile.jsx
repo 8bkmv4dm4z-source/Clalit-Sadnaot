@@ -11,6 +11,7 @@ import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { apiFetch } from "../../utils/apiFetch";
+import { normalizeError } from "../../utils/normalizeError";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import EditEntityModal from "../../components/people/EditEntityModal";
 
@@ -67,7 +68,8 @@ export default function Profile() {
         setFamilyEntityKeys(keys);
       }
     } catch (err) {
-      console.warn("⚠️ Failed to refresh user data:", err.message);
+      const normalized = normalizeError(err, { fallbackMessage: "Failed to refresh user data" });
+      console.warn("⚠️ Failed to refresh user data:", normalized.message);
     }
   }, []);
 
@@ -149,7 +151,14 @@ export default function Profile() {
     const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityKey)}`);
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data?.message || "Failed to load entity");
+      throw (
+        res.normalizedError ||
+        normalizeError(null, {
+          status: res.status,
+          payload: data,
+          fallbackMessage: "Failed to load entity",
+        })
+      );
     }
     return data;
   }, []);
@@ -291,9 +300,7 @@ export default function Profile() {
                     )}
                   </div>
                   <div className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
-                    <span>ת.ז: {member.idNumber || "-"}</span>
                     <span>טלפון: {member.phone || "-"}</span>
-                    <span>עיר: {member.city || "-"}</span>
                     <span>
                       תאריך לידה:{" "}
                       {member.birthDate

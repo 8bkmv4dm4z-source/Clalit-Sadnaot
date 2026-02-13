@@ -310,12 +310,14 @@ const authRouter = require("./routes/auth");
 const usersRouter = require("./routes/users");
 const profileRouter = require("./routes/profile");
 const adminHubRoutes = require("./routes/adminHub");
+const adminWorkshopsRoutes = require("./routes/adminWorkshops");
 
 api.use("/workshops", workshopWriteLimiter, workshopsRouter);
 api.use("/auth", authRouter);
 api.use("/users", usersRouter);
 api.use("/profile", profileRouter);
 api.use("/admin/hub", adminHubRoutes);
+api.use("/admin/workshops", adminWorkshopsRoutes);
 
 // API 404
 api.use((req, res, next) => {

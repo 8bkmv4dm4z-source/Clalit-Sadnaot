@@ -9,6 +9,7 @@
 
 import React, { useState } from "react";
 import { apiFetch } from "../../utils/apiFetch";
+import { normalizeError } from "../../utils/normalizeError";
 
 export default function FamilyEditorModal({ user, onClose, onSave }) {
   const [list, setList] = useState(user.familyMembers || []);
@@ -34,11 +35,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
       {
         name: "",
         relation: "",
-        idNumber: "",
         phone: "",
         email: user.email || "",
         birthDate: "",
-        city: "",
       },
     ]);
   };
@@ -100,7 +99,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
           throw new Error("חסר מזהה בן משפחה (entityKey)");
         }
 
-        await apiFetch("/api/users/update-entity", {
+        const res = await apiFetch("/api/users/update-entity", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -108,14 +107,23 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
             updates: {
               name: normalized.name,
               relation: normalized.relation,
-              idNumber: normalized.idNumber,
               phone: normalized.phone,
               birthDate: normalized.birthDate,
               email: normalized.email,
-              city: normalized.city,
             },
           }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw (
+            res.normalizedError ||
+            normalizeError(null, {
+              status: res.status,
+              payload: data,
+              fallbackMessage: "Update failed",
+            })
+          );
+        }
       }
 
       window.dispatchEvent(new Event("entity-updated"));
@@ -123,7 +131,8 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
       onClose?.();
       alert("✅ בני המשפחה נשמרו בהצלחה");
     } catch (e) {
-      alert("❌ שגיאה בשמירת בני משפחה: " + e.message);
+      const normalized = normalizeError(e, { fallbackMessage: "Update failed" });
+      alert("❌ שגיאה בשמירת בני משפחה: " + normalized.message);
     } finally {
       setSaving(false);
     }
@@ -175,12 +184,6 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
                 />
                 <input
                   className="border rounded-lg px-3 py-2"
-                  placeholder="ת״ז"
-                  value={m.idNumber || ""}
-                  onChange={(e) => updateField(idx, "idNumber", e.target.value)}
-                />
-                <input
-                  className="border rounded-lg px-3 py-2"
                   placeholder="טלפון"
                   value={m.phone || ""}
                   onChange={(e) => updateField(idx, "phone", e.target.value)}
@@ -196,12 +199,6 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
                   placeholder="אימייל (לא חובה)"
                   value={m.email || ""}
                   onChange={(e) => updateField(idx, "email", e.target.value)}
-                />
-                <input
-                  className="border rounded-lg px-3 py-2"
-                  placeholder="עיר"
-                  value={m.city || ""}
-                  onChange={(e) => updateField(idx, "city", e.target.value)}
                 />
               </div>
 

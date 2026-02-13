@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "../../utils/apiFetch";
+import { normalizeError } from "../../utils/normalizeError";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function EditEntityModal({ entity, onClose, onSave }) {
@@ -26,6 +27,10 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
       const { entityKey, _id, parentId, isFamily, ...rest } = form;
       const updates = { ...rest };
+      if (isFamily) {
+        delete updates.idNumber;
+        delete updates.city;
+      }
       const targetKey = entityKey || _id;
 
       if (!targetKey) {
@@ -41,12 +46,22 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Update failed");
+      if (!res.ok) {
+        throw (
+          res.normalizedError ||
+          normalizeError(null, {
+            status: res.status,
+            payload: data,
+            fallbackMessage: "Update failed",
+          })
+        );
+      }
 
       onSave?.({ entityKey: targetKey, ...updates });
       onClose?.();
     } catch (e) {
-      alert("❌ שגיאה בעדכון: " + e.message);
+      const normalized = normalizeError(e, { fallbackMessage: "Update failed" });
+      alert("❌ שגיאה בעדכון: " + normalized.message);
     } finally {
       setSaving(false);
     }
@@ -113,13 +128,15 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
               />
             </Field>
 
-            <Field label="עיר">
-              <input
-                className="input w-full"
-                value={form.city || ""}
-                onChange={(e) => handleChange("city", e.target.value)}
-              />
-            </Field>
+            {!form.isFamily && (
+              <Field label="עיר">
+                <input
+                  className="input w-full"
+                  value={form.city || ""}
+                  onChange={(e) => handleChange("city", e.target.value)}
+                />
+              </Field>
+            )}
 
             <Field label="תאריך לידה">
               <input
@@ -130,13 +147,15 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
               />
             </Field>
 
-            <Field label="תעודת זהות">
-              <input
-                className="input w-full"
-                value={form.idNumber || ""}
-                onChange={(e) => handleChange("idNumber", e.target.value)}
-              />
-            </Field>
+            {!form.isFamily && (
+              <Field label="תעודת זהות">
+                <input
+                  className="input w-full"
+                  value={form.idNumber || ""}
+                  onChange={(e) => handleChange("idNumber", e.target.value)}
+                />
+              </Field>
+            )}
 
             {form.isFamily && (
               <Field label="קשר משפחתי">

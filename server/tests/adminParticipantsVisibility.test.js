@@ -125,14 +125,13 @@ test("admin participant view uses allowlist DTO and logs access", async () => {
     "parentKey",
     "relation",
     "status",
-    "canCharge",
     "city",
     "email",
     "phone",
   ]);
   res.body.participants.forEach((p) => {
     Object.keys(p).forEach((key) => assert.ok(allowed.has(key), `${key} should be allowlisted`));
-    ["_id", "idNumber", "birthDate", "familyMemberId", "parentUser"].forEach((forbidden) =>
+    ["_id", "idNumber", "birthDate", "familyMemberId", "parentUser", "canCharge"].forEach((forbidden) =>
       assert.equal(p[forbidden], undefined)
     );
     assert.equal(p.status, "registered");

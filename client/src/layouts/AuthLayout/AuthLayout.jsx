@@ -68,6 +68,7 @@ import {
   translateAuthError,
   translateNetworkError,
 } from "../../utils/errorTranslator";
+import { normalizeError } from "../../utils/normalizeError";
 import { normalizeMePayload } from "../../utils/entityTypes";
 import { getCaptchaToken } from "../../utils/captcha";
 
@@ -215,7 +216,8 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Refresh token invalid");
+        const normalized = normalizeResponseError(res, data, "Refresh token invalid");
+        throw new Error(normalized.message);
       }
       if (data?.accessToken) {
         if (logoutInProgressRef.current) {
@@ -227,7 +229,9 @@ export const AuthProvider = ({ children }) => {
         log("🔄 Token refreshed successfully");
         return data.accessToken;
       }
-      throw new Error("No access token in refresh response");
+      throw new Error(
+        normalizeError(null, { fallbackMessage: "No access token in refresh response" }).message
+      );
     } catch (err) {
       log("⚠️ refreshAccessToken failed:", err.message);
       await logout(true);
@@ -271,7 +275,11 @@ export const AuthProvider = ({ children }) => {
       if (res.status === 401 && !skipRefresh) {
         log("⚠️ 401 detected — attempting refresh...");
         const newToken = await refreshAccessToken();
-        if (!newToken) throw new Error("Session expired");
+        if (!newToken) {
+          throw new Error(
+            normalizeError(null, { fallbackMessage: "Session expired" }).message
+          );
+        }
 
         const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
         res = await apiFetch(url, { 
@@ -289,6 +297,17 @@ export const AuthProvider = ({ children }) => {
   },
   [accessToken, refreshAccessToken]
   );
+
+  const normalizeResponseError = useCallback((res, payload, fallbackMessage) => {
+    return (
+      res?.normalizedError ||
+      normalizeError(null, {
+        status: res?.status,
+        payload,
+        fallbackMessage,
+      })
+    );
+  }, []);
 
 
 
@@ -331,12 +350,15 @@ export const AuthProvider = ({ children }) => {
         const raw = await safeJson(res);
 
         if (!res.ok || !raw) {
-          throw new Error(raw?.message || "Failed to load profile");
+          const normalized = normalizeResponseError(res, raw, "Failed to load profile");
+          throw new Error(normalized.message);
         }
 
         const normalized = normalizeMePayload(raw);
         if (!normalized?.entityKey) {
-          throw new Error("Invalid /getme payload");
+          throw new Error(
+            normalizeError(null, { fallbackMessage: "Invalid /getme payload" }).message
+          );
         }
 
         if (
@@ -539,7 +561,8 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Failed to send OTP");
+        const normalized = normalizeResponseError(res, data, "Failed to send OTP");
+        throw new Error(normalized.message);
       }
       return { success: true, data };
     } catch (err) {
@@ -558,7 +581,8 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data?.message || "OTP verification failed");
+        const normalized = normalizeResponseError(res, data, "OTP verification failed");
+        throw new Error(normalized.message);
       }
       if (data?.accessToken) {
         await completeLogin(data.accessToken);
@@ -583,7 +607,8 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Failed to send reset instructions");
+        const normalized = normalizeResponseError(res, data, "Failed to send reset instructions");
+        throw new Error(normalized.message);
       }
       return { success: true, data };
     } catch (err) {
@@ -612,7 +637,8 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await safeJson(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Password reset failed");
+        const normalized = normalizeResponseError(res, data, "Password reset failed");
+        throw new Error(normalized.message);
       }
       return { success: true, data };
     } catch (err) {
@@ -773,7 +799,10 @@ detail: { at: Date.now(), entityKey: user?.entityKey }
         body: JSON.stringify({ entityKey, updates }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Update failed");
+      if (!res.ok) {
+        const normalized = normalizeResponseError(res, data, "Update failed");
+        throw new Error(normalized.message);
+      }
 
       const isCurrentUserUpdate = user && String(entityKey) === String(user.entityKey);
       const isCurrentFamilyUpdate = Array.isArray(user?.familyMembers)

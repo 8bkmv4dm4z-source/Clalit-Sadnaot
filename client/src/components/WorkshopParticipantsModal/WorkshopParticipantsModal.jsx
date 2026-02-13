@@ -33,31 +33,20 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { apiFetch } from "../../utils/apiFetch";
+import { normalizeError } from "../../utils/normalizeError";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAuth } from "../../layouts/AuthLayout";
 import AllProfiles from "../../pages/AllProfiles";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
 import { normalizeEntity } from "../../utils/normalizeEntity";
-
-const calcAge = (d) => {
-  if (!d) return null;
-  const x = new Date(d);
-  if (isNaN(x)) return null;
-  const t = new Date();
-  let a = t.getFullYear() - x.getFullYear();
-  const m = t.getMonth() - x.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < x.getDate())) a--;
-  return a;
-};
+import { formatParticipantContact } from "../../utils/participantDisplay";
 
 /** 🔹 QuickEdit modal */
 function QuickEdit({ person, onClose, onSaved }) {
   const [form, setForm] = useState(() => ({
     name: person?.name || "",
     phone: person?.phone || "",
-    city: person?.city || "",
-    birthDate: person?.birthDate ? String(person.birthDate).slice(0, 10) : "",
-    idNumber: person?.idNumber || "",
+    email: person?.email || "",
   }));
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -75,12 +64,22 @@ function QuickEdit({ person, onClose, onSaved }) {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "עדכון נכשל");
+      if (!res.ok) {
+        throw (
+          res.normalizedError ||
+          normalizeError(null, {
+            status: res.status,
+            payload: data,
+            fallbackMessage: "עדכון נכשל",
+          })
+        );
+      }
 
       onSaved?.({ entityKey: person.entityKey, ...form });
       onClose?.();
     } catch (e) {
-      alert("❌ שגיאה בעדכון: " + e.message);
+      const normalized = normalizeError(e, { fallbackMessage: "עדכון נכשל" });
+      alert("❌ שגיאה בעדכון: " + normalized.message);
     } finally {
       setSaving(false);
     }
@@ -107,19 +106,17 @@ function QuickEdit({ person, onClose, onSaved }) {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          {["name", "phone", "city", "birthDate", "idNumber"].map((key) => (
+          {["name", "email", "phone"].map((key) => (
             <label key={key} className="flex flex-col">
-              {key === "birthDate"
-                ? "תאריך לידה:"
-                : key === "idNumber"
-                ? "ת.ז:"
-                : key === "name"
+              {key === "name"
                 ? "שם:"
+                : key === "email"
+                ? "אימייל:"
                 : key === "phone"
                 ? "טלפון:"
-                : "עיר:"}
+                : ""}
               <input
-                type={key === "birthDate" ? "date" : "text"}
+                type="text"
                 className="mt-1 border rounded-lg px-3 py-2"
                 value={form[key]}
                 onChange={(e) => update(key, e.target.value)}
@@ -265,6 +262,9 @@ export default function WorkshopParticipantsModal({
 
   const waitlistTotal = useMemo(() => {
     if (waitlist.length > 0) return waitlist.length;
+    if (typeof activeWorkshop.waitingListCount === "number") {
+      return activeWorkshop.waitingListCount;
+    }
     if (Array.isArray(activeWorkshop.waitingList)) {
       return activeWorkshop.waitingList.length;
     }
@@ -295,10 +295,26 @@ export default function WorkshopParticipantsModal({
           apiFetch(`/api/workshops/${activeWorkshopKey}/waitlist`),
         ]);
         const [dataP, dataW] = await Promise.all([resP.json(), resW.json()]);
-        if (!resP.ok)
-          throw new Error(dataP.message || "שגיאה בטעינת משתתפים");
-        if (!resW.ok)
-          throw new Error(dataW.message || "שגיאה בטעינת רשימת המתנה");
+        if (!resP.ok) {
+          throw (
+            resP.normalizedError ||
+            normalizeError(null, {
+              status: resP.status,
+              payload: dataP,
+              fallbackMessage: "שגיאה בטעינת משתתפים",
+            })
+          );
+        }
+        if (!resW.ok) {
+          throw (
+            resW.normalizedError ||
+            normalizeError(null, {
+              status: resW.status,
+              payload: dataW,
+              fallbackMessage: "שגיאה בטעינת רשימת המתנה",
+            })
+          );
+        }
 
         const participantList = Array.isArray(dataP.participants)
           ? dataP.participants
@@ -319,13 +335,14 @@ export default function WorkshopParticipantsModal({
         );
         setWaitlist(cleanedWaitlist);
       } catch (e) {
+        const normalized = normalizeError(e, { fallbackMessage: "שגיאה בטעינת נתונים" });
         console.error("❌ fetchAll", e?.message || e);
-        setMessage("❌ " + e.message);
+        setMessage("❌ " + normalized.message);
       } finally {
         setLoading(false);
       }
     },
-    [activeWorkshopKey, normalizeEntity]
+    [activeWorkshopKey]
   );
 
   useEffect(() => {
@@ -357,7 +374,8 @@ export default function WorkshopParticipantsModal({
       await fetchAll();
       await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
-      alert("❌ " + e.message);
+      const normalized = normalizeError(e, { fallbackMessage: "שגיאה בביטול" });
+      alert("❌ " + normalized.message);
     }
   };
 
@@ -390,7 +408,8 @@ export default function WorkshopParticipantsModal({
       await fetchAll();
       await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
-      alert("❌ " + e.message);
+      const normalized = normalizeError(e, { fallbackMessage: "שגיאה בקידום" });
+      alert("❌ " + normalized.message);
     }
   };
 
@@ -413,15 +432,11 @@ export default function WorkshopParticipantsModal({
 
   /** Render waitlist item */
   const renderWaitlistItem = (wl) => {
-    const age = calcAge(wl.birthDate);
-
-    const phone = wl.phone || "-";
-    const email = wl.email || "-";
-    const city = wl.city || "-";
-
+    const { email, phone } = formatParticipantContact(wl);
+    const key = wl.__entityKey || getEntityIdentifiers(wl).key || wl.entityKey || wl.name;
     return (
       <div
-        key={wl.__entityKey || wl._id}
+        key={key}
         className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
       >
         <div className="flex justify-between items-center mb-2">
@@ -444,29 +459,21 @@ export default function WorkshopParticipantsModal({
           </div>
         </div>
 
-        <p className="text-sm text-gray-600">{email}</p>
+        <p className="text-sm text-gray-600">{email || "-"}</p>
 
         <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-          <p>טלפון: {phone}</p>
-          <p>עיר: {city}</p>
-          <p>
-            תאריך לידה:{" "}
-            {wl.birthDate
-              ? new Date(wl.birthDate).toLocaleDateString("he-IL")
-              : "-"}{" "}
-            {typeof age === "number" && <>— גיל: {age}</>}
-          </p>
-          <p>ת.ז: {wl.idNumber || "-"}</p>
+          <p>טלפון: {phone || "-"}</p>
         </div>
       </div>
     );
   };
 
   const renderParticipant = (p) => {
-    const age = calcAge(p.birthDate);
+    const { email, phone } = formatParticipantContact(p);
+    const key = p.__entityKey || getEntityIdentifiers(p).key || p.entityKey || p.name;
     return (
       <div
-        key={p.__entityKey || p._id}
+        key={key}
         className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition"
       >
         <div className="flex justify-between items-start gap-3">
@@ -478,18 +485,9 @@ export default function WorkshopParticipantsModal({
             ערוך
           </button>
         </div>
-        <p className="text-sm text-gray-600">{p.email || "-"}</p>
+        <p className="text-sm text-gray-600">{email || "-"}</p>
         <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-          <p>טלפון: {p.phone || "-"}</p>
-          <p>עיר: {p.city || "-"}</p>
-          <p>
-            תאריך לידה:{" "}
-            {p.birthDate
-              ? new Date(p.birthDate).toLocaleDateString("he-IL")
-              : "-"}{" "}
-            {typeof age === "number" && <>— גיל: {age}</>}
-          </p>
-          <p>ת.ז: {p.idNumber || "-"}</p>
+          <p>טלפון: {phone || "-"}</p>
         </div>
         <div className="flex justify-end mt-3">
           <button

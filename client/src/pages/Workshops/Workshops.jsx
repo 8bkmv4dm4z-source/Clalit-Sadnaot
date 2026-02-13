@@ -47,6 +47,7 @@ export default function Workshops() {
     accessScope,
     setAccessScope,
   } = useWorkshops();
+  const errorMessage = typeof error === "string" ? error : error?.message;
 
   /* ============================================================
      🧩 Initial Data Fetch
@@ -355,8 +356,10 @@ export default function Workshops() {
         <p className="text-center text-gray-500 mt-10 animate-pulse">
           ⏳ טוען סדנאות...
         </p>
-      ) : error ? (
-        <p className="text-center text-red-500 font-medium mt-10">❌ {error}</p>
+      ) : errorMessage ? (
+        <p className="text-center text-red-500 font-medium mt-10">
+          ❌ {errorMessage}
+        </p>
       ) : viewMode === "mine" ? (
         Object.keys(workshopsByEntity).length > 0 ? (
           Object.entries(workshopsByEntity).map(([entityId, info]) => (

@@ -82,7 +82,7 @@ test('normalizeWorkshopParticipants can include sensitive fields for admin expor
         },
       ],
     },
-    { adminView: true, includeContactFields: true }
+    { adminView: true, includeContactFields: true, includeSensitiveFields: true }
   );
 
   const participant = normalized.participants.find((p) => p.isFamily === false);
