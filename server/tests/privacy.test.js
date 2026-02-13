@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 process.env.PUBLIC_ID_SECRET = process.env.PUBLIC_ID_SECRET || 'test-public-id-secret';
 
 const { sanitizeUserForResponse } = require('../utils/sanitizeUser');
+const { enforceResponseContract } = require('../contracts/responseGuards');
 const {
   toPublicWorkshop,
   toUserWorkshop,
@@ -179,6 +180,43 @@ test('toAdminWorkshop retains adminHidden visibility flag for admins', () => {
 
   const scoped = toAdminWorkshop(workshop);
   assert.equal(scoped.adminHidden, true);
+});
+
+
+
+test('enforceResponseContract allows adminHidden for GET /api/workshops when scope=admin', () => {
+  const payload = {
+    data: [
+      {
+        workshopKey: '77777777-7777-4777-8777-777777777777',
+        adminHidden: true,
+      },
+    ],
+  };
+
+  const result = enforceResponseContract(payload, {
+    context: 'GET /api/workshops?limit=10&skip=0&scope=admin',
+  });
+
+  assert.equal(result.data[0].adminHidden, true);
+});
+
+test('enforceResponseContract strips adminHidden for GET /api/workshops without admin scope', () => {
+  const payload = {
+    data: [
+      {
+        workshopKey: '88888888-8888-4888-8888-888888888888',
+        adminHidden: true,
+      },
+    ],
+  };
+
+  const result = enforceResponseContract(payload, {
+    context: 'GET /api/workshops?limit=10&skip=0',
+    suppressThrow: true,
+  });
+
+  assert.equal(result.data[0].adminHidden, undefined);
 });
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
