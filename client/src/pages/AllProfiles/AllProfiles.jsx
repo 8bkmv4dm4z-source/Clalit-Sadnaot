@@ -438,9 +438,10 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       const ids = getEntityIdentifiers(row);
       const isFamily = ids.isFamily;
       const entityKey = ids.entityKey;
+      const parentEntityKey = ids.parentKey;
 
       const list = await getUserWorkshops({
-        entityKey,
+        entityKey: isFamily ? parentEntityKey : entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
 
@@ -459,6 +460,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const ids = getEntityIdentifiers(row);
     const isFamily = ids.isFamily;
     const entityKey = ids.entityKey;
+    const parentEntityKey = ids.parentKey;
     const rowKey = buildEntityKey(row);
 
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
@@ -474,7 +476,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       setBusyRowKey(rowKey);
 
       const list = await getUserWorkshops({
-        entityKey,
+        entityKey: isFamily ? parentEntityKey : entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
 
@@ -677,9 +679,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   const isDeleting = deletingRowId === rowKey;
                   const isFamily = r.isFamily || r.entityType === "familyMember";
 
-                  const displayEmail = r.email || "-";
-                  const displayPhone = r.phone || "-";
-                  const displayCity = isFamily ? "-" : r.city || "-";
+                  const displayEmail = r.email || r.parentEmail || "-";
+                  const displayPhone = r.phone || r.parentPhone || "-";
+                  const displayCity = r.city || r.parentCity || "-";
                   const displayAge =
                     typeof r.age === "number"
                       ? r.age
@@ -871,9 +873,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
               const isDeleting = deletingRowId === rowKey;
               const isFamily = r.isFamily || r.entityType === "familyMember";
 
-              const displayEmail = r.email || "-";
-              const displayPhone = r.phone || "-";
-              const displayCity = isFamily ? "-" : r.city || "-";
+              const displayEmail = r.email || r.parentEmail || "-";
+              const displayPhone = r.phone || r.parentPhone || "-";
+              const displayCity = r.city || r.parentCity || "-";
               const displayAge =
                 typeof r.age === "number"
                   ? r.age

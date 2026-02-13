@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 const {
@@ -669,25 +670,33 @@ exports.updateEntity = async (req, res) => {
     const member = resolved.memberDoc;
     Object.assign(member, updates);
 
-    await resolved.userDoc.save();
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await resolved.userDoc.save({ session });
 
-    await Workshop.updateMany(
-      { "familyRegistrations.familyMemberId": member._id },
-      {
-        $set: {
-          "familyRegistrations.$[f].name": member.name,
-          "familyRegistrations.$[f].relation": member.relation,
-          "familyRegistrations.$[f].idNumber": member.idNumber,
-          "familyRegistrations.$[f].phone": member.phone || resolved.userDoc.phone,
-          "familyRegistrations.$[f].birthDate": member.birthDate,
-          "familyRegistrations.$[f].city": member.city,
-          "familyRegistrations.$[f].parentEmail": resolved.userDoc.email,
-        },
-      },
-      {
-        arrayFilters: [{ "f.familyMemberId": member._id }],
-      }
-    );
+        await Workshop.updateMany(
+          { "familyRegistrations.familyMemberId": member._id },
+          {
+            $set: {
+              "familyRegistrations.$[f].name": member.name,
+              "familyRegistrations.$[f].relation": member.relation,
+              "familyRegistrations.$[f].idNumber": member.idNumber,
+              "familyRegistrations.$[f].phone": member.phone || resolved.userDoc.phone,
+              "familyRegistrations.$[f].birthDate": member.birthDate,
+              "familyRegistrations.$[f].city": member.city,
+              "familyRegistrations.$[f].parentEmail": resolved.userDoc.email,
+            },
+          },
+          {
+            arrayFilters: [{ "f.familyMemberId": member._id }],
+            session,
+          }
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
 
     return res.json({
       success: true,

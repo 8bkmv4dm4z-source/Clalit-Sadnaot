@@ -72,31 +72,36 @@ export default function EditProfile() {
     try {
       setSaving(true);
 
-      const entityKey = form?.entityKey || form?._id;
-    const payload = isFamilyProfile
-      ? {
-          entityKey,
-          updates: {
+      const entityKey = form?.entityKey;
+      if (!entityKey) throw new Error("Missing entityKey");
+
+      const rawUpdates = isFamilyProfile
+        ? {
             name: form.name,
-            relation: form.relation || "",
-            idNumber: form.idNumber || "",
-            phone: form.phone || "",
-            email: form.email || form.parentEmail || "", // ✅ fallback to parent
-            birthDate: form.birthDate || "",
-            city: form.city || "",
-          },
-        }
+            relation: form.relation,
+            idNumber: form.idNumber,
+            phone: form.phone,
+            email: form.email || form.parentEmail,
+            birthDate: form.birthDate,
+            city: form.city,
+          }
         : {
-            entityKey,
-            updates: {
-              name: form.name,
-              idNumber: form.idNumber || "",
-              phone: form.phone || "",
-              city: form.city || "",
-              birthDate: form.birthDate || "",
-              ...(canAccessAdmin ? { canCharge: !!form.canCharge } : {}),
-            },
+            name: form.name,
+            idNumber: form.idNumber,
+            phone: form.phone,
+            city: form.city,
+            birthDate: form.birthDate,
+            ...(canAccessAdmin ? { canCharge: !!form.canCharge } : {}),
           };
+
+      const updates = {};
+      Object.entries(rawUpdates).forEach(([key, value]) => {
+        if (typeof value === "string" && value.trim() === "") return;
+        if (value === null || value === undefined) return;
+        updates[key] = value;
+      });
+
+      const payload = { entityKey, updates };
 
       const result = await updateEntity(payload);
       if (!result?.success) throw new Error(result?.message || "Update failed");
@@ -122,24 +127,32 @@ export default function EditProfile() {
         throw new Error("הוספת בני משפחה חדשים דורשת יצירת entityKey מהשרת");
       }
 
-      const familyKey = editingFamilyId || familyForm.entityKey || familyForm._id;
+      const familyKey = editingFamilyId || familyForm.entityKey;
       if (!familyKey) {
         throw new Error("חסר entityKey עבור בן המשפחה");
       }
 
+      const rawUpdates = {
+        ...familyForm,
+        email: familyForm.email || form.email,
+      };
+      const updates = {};
+      Object.entries(rawUpdates).forEach(([key, value]) => {
+        if (typeof value === "string" && value.trim() === "") return;
+        if (value === null || value === undefined) return;
+        updates[key] = value;
+      });
+
       const payload = {
         entityKey: familyKey,
-        updates: {
-          ...familyForm,
-          email: familyForm.email || form.email || "", // ✅ fallback for edit
-        },
+        updates,
       };
 
       const result = await updateEntity(payload);
       if (!result?.success) throw new Error(result?.message || "Update failed");
 
       // refresh local form from server (via apiFetch)
-      const refreshKey = form?.entityKey || form?._id;
+      const refreshKey = form?.entityKey;
       const res = await apiFetch(`/api/users/${encodeURIComponent(refreshKey)}`);
       const refreshed = await res.json();
       if (!res.ok) {
