@@ -74,6 +74,36 @@ export default function WorkshopCard({
 
   const adminEnabled = !isChecking && canAccessAdmin;
 
+  // -------- Workshop props --------
+  const {
+    title = "",
+    type = "",
+    description = "",
+    coach = "",
+    city = "",
+    address = "",
+    studio = "",
+    days = [],
+    hour,
+    price,
+    image,
+    available = true,
+    adminHidden = false,
+    participants = [],
+    waitingList = [],
+    waitingListMax = 0,
+    participantsCount: participantsCountRaw,
+    waitingListCount = 0,
+    familyRegistrationsCount = 0,
+    registrationStatus = "not_registered",
+    isUserInWaitlist = false,
+    maxParticipants: maxParticipantsRaw,
+    startDate,
+    endDate,
+    inactiveDates = [],
+    userFamilyRegistrations = [],
+  } = workshop;
+
   // -------- UI state --------
   const [showFamilyModal, setShowFamilyModal] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
@@ -115,36 +145,6 @@ export default function WorkshopCard({
   useEffect(() => {
     setLocalHidden(!!adminHidden);
   }, [adminHidden, wid]);
-
-  // -------- Workshop props --------
-  const {
-    title = "",
-    type = "",
-    description = "",
-    coach = "",
-    city = "",
-    address = "",
-    studio = "",
-    days = [],
-    hour,
-    price,
-    image,
-    available = true,
-    adminHidden = false,
-    participants = [],
-    waitingList = [],
-    waitingListMax = 0,
-    participantsCount: participantsCountRaw,
-    waitingListCount = 0,
-    familyRegistrationsCount = 0,
-    registrationStatus = "not_registered",
-    isUserInWaitlist = false,
-    maxParticipants: maxParticipantsRaw,
-    startDate,
-    endDate,
-    inactiveDates = [],
-    userFamilyRegistrations = [],
-  } = workshop;
 
   // 2. Resolve Image URL (Preset ID or Custom URL)
   const imageUrl = getWorkshopImage(image);

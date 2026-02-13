@@ -438,10 +438,9 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       const ids = getEntityIdentifiers(row);
       const isFamily = ids.isFamily;
       const entityKey = ids.entityKey;
-      const parentKey = ids.parentKey;
 
       const list = await getUserWorkshops({
-        entityKey: isFamily ? parentKey : entityKey,
+        entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
 
@@ -460,7 +459,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     const ids = getEntityIdentifiers(row);
     const isFamily = ids.isFamily;
     const entityKey = ids.entityKey;
-    const parentKey = ids.parentKey;
     const rowKey = buildEntityKey(row);
 
     const displayName = isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name;
@@ -476,7 +474,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       setBusyRowKey(rowKey);
 
       const list = await getUserWorkshops({
-        entityKey: isFamily ? parentKey : entityKey,
+        entityKey,
         familyEntityKey: isFamily ? entityKey : undefined,
       });
 
@@ -588,9 +586,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
-        <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
-      </td>
-      <td className="p-3 text-center relative overflow-visible z-10">
         <div className="h-4 w-36 bg-gray-200 animate-pulse rounded" />
       </td>
       <td className="p-3 text-center relative overflow-visible z-10">
@@ -634,33 +629,30 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         {/* ===== Desktop Table ===== */}
 {/* 1. Added overflow-x-auto so you can scroll sideways */}
 <div className="hidden md:block relative z-0 overflow-x-auto custom-scrollbar pb-10">
-  {/* 2. Added min-w-[1200px] so columns are wide enough to show full text */}
-  <table className="table table-fixed w-full min-w-[1200px] text-sm">
+  {/* 2. Added min-w-[1100px] so columns are wide enough to show full text */}
+  <table className="table table-fixed w-full min-w-[1100px] text-sm">
     <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 {/* 1. NAME (15%) */}
-                <th className="w-[15%] p-3 text-right font-semibold text-gray-600">שם</th>
-                
-                {/* 2. ID (12%) - Moved here */}
-                <th className="w-[12%] p-3 text-right font-semibold text-gray-600">ת.ז</th>
+                <th className="w-[20%] p-3 text-right font-semibold text-gray-600">שם</th>
 
-                {/* 3. PHONE (14%) - Expanded width */}
-                <th className="w-[14%] p-3 text-right font-semibold text-gray-600">טלפון</th>
+                {/* 2. PHONE */}
+                <th className="w-[18%] p-3 text-right font-semibold text-gray-600">טלפון</th>
 
-                {/* 4. EMAIL (24%) - Largest chunk for long emails */}
-                <th className="w-[24%] p-3 text-right font-semibold text-gray-600">אימייל</th>
+                {/* 3. EMAIL */}
+                <th className="w-[28%] p-3 text-right font-semibold text-gray-600">אימייל</th>
 
-                {/* 5. CITY (10%) */}
-                <th className="w-[10%] p-3 text-right font-semibold text-gray-600">עיר</th>
+                {/* 4. CITY */}
+                <th className="w-[12%] p-3 text-right font-semibold text-gray-600">עיר</th>
 
-                {/* 6. AGE (5%) */}
-                <th className="w-[5%]  p-3 text-right font-semibold text-gray-600">גיל</th>
+                {/* 5. AGE */}
+                <th className="w-[8%]  p-3 text-right font-semibold text-gray-600">גיל</th>
 
-                {/* 7. CHARGE (8%) */}
-                <th className="w-[8%]  p-3 text-center font-semibold text-gray-600">חיוב</th>
+                {/* 6. CHARGE */}
+                <th className="w-[6%]  p-3 text-center font-semibold text-gray-600">חיוב</th>
 
-                {/* 8. ACTIONS (12%) */}
-                <th className="w-[12%] p-3 text-center font-semibold text-gray-600">פעולות</th>
+                {/* 7. ACTIONS */}
+                <th className="w-[8%] p-3 text-center font-semibold text-gray-600">פעולות</th>
               </tr>
             </thead>
             <tbody>
@@ -672,7 +664,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                 </>
               ) : effectiveProfiles.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-gray-500 py-6">
+                  <td colSpan={7} className="text-center text-gray-500 py-6">
                     לא נמצאו תוצאות מתאימות
                   </td>
                 </tr>
@@ -688,8 +680,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   const displayEmail = r.email || "-";
                   const displayPhone = r.phone || "-";
                   const displayCity = isFamily ? "-" : r.city || "-";
-                  const displayIdNumber = isFamily ? "-" : r.idNumber || "-";
-
                   const displayAge =
                     typeof r.age === "number"
                       ? r.age
@@ -723,19 +713,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   {/* (Tags code remains the same...) */}
 </td>
 
-{/* --- 2. ID --- */}
-                      <td className="p-3 text-gray-600" title={isFamily ? "" : r.idNumber}>
-  {/* REMOVED 'truncate' below */}
-  <div className="w-full">
-    {isEditing
-      ? isFamily
-        ? displayIdNumber
-        : renderEditInput("idNumber", editBuffer?.idNumber ?? r.idNumber)
-      : displayIdNumber}
-  </div>
-</td>
-
-{/* --- 3. PHONE --- */}
+{/* --- 2. PHONE --- */}
 <td className="p-3 text-gray-600" dir="ltr" title={r.phone}>
   {/* REMOVED 'truncate' below */}
   <div className="w-full text-right">
@@ -896,7 +874,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
               const displayEmail = r.email || "-";
               const displayPhone = r.phone || "-";
               const displayCity = isFamily ? "-" : r.city || "-";
-              const displayIdNumber = isFamily ? "-" : r.idNumber || "-";
               const displayAge =
                 typeof r.age === "number"
                   ? r.age
@@ -992,19 +969,6 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                           : renderEditInput(
                               "city",
                               editBuffer?.city ?? r.city
-                            )
-                      }
-                    />
-                    <Field
-                      label="ת.ז"
-                      isEditing={isEditing}
-                      value={displayIdNumber}
-                      input={
-                        isFamily
-                          ? displayIdNumber
-                          : renderEditInput(
-                              "idNumber",
-                              editBuffer?.idNumber ?? r.idNumber
                             )
                       }
                     />

@@ -42,7 +42,7 @@ export default function EditProfile() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const res = await apiFetch(`/api/users/${id}`);
+        const res = await apiFetch(`/api/users/${encodeURIComponent(id)}`);
         const data = await res.json();
         if (!res.ok) {
           throw (
@@ -139,7 +139,8 @@ export default function EditProfile() {
       if (!result?.success) throw new Error(result?.message || "Update failed");
 
       // refresh local form from server (via apiFetch)
-      const res = await apiFetch(`/api/users/${form._id}`);
+      const refreshKey = form?.entityKey || form?._id;
+      const res = await apiFetch(`/api/users/${encodeURIComponent(refreshKey)}`);
       const refreshed = await res.json();
       if (!res.ok) {
         throw (

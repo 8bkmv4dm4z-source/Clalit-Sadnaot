@@ -7,8 +7,7 @@ const { authenticate: protect, authorizeAdmin } = require("../middleware/authMid
 // 🧩 Joi / Celebrate Validation Schemas
 const {
   validateUserRegistration,
-  validateUserEdit,
-  validateFamilyMember,
+  validateUserEdit
 } = require("../middleware/validation");
 
 
@@ -63,7 +62,8 @@ router.get("/:id/workshops", protect, authorizeAdmin, usersController.getUserWor
 // 🔹 Unified entity fetch (user or family member)
 router.get("/entity/:id", protect, usersController.getEntityById);
 
-// 🔹 Get user by id (after /entity/:id)
+// 🔹 Get user or family entity by entityKey
+router.get("/:id", protect, usersController.getUserById);
 
 // 🔹 Unified update (user or family)
 router.put("/update-entity", protect, validateUserEdit, usersController.updateEntity);
