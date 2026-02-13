@@ -35,6 +35,24 @@ const FORBIDDEN_RESPONSE_FIELDS = BASE_FORBIDDEN_RESPONSE_FIELDS;
 
 const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
 
+const deriveContextAllowlist = (context = "") => {
+  const raw = String(context || "").trim();
+  const match = raw.match(/^[A-Z]+\s+([^\s]+)/);
+  const target = match?.[1];
+  if (!target) return [];
+
+  try {
+    const parsed = new URL(target, "http://localhost");
+    if (parsed.pathname === "/api/workshops" && parsed.searchParams.get("scope") === "admin") {
+      return ["adminHidden"];
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+};
+
 /**
  * Development guard to prevent accidental leakage of privileged fields.
  * - Always strips forbidden keys from the payload.
@@ -44,7 +62,7 @@ function enforceResponseContract(
   payload,
   { allowlist = [], context = "response", suppressThrow = false, forbidContactFields = false } = {}
 ) {
-  const allow = new Set(allowlist);
+  const allow = new Set([...allowlist, ...deriveContextAllowlist(context)]);
   const stripped = [];
   const forbidden = new Set(BASE_FORBIDDEN_RESPONSE_FIELDS);
   if (forbidContactFields) {
