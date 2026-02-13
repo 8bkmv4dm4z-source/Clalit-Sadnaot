@@ -201,6 +201,35 @@ test('enforceResponseContract allows adminHidden for GET /api/workshops when sco
   assert.equal(result.data[0].adminHidden, true);
 });
 
+test('enforceResponseContract allows adminHidden for POST /api/workshops', () => {
+  const payload = { adminHidden: true };
+
+  const result = enforceResponseContract(payload, {
+    context: 'POST /api/workshops',
+  });
+
+  assert.equal(result.adminHidden, true);
+});
+
+test('enforceResponseContract allows adminHidden for PUT /api/workshops/:id', () => {
+  const payload = { adminHidden: true };
+
+  const result = enforceResponseContract(payload, {
+    context: 'PUT /api/workshops/77777777-7777-4777-8777-777777777777',
+  });
+
+  assert.equal(result.adminHidden, true);
+});
+
+test('enforceResponseContract allows adminHidden for admin-protected workshop mutation routes', () => {
+  const payload = { adminHidden: true };
+
+  const result = enforceResponseContract(payload, {
+    context: 'DELETE /api/workshops/77777777-7777-4777-8777-777777777777',
+  });
+
+  assert.equal(result.adminHidden, true);
+});
 test('enforceResponseContract strips adminHidden for GET /api/workshops without admin scope', () => {
   const payload = {
     data: [

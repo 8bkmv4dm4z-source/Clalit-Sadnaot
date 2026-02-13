@@ -37,13 +37,21 @@ const isObject = (value) => value && typeof value === "object" && !Array.isArray
 
 const deriveContextAllowlist = (context = "") => {
   const raw = String(context || "").trim();
-  const match = raw.match(/^[A-Z]+\s+([^\s]+)/);
-  const target = match?.[1];
-  if (!target) return [];
+  const match = raw.match(/^([A-Z]+)\s+([^\s]+)/);
+  const method = match?.[1];
+  const routeTarget = match?.[2];
+  if (!method || !routeTarget) return [];
 
   try {
-    const parsed = new URL(target, "http://localhost");
+    const parsed = new URL(routeTarget, "http://localhost");
+    const isWorkshopRoute = parsed.pathname === "/api/workshops" || parsed.pathname.startsWith("/api/workshops/");
+    const isWorkshopMutation = isWorkshopRoute && ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
     if (parsed.pathname === "/api/workshops" && parsed.searchParams.get("scope") === "admin") {
+      return ["adminHidden"];
+    }
+
+    if (isWorkshopMutation) {
       return ["adminHidden"];
     }
   } catch {
