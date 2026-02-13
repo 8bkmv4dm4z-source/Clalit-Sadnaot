@@ -270,7 +270,6 @@ const toUserWorkshop = (workshop, user = null) => {
 
   const src = toPlainWorkshop(workshop);
   const base = toPublicWorkshop(src);
-  const { waitingListCount } = deriveCounts(src, { adminView: false });
 
   const userKey = normalizeEntityKey(user?.entityKey || src.__ownerKey);
   const directMap = src.__userRegistrationMap || new Set();
@@ -320,6 +319,7 @@ const toAdminWorkshop = (
   const counts = deriveCounts(src, { includeArrays: includeParticipantDetails, adminView: true });
   const payload = {
     ...base,
+    adminHidden: !!src.adminHidden,
     participantsCount: counts.participantsCount,
     waitingListCount: counts.waitingListCount,
     familyRegistrationsCount: counts.familyRegistrationsCount,
@@ -348,7 +348,7 @@ const toAdminWorkshop = (
 
   return enforceResponseContract(payload, {
     context: "toAdminWorkshop",
-    allowlist: includeSensitiveFields ? ["canCharge"] : [],
+    allowlist: includeSensitiveFields ? ["canCharge", "adminHidden"] : ["adminHidden"],
   });
 };
 
