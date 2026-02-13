@@ -83,6 +83,7 @@ export default function WorkshopCard({
   const [visibilityLoading, setVisibilityLoading] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [viewport, setViewport] = useState("desktop");
+  const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   const adminMenuRef = useRef(null);
 
@@ -110,6 +111,10 @@ export default function WorkshopCard({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    setLocalHidden(!!adminHidden);
+  }, [adminHidden, wid]);
 
   // -------- Workshop props --------
   const {
@@ -224,7 +229,7 @@ export default function WorkshopCard({
   const isWorkshopFull =
     maxParticipants > 0 && participantsCount >= maxParticipants;
 
-  const isHidden = !!adminHidden;
+  const isHidden = localHidden;
 
   // -------- self registered logic (per-entity only) --------
   const isSelfRegistered = useMemo(() => {
@@ -368,13 +373,16 @@ export default function WorkshopCard({
     if (e?.stopPropagation) e.stopPropagation();
     if (!adminEnabled || visibilityLoading) return;
 
-    const nextHidden = !adminHidden;
+    const currentHidden = localHidden;
+    const nextHidden = !currentHidden;
     setVisibilityLoading(true);
     setFeedback(null);
+    setLocalHidden(nextHidden);
 
     try {
       const result = await updateWorkshop(wid, { adminHidden: nextHidden });
       if (!result?.success) {
+        setLocalHidden(currentHidden);
         setFeedback(`❌ ${result?.message || "עדכון החשיפה נכשל"}`);
       } else {
         setFeedback(
@@ -384,6 +392,7 @@ export default function WorkshopCard({
         );
       }
     } catch (err) {
+      setLocalHidden(currentHidden);
       setFeedback(`❌ ${err?.message || "עדכון החשיפה נכשל"}`);
     } finally {
       setVisibilityLoading(false);
@@ -431,7 +440,7 @@ export default function WorkshopCard({
           </div>
         )}
 
-        {adminEnabled && adminHidden && (
+        {adminEnabled && localHidden && (
           <div className="absolute top-3 right-3 z-10">
             <div className="bg-rose-600/90 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg inline-flex items-center gap-1">
               <EyeOff size={14} />
@@ -492,7 +501,7 @@ export default function WorkshopCard({
                 }`}
               >
                 <AdminVisibilityToggle
-                  hidden={adminHidden}
+                  hidden={localHidden}
                   onToggle={toggleVisibility}
                   loading={visibilityLoading}
                 />
