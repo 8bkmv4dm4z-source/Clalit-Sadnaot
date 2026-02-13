@@ -137,6 +137,12 @@ export default function Workshops() {
     if (!displayedWorkshops) return [];
 
     let list = [...displayedWorkshops];
+    
+    // 🔒 Filter out hidden workshops for non-admin users
+    if (!canAccessAdmin) {
+      list = list.filter((w) => !w.adminHidden);
+    }
+    
     const q = searchQuery.trim().toLowerCase();
     if (!q) return list;
 
@@ -185,7 +191,7 @@ export default function Workshops() {
         .filter(Boolean)
         .some((f) => f.toString().toLowerCase().includes(q));
     });
-  }, [displayedWorkshops, searchBy, searchQuery]);
+  }, [displayedWorkshops, searchBy, searchQuery, canAccessAdmin]);
 
   const isMobile = viewport === "mobile";
   const isTablet = viewport === "tablet";

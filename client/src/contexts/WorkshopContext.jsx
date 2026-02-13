@@ -37,12 +37,12 @@ import React, {
   useRef,
   useState,
 } from "react";
-import axios from "axios";
 import { useProfiles } from "../layouts/ProfileContext";
 import { useAuth } from "../layouts/AuthLayout";
 import { normalizeEntity } from "../utils/normalizeEntity";
 import { useAdminCapabilityStatus } from "../context/AdminCapabilityContext";
 import { normalizeError } from "../utils/normalizeError";
+import { apiFetch } from "../utils/apiFetch";
 
 /* ───────────────────────── Debug Helpers ───────────────────────── */
 // Enable via query string: ?debug=ws
@@ -88,96 +88,8 @@ const sid = (x) => String(x ?? "");
 const WORKSHOP_ERROR_MESSAGE =
   "Something went wrong while loading workshops. Please try refreshing.";
 
-const API_BASE =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  (typeof globalThis !== "undefined" && globalThis.process?.env?.VITE_API_URL) ||
-  "";
 
-const ACCESS_TOKEN_KEY = "accessToken";
-const refreshPath = "/api/auth/refresh";
-const api = axios.create({
-  baseURL: API_BASE,
-  withCredentials: true,
-  headers: { "Content-Type": "application/json" },
-});
 
-let refreshPromise = null;
-let logoutHandler = null;
-let requestInterceptorId = null;
-let responseInterceptorId = null;
-
-const setLogoutHandler = (handler) => {
-  logoutHandler = async (...args) => {
-    const result = await handler(...args);
-    ejectInterceptors();
-    return result;
-  };
-};
-
-const ejectInterceptors = () => {
-  if (requestInterceptorId !== null) {
-    api.interceptors.request.eject(requestInterceptorId);
-    requestInterceptorId = null;
-  }
-  if (responseInterceptorId !== null) {
-    api.interceptors.response.eject(responseInterceptorId);
-    responseInterceptorId = null;
-  }
-  refreshPromise = null;
-};
-
-const attachInterceptors = () => {
-  if (requestInterceptorId !== null || responseInterceptorId !== null) return;
-
-  requestInterceptorId = api.interceptors.request.use((config) => {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    if (token) {
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  });
-
-  responseInterceptorId = api.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-      const originalRequest = error.config || {};
-      const status = error?.response?.status;
-
-      if (status === 401 && !originalRequest._retry) {
-        originalRequest._retry = true;
-
-        if (!refreshPromise) {
-          refreshPromise = axios
-            .post(`${API_BASE}${refreshPath}`, {}, { withCredentials: true })
-            .then((res) => res.data)
-            .finally(() => {
-              refreshPromise = null;
-            });
-        }
-
-        try {
-          const refreshData = await refreshPromise;
-          const newToken = refreshData?.accessToken;
-          if (newToken) {
-            localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
-            originalRequest.headers = originalRequest.headers || {};
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            return api.request(originalRequest);
-          }
-        } catch (refreshErr) {
-          if (typeof logoutHandler === "function") {
-            await logoutHandler(true);
-          }
-          ejectInterceptors();
-          return Promise.reject(refreshErr);
-        }
-      }
-
-      return Promise.reject(error);
-    }
-  );
-};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -189,7 +101,7 @@ const withTransactionRetry = async (fn) => {
     try {
       return await fn();
     } catch (err) {
-      const status = err?.response?.status;
+      const status = err?.response?.status || err?.status;
       if (status !== 409) throw err;
       if (attempt >= delays.length) {
         throw new Error("High traffic, please try again.");
@@ -245,18 +157,7 @@ export const WorkshopProvider = ({ children }) => {
     accessScopeRef.current = accessScope;
   }, [accessScope]);
 
-  useEffect(() => {
-    setLogoutHandler(logout);
-  }, [logout]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      attachInterceptors();
-    } else {
-      ejectInterceptors();
-    }
-  }, [isLoggedIn]);
-
+  
   const setWorkshopError = useCallback((normalized = null) => {
     setError(normalized);
     setHasError(!!normalized?.message);
@@ -350,8 +251,14 @@ export const WorkshopProvider = ({ children }) => {
         params.set("skip", skip);
         if (effectiveScope) params.set("scope", effectiveScope);
 
-        const res = await api.get(`/api/workshops?${params.toString()}`);
-        const raw = res.data;
+        const res = await apiFetch(`/api/workshops?${params.toString()}`);
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw res.normalizedError || new Error(errorData.message || "Failed to fetch workshops");
+        }
+
+        const raw = await res.json();
 
         dbgCtx("fetchAllWorkshops:raw-response", {
           ok: true,
@@ -546,6 +453,7 @@ export const WorkshopProvider = ({ children }) => {
       logoutInProgress,
       setWorkshopError,
       userKey,
+      logout,
     ]
   );
   /* ============================================================
@@ -565,8 +473,14 @@ export const WorkshopProvider = ({ children }) => {
     dbgCtx("fetchRegisteredWorkshops:start");
     try {
       setLoading(true);
-      const res = await api.get(`/api/workshops/registered`);
-      const regIds = res.data;
+      const res = await apiFetch(`/api/workshops/registered`);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to fetch registered workshops");
+      }
+
+      const regIds = await res.json();
       dbgCtx("fetchRegisteredWorkshops:raw-response", {
         ok: true,
         type: Array.isArray(regIds) ? "array" : typeof regIds,
@@ -626,7 +540,7 @@ export const WorkshopProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [authLoading, canFetchWorkshops, isLoggedIn, logoutInProgress, setWorkshopError]);
+  }, [authLoading, canFetchWorkshops, isLoggedIn, logoutInProgress, setWorkshopError, logout]);
 
   /* ============================================================
      🧭 Build user/family maps locally when server maps missing
@@ -727,18 +641,28 @@ export const WorkshopProvider = ({ children }) => {
 
     try {
       const res = await withTransactionRetry(() =>
-        api.post(`/api/workshops/${workshopId}/register-entity`, { entityKey })
+        apiFetch(`/api/workshops/${workshopId}/register-entity`, {
+          method: "POST",
+          body: JSON.stringify({ entityKey }),
+        })
       );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to register");
+      }
+
+      const data = await res.json();
 
       dbgCtx("registerEntity:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
 
       await refetchAfterMutation();
 
       dbgCtx("registerEntity:success", { workshopId, entityKey });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to register");
       console.error("❌ registerEntityToWorkshop error:", err);
@@ -760,20 +684,28 @@ export const WorkshopProvider = ({ children }) => {
 
     try {
       const res = await withTransactionRetry(() =>
-        api.delete(`/api/workshops/${workshopId}/unregister-entity`, {
-          data: { entityKey },
+        apiFetch(`/api/workshops/${workshopId}/unregister-entity`, {
+          method: "DELETE",
+          body: JSON.stringify({ entityKey }),
         })
       );
 
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to unregister");
+      }
+
+      const data = await res.json();
+
       dbgCtx("unregisterEntity:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
 
       await refetchAfterMutation();
 
       dbgCtx("unregisterEntity:success", { workshopId, entityKey });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to unregister");
       console.error("❌ unregisterEntityFromWorkshop error:", err);
@@ -811,18 +743,28 @@ export const WorkshopProvider = ({ children }) => {
 
     try {
       const res = await withTransactionRetry(() =>
-        api.post(`/api/workshops/${workshopId}/waitlist-entity`, { entityKey })
+        apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+          method: "POST",
+          body: JSON.stringify({ entityKey }),
+        })
       );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to join waitlist");
+      }
+
+      const data = await res.json();
 
       dbgCtx("waitlistRegister:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
 
       await refetchAfterMutation();
 
       dbgCtx("waitlistRegister:success", { workshopId, entityKey });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to join waitlist");
       console.error("❌ registerToWaitlist error:", err);
@@ -843,20 +785,28 @@ export const WorkshopProvider = ({ children }) => {
 
     try {
       const res = await withTransactionRetry(() =>
-        api.delete(`/api/workshops/${workshopId}/waitlist-entity`, {
-          data: { entityKey },
+        apiFetch(`/api/workshops/${workshopId}/waitlist-entity`, {
+          method: "DELETE",
+          body: JSON.stringify({ entityKey }),
         })
       );
 
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to leave waitlist");
+      }
+
+      const data = await res.json();
+
       dbgCtx("waitlistUnregister:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
 
       await refetchAfterMutation();
 
       dbgCtx("waitlistUnregister:success", { workshopId, entityKey });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to leave waitlist");
       console.error("❌ unregisterFromWaitlist error:", err);
@@ -868,12 +818,20 @@ export const WorkshopProvider = ({ children }) => {
   };
 
   /* ============================================================
-   🛠️ Admin: Create & Update Workshops
+   🛠️ Admin: Create & Update Workflows
    ============================================================ */
   const deleteWorkshop = async (id) => {
     dbgCtx("deleteWorkshop:start", { id });
     try {
-      const res = await api.delete(`/api/workshops/${id}`);
+      const res = await apiFetch(`/api/workshops/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to delete workshop");
+      }
+
       dbgCtx("deleteWorkshop:raw-response", { ok: true });
       await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
       dbgCtx("deleteWorkshop:success", { id });
@@ -892,13 +850,24 @@ export const WorkshopProvider = ({ children }) => {
   const createWorkshop = async (payload) => {
     dbgCtx("createWorkshop:start", { payload });
     try {
-      const res = await api.post(`/api/workshops`, payload);
+      const res = await apiFetch(`/api/workshops`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to create workshop");
+      }
+
+      const data = await res.json();
+
       dbgCtx("createWorkshop:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
       await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to create workshop");
       console.error("❌ createWorkshop error:", err);
@@ -913,13 +882,24 @@ export const WorkshopProvider = ({ children }) => {
   const updateWorkshop = async (workshopId, payload) => {
     dbgCtx("updateWorkshop:start", { workshopId, payload });
     try {
-      const res = await api.put(`/api/workshops/${workshopId}`, payload);
+      const res = await apiFetch(`/api/workshops/${workshopId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to update workshop");
+      }
+
+      const data = await res.json();
+
       dbgCtx("updateWorkshop:raw-response", {
         ok: true,
-        message: res.data?.message,
+        message: data?.message,
       });
       await fetchAllWorkshops({ force: true, limit: pagination.limit, skip: 0 });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to update workshop");
       console.error("❌ updateWorkshop error:", err);
@@ -947,10 +927,19 @@ export const WorkshopProvider = ({ children }) => {
       const params = new URLSearchParams();
       params.set("type", type);
       params.set("audience", audience);
-      const res = await api.post(`/api/workshops/${workshopId}/export?${params.toString()}`);
+      const res = await apiFetch(`/api/workshops/${workshopId}/export?${params.toString()}`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to export workshop");
+      }
+
+      const data = await res.json();
 
       dbgCtx("exportWorkshop:success", { workshopId, type });
-      return { success: true, data: res.data };
+      return { success: true, data };
     } catch (err) {
       const normalized = normalizeUiError(err, "Failed to export workshop");
       console.error("❌ exportWorkshop error:", err);
@@ -968,8 +957,14 @@ export const WorkshopProvider = ({ children }) => {
   const fetchAvailableCities = async () => {
     dbgCtx("fetchAvailableCities:start");
     try {
-      const res = await api.get("/api/workshops/meta/cities");
-      const data = res.data;
+      const res = await apiFetch("/api/workshops/meta/cities");
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || WORKSHOP_ERROR_MESSAGE);
+      }
+
+      const data = await res.json();
       dbgCtx("fetchAvailableCities:raw-response", {
         ok: true,
         keys: Object.keys(data || {}),
@@ -988,12 +983,18 @@ export const WorkshopProvider = ({ children }) => {
   const validateAddress = async (city, address) => {
     dbgCtx("validateAddress:start", { city, address });
     try {
-      const res = await api.get(
+      const res = await apiFetch(
         `/api/workshops/validate-address?city=${encodeURIComponent(
           city
         )}&address=${encodeURIComponent(address)}`
       );
-      const data = res.data;
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw res.normalizedError || new Error(errorData.message || "Failed to validate address");
+      }
+
+      const data = await res.json();
       dbgCtx("validateAddress:raw-response", { ok: true, data });
       dbgCtx("validateAddress:success");
       return data;
