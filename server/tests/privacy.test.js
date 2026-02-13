@@ -163,8 +163,22 @@ test('toAdminWorkshop retains participant linkage and waitlist contact data', ()
   assert.equal(scoped.waitingList.length, 1);
   assert.equal(scoped.waitingList[0].phone, '999');
   assert.equal(scoped.waitingList[0].email, 'p@example.com');
+  assert.equal(scoped.adminHidden, false);
   assert.ok(!('_id' in scoped));
   assert.ok(!('_id' in scoped.waitingList[0]));
+});
+
+test('toAdminWorkshop retains adminHidden visibility flag for admins', () => {
+  const workshop = {
+    workshopKey: '77777777-7777-4777-8777-777777777777',
+    adminHidden: true,
+    participants: [],
+    familyRegistrations: [],
+    waitingList: [],
+  };
+
+  const scoped = toAdminWorkshop(workshop);
+  assert.equal(scoped.adminHidden, true);
 });
 
 test('loadWorkshopByIdentifier only queries public identifiers', async () => {
