@@ -6,6 +6,7 @@ import {
   fetchAdminHubLogs,
   normalizeLogEntry,
 } from "../utils/adminHubClient";
+import { normalizeError } from "../utils/normalizeError";
 
 const AdminHubContext = createContext({
   adminPassword: "",
@@ -53,14 +54,20 @@ export const AdminHubProvider = ({ children }) => {
           filters: mergedFilters,
         });
         if (!ok) {
-          setError(body?.message || `Request failed (${status})`);
+          const normalized = normalizeError(null, {
+            status,
+            payload: body,
+            fallbackMessage: `Request failed (${status})`,
+          });
+          setError(normalized.message);
           setLogs([]);
           return;
         }
         const normalized = (body.logs || []).map(normalizeLogEntry);
         setLogs(normalized);
       } catch (err) {
-        setError(err?.message || "Failed to load logs");
+        const normalized = normalizeError(err, { fallbackMessage: "Failed to load logs" });
+        setError(normalized.message);
       } finally {
         setLoading(false);
       }

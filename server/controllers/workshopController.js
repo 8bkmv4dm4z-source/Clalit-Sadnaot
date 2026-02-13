@@ -24,6 +24,11 @@ const {
 } = require("../services/entities/hydration");
 const { resolveEntityByKey } = require("../services/entities/resolveEntity");
 const {
+  startIdempotentRequest,
+  finalizeIdempotentRequest,
+  clearIdempotentRequest,
+} = require("../services/idempotency");
+const {
   toPublicWorkshop,
   toUserWorkshop,
   toAdminWorkshop,
@@ -38,6 +43,34 @@ const {
 
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
+
+const isTransactionConflict = (err) =>
+  !!(
+    err?.code === 112 ||
+    err?.code === 251 ||
+    err?.hasErrorLabel?.("TransientTransactionError") ||
+    err?.hasErrorLabel?.("UnknownTransactionCommitResult")
+  );
+
+const beginIdempotency = async (req, res) => {
+  const state = await startIdempotentRequest(req, { actorKey: req.user?.entityKey });
+  if (state?.replay) {
+    res
+      .status(state.record.responseStatus || 200)
+      .json(state.record.responseBody || {});
+    return null;
+  }
+  if (state?.inProgress) {
+    res.status(409).json({ message: "Request already in progress" });
+    return null;
+  }
+  return state;
+};
+
+const respondWithIdempotency = async (res, state, status, payload) => {
+  await finalizeIdempotentRequest(state, status, payload);
+  return res.status(status).json(payload);
+};
 
 /**
  * API + frontend consumer matrix (keep aligned with client WorkshopContext):
@@ -150,9 +183,13 @@ const resolveAccessScope = (req) => {
 const isHiddenFromAccess = (workshop, access) =>
   access?.scope !== "admin" && !!workshop?.adminHidden;
 
-const rejectHiddenWorkshop = (workshop, access, res) => {
+const rejectHiddenWorkshop = (workshop, access, res, responder = null) => {
   if (isHiddenFromAccess(workshop, access)) {
-    res.status(404).json({ message: "Workshop not found" });
+    if (typeof responder === "function") {
+      responder(404, { message: "Workshop not found" });
+    } else {
+      res.status(404).json({ message: "Workshop not found" });
+    }
     return true;
   }
   return false;
@@ -283,6 +320,131 @@ async function autoPromoteFromWaitlist(workshop) {
   } catch (err) {
     console.error("⚠️ autoPromoteFromWaitlist error:", err);
   }
+}
+
+async function attemptWaitlistPromotion(workshopId, workshopKey = null) {
+  const session = await mongoose.startSession();
+  let promotedEntry = null;
+  let participantType = null;
+
+  try {
+    session.startTransaction();
+    const workshop = await Workshop.findOne({
+      _id: workshopId,
+      waitingListCount: { $gt: 0 },
+    })
+      .select(
+        "workshopKey waitingList waitingListCount participantsCount maxParticipants participants familyRegistrations"
+      )
+      .session(session);
+
+    if (!workshop) {
+      await session.abortTransaction();
+      return { promoted: false };
+    }
+
+    if (
+      workshop.maxParticipants > 0 &&
+      workshop.participantsCount >= workshop.maxParticipants
+    ) {
+      await session.abortTransaction();
+      return { promoted: false };
+    }
+
+    const entry = workshop.waitingList?.[0];
+    if (!entry) {
+      await session.abortTransaction();
+      return { promoted: false };
+    }
+
+    const capacityFilter =
+      workshop.maxParticipants && workshop.maxParticipants > 0
+        ? { participantsCount: { $lt: workshop.maxParticipants } }
+        : {};
+
+    const baseFilter = {
+      _id: workshopId,
+      waitingListCount: { $gt: 0 },
+      ...capacityFilter,
+      waitingList: { $elemMatch: { _id: entry._id } },
+    };
+
+    let update = null;
+
+    if (entry.familyMemberId) {
+      baseFilter.familyRegistrations = {
+        $not: {
+          $elemMatch: {
+            parentUser: entry.parentUser,
+            familyMemberId: entry.familyMemberId,
+          },
+        },
+      };
+      update = {
+        $pull: { waitingList: { _id: entry._id } },
+        $push: {
+          familyRegistrations: {
+            parentUser: entry.parentUser,
+            familyMemberId: entry.familyMemberId,
+            parentKey: entry.parentKey || "",
+            familyMemberKey: entry.familyMemberKey || "",
+            name: entry.name,
+            relation: entry.relation,
+            idNumber: entry.idNumber,
+            phone: entry.phone,
+            birthDate: entry.birthDate,
+          },
+        },
+        $inc: { participantsCount: 1, waitingListCount: -1 },
+      };
+      participantType = "familyMember";
+    } else {
+      baseFilter.participants = { $ne: entry.parentUser };
+      update = {
+        $pull: { waitingList: { _id: entry._id } },
+        $addToSet: { participants: entry.parentUser },
+        $inc: { participantsCount: 1, waitingListCount: -1 },
+      };
+      participantType = "user";
+    }
+
+    const updateResult = await Workshop.updateOne(baseFilter, update, {
+      session,
+    });
+
+    if (updateResult.modifiedCount !== 1) {
+      await session.abortTransaction();
+      return { promoted: false };
+    }
+
+    await session.commitTransaction();
+    if (!workshopKey && workshop?.workshopKey) {
+      workshopKey = workshop.workshopKey;
+    }
+    promotedEntry = entry;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+
+  if (promotedEntry) {
+    await safeAuditLog({
+      eventType: AuditEventTypes.WORKSHOP_WAITLIST_PROMOTED,
+      subjectType: "workshop",
+      subjectKey: workshopKey || null,
+      actorKey: null,
+      metadata: {
+        participantType,
+        participantKey: promotedEntry.familyMemberKey || promotedEntry.parentKey || "",
+        action: "waitlist_promoted",
+      },
+    });
+    return { promoted: true, entry: promotedEntry, participantType };
+  }
+
+  return { promoted: false };
 }
 /**
  * ============================================================
@@ -703,14 +865,19 @@ exports.getWorkshopById = async (req, res) => {
  *   - Keeps client-facing identifiers opaque while recalculating derived fields.
  */
 exports.updateWorkshop = async (req, res) => {
+  let idempotencyState = null;
   try {
     const access = resolveAccessScope(req);
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
     const { id } = req.params;
 
     // 1. Strict Lookup (Returns 404 if id is not a valid workshop UUID)
     const existing = await loadWorkshopByIdentifier(id, Workshop);
     if (!existing) {
-      return res.status(404).json({ message: "Workshop not found" });
+      return respond(404, { message: "Workshop not found" });
     }
 
     /* ============================================================
@@ -801,7 +968,7 @@ exports.updateWorkshop = async (req, res) => {
     }
 
     if (updates.sessionsCount && isNaN(updates.sessionsCount)) {
-      return res.status(400).json({ message: "sessionsCount must be numeric" });
+      return respond(400, { message: "sessionsCount must be numeric" });
     }
 
     /* ============================================================
@@ -878,7 +1045,7 @@ exports.updateWorkshop = async (req, res) => {
       },
     });
 
-    return res.json({
+    return respond(200, {
       success: true,
       message: "Workshop updated successfully",
       data: normalized,
@@ -886,7 +1053,8 @@ exports.updateWorkshop = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ [updateWorkshop] Error:", err);
-    return res.status(500).json({
+    await clearIdempotentRequest(idempotencyState);
+    return respondWithIdempotency(res, idempotencyState, 500, {
       message: err.message || "Failed to update workshop",
     });
   }
@@ -908,13 +1076,18 @@ exports.updateWorkshop = async (req, res) => {
  *   - Address validation is non-blocking and does not affect identity handling.
  */
 exports.createWorkshop = async (req, res) => {
+  let idempotencyState = null;
   try {
     const access = resolveAccessScope(req);
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
     const data = { ...req.body };
 
     // 🧩 Required field check
     if (!data.city || !data.address) {
-      return res.status(400).json({ message: "City and address are required" });
+      return respond(400, { message: "City and address are required" });
     }
 
     if ("adminHidden" in data) {
@@ -972,24 +1145,24 @@ exports.createWorkshop = async (req, res) => {
       );
 
     if (data.days.length === 0) {
-      return res.status(400).json({ message: "At least one valid day is required" });
+      return respond(400, { message: "At least one valid day is required" });
     }
 
     /* ============================================================
        🗓 Validate core session info
        ============================================================ */
     if (!data.startDate) {
-      return res.status(400).json({ message: "startDate is required" });
+      return respond(400, { message: "startDate is required" });
     }
 
     data.startDate = new Date(data.startDate);
     if (isNaN(data.startDate.getTime())) {
-      return res.status(400).json({ message: "Invalid startDate" });
+      return respond(400, { message: "Invalid startDate" });
     }
 
     const count = parseInt(data.sessionsCount, 10);
     if (isNaN(count) || count < 1) {
-      return res.status(400).json({ message: "sessionsCount must be a positive number" });
+      return respond(400, { message: "sessionsCount must be a positive number" });
     }
     data.sessionsCount = count;
 
@@ -1048,12 +1221,13 @@ exports.createWorkshop = async (req, res) => {
       },
     });
 
-    return res.status(201).json({ success: true, data: normalized, meta });
+    return respond(201, { success: true, data: normalized, meta });
   } catch (err) {
     console.error("❌ [createWorkshop] Error:", err);
-    return res
-      .status(500)
-      .json({ message: err.message || "Failed to create workshop" });
+    await clearIdempotentRequest(idempotencyState);
+    return respondWithIdempotency(res, idempotencyState, 500, {
+      message: err.message || "Failed to create workshop",
+    });
   }
 };
 
@@ -1070,14 +1244,19 @@ exports.createWorkshop = async (req, res) => {
  *   - Audit logging keyed by entityKey/workshopKey keeps ObjectIds internal.
  */
 exports.deleteWorkshop = async (req, res) => {
+  let idempotencyState = null;
   try {
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
     const workshopDoc = await loadWorkshopByIdentifier(req.params.id, Workshop);
     if (!workshopDoc) {
-      return res.status(404).json({ message: "Workshop not found" });
+      return respond(404, { message: "Workshop not found" });
     }
 
     const ws = await Workshop.findByIdAndDelete(workshopDoc._id);
-    if (!ws) return res.status(404).json({ message: "Workshop not found" });
+    if (!ws) return respond(404, { message: "Workshop not found" });
     await safeAuditLog({
       eventType: AuditEventTypes.ADMIN_WORKSHOP_DELETE,
       subjectType: "workshop",
@@ -1090,10 +1269,13 @@ exports.deleteWorkshop = async (req, res) => {
         ip: req.ip,
       },
     });
-    res.json({ message: "Workshop deleted successfully" });
+    return respond(200, { message: "Workshop deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting workshop:", err);
-    res.status(400).json({ message: "Failed to delete workshop" });
+    await clearIdempotentRequest(idempotencyState);
+    return respondWithIdempotency(res, idempotencyState, 400, {
+      message: "Failed to delete workshop",
+    });
   }
 };
 
@@ -1200,9 +1382,14 @@ exports.getWorkshopParticipants = async (req, res) => {
  *   - Rejects forbidden identity fields to keep requests entityKey-first.
  */
 exports.registerEntityToWorkshop = async (req, res) => {
+  let idempotencyState = null;
   try {
     rejectForbiddenFields(req.body);
     const access = resolveAccessScope(req);
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
 
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
@@ -1210,13 +1397,13 @@ exports.registerEntityToWorkshop = async (req, res) => {
     // Load workshop
     const workshop = await loadWorkshopByIdentifier(workshopKey, Workshop);
     if (!workshop)
-      return res.status(404).json({ message: "Workshop not found" });
-    if (rejectHiddenWorkshop(workshop, access, res)) return;
+      return respond(404, { message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res, respond)) return;
 
     // Resolve entity
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved)
-      return res.status(404).json({ success: false, message: "Entity not found" });
+      return respond(404, { success: false, message: "Entity not found" });
 
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
@@ -1237,67 +1424,121 @@ exports.registerEntityToWorkshop = async (req, res) => {
       parentUser,
       memberDoc: member,
     });
+    const session = await mongoose.startSession();
+    let latest = null;
 
-    if (member) {
-      updatedWorkshop = await Workshop.findOneAndUpdate(
-        {
-          ...baseFilter,
-          familyRegistrations: {
-            $not: {
-              $elemMatch: {
-                familyMemberId: memberId,
-                parentUser: parentId,
+    try {
+      session.startTransaction();
+      if (member) {
+        updatedWorkshop = await Workshop.findOneAndUpdate(
+          {
+            ...baseFilter,
+            familyRegistrations: {
+              $not: {
+                $elemMatch: {
+                  familyMemberId: memberId,
+                  parentUser: parentId,
+                },
               },
             },
           },
-        },
-        {
-          $push: {
-            familyRegistrations: {
-              ...registrationEntry,
-              parentUser: parentId,
-              familyMemberId: memberId,
+          {
+            $push: {
+              familyRegistrations: {
+                ...registrationEntry,
+                parentUser: parentId,
+                familyMemberId: memberId,
+              },
             },
+            $inc: { participantsCount: 1 },
           },
-          $inc: { participantsCount: 1 },
-        },
-        { new: true }
-      );
-    } else {
-      updatedWorkshop = await Workshop.findOneAndUpdate(
-        {
-          ...baseFilter,
-          participants: { $ne: parentId },
-        },
-        {
-          $addToSet: { participants: parentId },
-          $inc: { participantsCount: 1 },
-        },
-        { new: true }
-      );
+          { new: true, session }
+        );
+      } else {
+        updatedWorkshop = await Workshop.findOneAndUpdate(
+          {
+            ...baseFilter,
+            participants: { $ne: parentId },
+          },
+          {
+            $addToSet: { participants: parentId },
+            $inc: { participantsCount: 1 },
+          },
+          { new: true, session }
+        );
+      }
+
+      if (!updatedWorkshop) {
+        latest = await Workshop.findById(workshop._id)
+          .select(
+            "participants familyRegistrations waitingList waitingListMax waitingListCount maxParticipants participantsCount"
+          )
+          .session(session);
+        await session.abortTransaction();
+      } else {
+        const workshopObjectId = updatedWorkshop._id;
+        if (member) {
+          const mapUpdate = await User.updateOne(
+            { _id: parentId, "familyWorkshopMap.familyMemberId": memberId },
+            { $addToSet: { "familyWorkshopMap.$.workshops": workshopObjectId } },
+            { session }
+          );
+          if (mapUpdate.matchedCount === 0) {
+            await User.updateOne(
+              { _id: parentId },
+              {
+                $push: {
+                  familyWorkshopMap: {
+                    familyMemberId: memberId,
+                    workshops: [workshopObjectId],
+                  },
+                },
+              },
+              { session }
+            );
+          }
+        } else {
+          await User.updateOne(
+            { _id: parentId },
+            { $addToSet: { userWorkshopMap: workshopObjectId } },
+            { session }
+          );
+        }
+
+        await session.commitTransaction();
+      }
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
     }
 
     if (!updatedWorkshop) {
+      const fallbackLatest =
+        latest ||
+        (await Workshop.findById(workshop._id).select(
+          "participants familyRegistrations waitingList waitingListMax waitingListCount maxParticipants participantsCount"
+        ));
       // Re-check to return precise reason
-      const latest = await Workshop.findById(workshop._id).select(
-        "participants familyRegistrations waitingList waitingListMax maxParticipants participantsCount"
-      );
+      const latestDoc = fallbackLatest;
 
       const dupRegistered = member
-        ? latest?.familyRegistrations?.some(
+        ? latestDoc?.familyRegistrations?.some(
             (r) =>
               String(r.familyMemberId) === String(memberId) &&
               String(r.parentUser) === String(parentId)
           )
-        : latest?.participants?.some((p) => String(p) === String(parentId));
+        : latestDoc?.participants?.some((p) => String(p) === String(parentId));
 
       if (dupRegistered) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Entity already registered" });
+        return respond(400, {
+          success: false,
+          message: "Entity already registered",
+        });
       }
 
-      const alreadyQueued = (latest?.waitingList || []).some((w) => {
+      const alreadyQueued = (latestDoc?.waitingList || []).some((w) => {
         const sameParent = String(w.parentUser) === String(parentId);
         if (member) {
           return sameParent && String(w.familyMemberId) === String(memberId);
@@ -1306,58 +1547,39 @@ exports.registerEntityToWorkshop = async (req, res) => {
       });
 
       const noSpace =
-        latest &&
-        latest.maxParticipants > 0 &&
-        latest.participantsCount >= latest.maxParticipants;
+        latestDoc &&
+        latestDoc.maxParticipants > 0 &&
+        latestDoc.participantsCount >= latestDoc.maxParticipants;
 
       if (noSpace) {
-        const waitingFull =
-          latest.waitingListMax > 0 &&
-          latest.waitingList.length >= latest.waitingListMax;
+      const waitingListCount =
+        typeof latestDoc.waitingListCount === "number"
+          ? latestDoc.waitingListCount
+          : latestDoc.waitingList.length;
+      const waitingFull =
+          latestDoc.waitingListMax > 0 &&
+          waitingListCount >= latestDoc.waitingListMax;
         if (waitingFull) {
-          return res.status(400).json({
+          return respond(400, {
             success: false,
             message: "Workshop is full and waiting list is full",
           });
         }
         if (alreadyQueued) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Entity already in waiting list" });
+          return respond(400, {
+            success: false,
+            message: "Entity already in waiting list",
+          });
         }
+        req.idempotencyState = idempotencyState;
+        req.idempotencyResponder = respond;
         return exports.addEntityToWaitlist(req, res);
       }
 
-      return res
-        .status(400)
-        .json({ success: false, message: "Unable to register entity" });
-    }
-
-    const workshopObjectId = updatedWorkshop._id;
-
-    if (member) {
-      const mapUpdate = await User.updateOne(
-        { _id: parentId, "familyWorkshopMap.familyMemberId": memberId },
-        { $addToSet: { "familyWorkshopMap.$.workshops": workshopObjectId } }
-      );
-      if (mapUpdate.matchedCount === 0) {
-        await User.updateOne(
-          { _id: parentId },
-          {
-            $push: {
-              familyWorkshopMap: {
-                familyMemberId: memberId,
-                workshops: [workshopObjectId],
-              },
-            },
-          }
-        );
-      }
-    } else {
-      await User.updateOne(
-        { _id: parentId },
-        { $addToSet: { userWorkshopMap: workshopObjectId } }
-      );
+      return respond(400, {
+        success: false,
+        message: "Unable to register entity",
+      });
     }
 
     // repopulate complete workshop
@@ -1386,7 +1608,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
       },
     });
 
-    return res.json({
+    return respond(200, {
       success: true,
       workshop: selectWorkshopView(decorated, access, {
         includeParticipantDetails: false,
@@ -1394,6 +1616,13 @@ exports.registerEntityToWorkshop = async (req, res) => {
     });
   } catch (err) {
     console.error("🔥 registerEntityToWorkshop error:", err);
+    await clearIdempotentRequest(idempotencyState);
+    if (isTransactionConflict(err)) {
+      return respondWithIdempotency(res, idempotencyState, 409, {
+        success: false,
+        message: "Registration failed due to high traffic. Please try again.",
+      });
+    }
     const payload = {
       success: false,
       message: "Server error during registration",
@@ -1401,7 +1630,7 @@ exports.registerEntityToWorkshop = async (req, res) => {
     if (process.env.NODE_ENV !== "production") {
       payload.detail = err.message;
     }
-    res.status(500).json(payload);
+    return respondWithIdempotency(res, idempotencyState, 500, payload);
   }
 };
 
@@ -1421,19 +1650,24 @@ exports.registerEntityToWorkshop = async (req, res) => {
  *   - Waitlist fallback delegates to addEntityToWaitlist without exposing ObjectIds.
  */
 exports.unregisterEntityFromWorkshop = async (req, res) => {
+  let idempotencyState = null;
   try {
     rejectForbiddenFields(req.body);
     const access = resolveAccessScope(req);
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
 
     const workshopKey = req.params.id;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
     const workshop = await loadWorkshopByIdentifier(workshopKey, Workshop);
-    if (!workshop) return res.status(404).json({ message: "Workshop not found" });
-    if (rejectHiddenWorkshop(workshop, access, res)) return;
+    if (!workshop) return respond(404, { message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res, respond)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
-    if (!resolved) return res.status(404).json({ message: "Entity not found" });
+    if (!resolved) return respond(404, { message: "Entity not found" });
 
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
@@ -1442,43 +1676,82 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
 
     let changed = false;
     const workshopObjectId = workshop._id;
+    const session = await mongoose.startSession();
 
-    if (member) {
-      const before = workshop.familyRegistrations.length;
-      workshop.familyRegistrations = workshop.familyRegistrations.filter(
-        (f) =>
-          !(
-            String(f.familyMemberId) === String(member._id) &&
-            String(f.parentUser) === String(parentUser._id)
-          )
-      );
-      changed = before !== workshop.familyRegistrations.length;
+    try {
+      session.startTransaction();
+      let updatedWorkshop = null;
 
-      const mapEntry = parentUser.familyWorkshopMap.find(
-        (f) => String(f.familyMemberId) === String(member._id)
-      );
-      if (mapEntry) {
-        mapEntry.workshops = mapEntry.workshops.filter(
-          (wid) => String(wid) !== String(workshopObjectId)
+      if (member) {
+        updatedWorkshop = await Workshop.findOneAndUpdate(
+          {
+            _id: workshopObjectId,
+            familyRegistrations: {
+              $elemMatch: { parentUser: parentUser._id, familyMemberId: member._id },
+            },
+          },
+          {
+            $pull: {
+              familyRegistrations: {
+                parentUser: parentUser._id,
+                familyMemberId: member._id,
+              },
+            },
+            $inc: { participantsCount: -1 },
+          },
+          { new: true, session }
+        );
+      } else {
+        updatedWorkshop = await Workshop.findOneAndUpdate(
+          { _id: workshopObjectId, participants: parentUser._id },
+          {
+            $pull: { participants: parentUser._id },
+            $inc: { participantsCount: -1 },
+          },
+          { new: true, session }
         );
       }
-    } else {
-      const before = workshop.participants.length;
-      workshop.participants = workshop.participants.filter(
-        (u) => String(u) !== String(parentUser._id)
-      );
-      changed = before !== workshop.participants.length;
 
-      parentUser.userWorkshopMap = parentUser.userWorkshopMap.filter(
-        (wid) => String(wid) !== String(workshopObjectId)
-      );
+      if (!updatedWorkshop) {
+        await session.abortTransaction();
+        changed = false;
+      } else {
+        if (member) {
+          await User.updateOne(
+            { _id: parentUser._id, "familyWorkshopMap.familyMemberId": member._id },
+            { $pull: { "familyWorkshopMap.$.workshops": workshopObjectId } },
+            { session }
+          );
+        } else {
+          await User.updateOne(
+            { _id: parentUser._id },
+            { $pull: { userWorkshopMap: workshopObjectId } },
+            { session }
+          );
+        }
+
+        await session.commitTransaction();
+        changed = true;
+      }
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
     }
 
     if (changed) {
-      workshop.participantsCount =
-        (workshop.participants?.length || 0) + (workshop.familyRegistrations?.length || 0);
-      await workshop.save();
-      await parentUser.save();
+      try {
+        await attemptWaitlistPromotion(workshopObjectId, workshop.workshopKey);
+      } catch (err) {
+        if (isTransactionConflict(err)) {
+          return respond(409, {
+            success: false,
+            message: "Promotion failed due to high traffic. Please try again.",
+          });
+        }
+        throw err;
+      }
     }
 
     const populated = await Workshop.findById(workshop._id)
@@ -1505,7 +1778,7 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
       });
     }
 
-    return res.json({
+    return respond(200, {
       success: true,
       changed,
       message: "Entity unregistered successfully",
@@ -1515,7 +1788,17 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ unregisterEntityFromWorkshop error:", err);
-    res.status(500).json({ success: false, message: "Server error during unregistration" });
+    await clearIdempotentRequest(idempotencyState);
+    if (isTransactionConflict(err)) {
+      return respondWithIdempotency(res, idempotencyState, 409, {
+        success: false,
+        message: "Unregistration failed due to high traffic. Please try again.",
+      });
+    }
+    return respondWithIdempotency(res, idempotencyState, 500, {
+      success: false,
+      message: "Server error during unregistration",
+    });
   }
 };
 
@@ -1550,21 +1833,29 @@ exports.unregisterEntityFromWorkshop = async (req, res) => {
  *   - Keeps response DTOs keyed by entityKey/workshopKey only.
  */
 exports.addEntityToWaitlist = async (req, res) => {
+  let idempotencyState = req.idempotencyState || null;
+  let respond = req.idempotencyResponder || null;
   try {
     rejectForbiddenFields(req.body);
     const access = resolveAccessScope(req);
+    if (!respond) {
+      idempotencyState = await beginIdempotency(req, res);
+      if (!idempotencyState) return;
+      respond = (status, payload) =>
+        respondWithIdempotency(res, idempotencyState, status, payload);
+    }
 
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
     const workshop = await loadWorkshopByIdentifier(id, Workshop);
     if (!workshop)
-      return res.status(404).json({ success: false, message: "Workshop not found" });
-    if (rejectHiddenWorkshop(workshop, access, res)) return;
+      return respond(404, { success: false, message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res, respond)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved)
-      return res.status(404).json({ success: false, message: "Entity not found" });
+      return respond(404, { success: false, message: "Entity not found" });
 
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
@@ -1574,60 +1865,83 @@ exports.addEntityToWaitlist = async (req, res) => {
     const parentId = parentUser._id;
     const memberId = member?._id || null;
 
-    const capacityFilter =
-      workshop.waitingListMax && workshop.waitingListMax > 0
-        ? { "waitingList.waitingCount": { $lt: workshop.waitingListMax } }
-        : {};
-
     const entry = buildRegistrationEntry({ parentUser, memberDoc: member });
+    const session = await mongoose.startSession();
+    let updated = null;
 
-    const updated = await Workshop.findOneAndUpdate(
-      {
-        _id: workshop._id,
-        ...capacityFilter,
-        waitingList: {
-          $not: {
-            $elemMatch: {
-              parentUser: parentId,
-              ...(member ? { familyMemberId: memberId } : { familyMemberId: { $exists: false } }),
+    try {
+      session.startTransaction();
+      const capacityFilter =
+        workshop.waitingListMax && workshop.waitingListMax > 0
+          ? { waitingListCount: { $lt: workshop.waitingListMax } }
+          : {};
+
+      updated = await Workshop.findOneAndUpdate(
+        {
+          _id: workshop._id,
+          ...capacityFilter,
+          waitingList: {
+            $not: {
+              $elemMatch: {
+                parentUser: parentId,
+                ...(member ? { familyMemberId: memberId } : { familyMemberId: { $exists: false } }),
+              },
             },
           },
         },
-      },
-      { $push: { waitingList: entry } },
-      { new: true }
-    );
+        {
+          $push: { waitingList: entry },
+          $inc: { waitingListCount: 1 },
+        },
+        { new: true, session }
+      );
 
-    if (!updated) {
-      const latest = await Workshop.findById(workshop._id).select("waitingList waitingListMax");
-      const exists = (latest?.waitingList || []).some((e) => {
-        const sameParent = String(e.parentUser) === String(parentId);
-        if (member) {
-          return sameParent && String(e.familyMemberId) === String(memberId);
+      if (!updated) {
+        const latest = await Workshop.findById(workshop._id)
+          .select("waitingList waitingListMax waitingListCount")
+          .session(session);
+        await session.abortTransaction();
+        session.endSession();
+
+        const exists = (latest?.waitingList || []).some((e) => {
+          const sameParent = String(e.parentUser) === String(parentId);
+          if (member) {
+            return sameParent && String(e.familyMemberId) === String(memberId);
+          }
+          return sameParent && !e.familyMemberId;
+        });
+
+        if (exists) {
+          return respond(400, {
+            success: false,
+            message: "Already in waiting list",
+          });
         }
-        return sameParent && !e.familyMemberId;
-      });
 
-      if (exists) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Already in waiting list" });
-      }
+        const listCount =
+          typeof latest?.waitingListCount === "number"
+            ? latest.waitingListCount
+            : latest?.waitingList?.length || 0;
 
-      if (
-        latest?.waitingListMax > 0 &&
-        latest.waitingList.length >= latest.waitingListMax
-      ) {
-        return res.status(400).json({
+        if (latest?.waitingListMax > 0 && listCount >= latest.waitingListMax) {
+          return respond(400, {
+            success: false,
+            message: "Waiting list is full",
+          });
+        }
+
+        return respond(400, {
           success: false,
-          message: "Waiting list is full",
+          message: "Unable to add to waiting list",
         });
       }
 
-      return res.status(400).json({
-        success: false,
-        message: "Unable to add to waiting list",
-      });
+      await session.commitTransaction();
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
     }
 
     // repopulate
@@ -1656,17 +1970,21 @@ exports.addEntityToWaitlist = async (req, res) => {
       },
     });
 
-    return res.json({
+    return respond(200, {
       success: true,
       message: "Added to waiting list successfully",
-      position: updated.waitingList.length,
+      position:
+        typeof updated.waitingListCount === "number"
+          ? updated.waitingListCount
+          : updated.waitingList.length,
       workshop: selectWorkshopView(decorated, access, {
         includeParticipantDetails: false,
       }),
     });
   } catch (err) {
     console.error("🔥 addEntityToWaitlist error:", err);
-    res.status(500).json({
+    await clearIdempotentRequest(idempotencyState);
+    return respondWithIdempotency(res, idempotencyState, 500, {
       success: false,
       message: "Server error adding to waitlist",
     });
@@ -1687,25 +2005,29 @@ exports.addEntityToWaitlist = async (req, res) => {
  *   - Emits entityKey-focused DTOs; ObjectIds remain internal.
  */
 exports.removeEntityFromWaitlist = async (req, res) => {
+  let idempotencyState = null;
   try {
     rejectForbiddenFields(req.body);
     const access = resolveAccessScope(req);
+    idempotencyState = await beginIdempotency(req, res);
+    if (!idempotencyState) return;
+    const respond = (status, payload) =>
+      respondWithIdempotency(res, idempotencyState, status, payload);
 
     const { id } = req.params;
     const targetEntityKey = req.body?.entityKey || req.user?.entityKey;
 
     const workshop = await loadWorkshopByIdentifier(id, Workshop);
     if (!workshop)
-      return res
-        .status(404)
-        .json({ success: false, message: "Workshop not found" });
-    if (rejectHiddenWorkshop(workshop, access, res)) return;
+      return respond(404, { success: false, message: "Workshop not found" });
+    if (rejectHiddenWorkshop(workshop, access, res, respond)) return;
 
     const resolved = await resolveEntityByKey(targetEntityKey);
     if (!resolved)
-      return res
-        .status(404)
-        .json({ success: false, message: "Entity not found in waiting list" });
+      return respond(404, {
+        success: false,
+        message: "Entity not found in waiting list",
+      });
 
     const parentUser = resolved.userDoc;
     const member = resolved.type === "familyMember" ? resolved.memberDoc : null;
@@ -1715,24 +2037,49 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     const parentId = parentUser._id;
     const memberId = member?._id || null;
 
-    const before = workshop.waitingList.length;
+    const session = await mongoose.startSession();
+    let updated = null;
 
-    workshop.waitingList = (workshop.waitingList || []).filter((e) => {
-      const sameParent = String(e.parentUser) === String(parentId);
-      const sameFamily = member
-        ? String(e.familyMemberId) === String(memberId)
-        : !e.familyMemberId;
-      return !(sameParent && sameFamily);
-    });
+    try {
+      session.startTransaction();
+      updated = await Workshop.findOneAndUpdate(
+        {
+          _id: workshop._id,
+          waitingList: {
+            $elemMatch: {
+              parentUser: parentId,
+              ...(member ? { familyMemberId: memberId } : { familyMemberId: { $exists: false } }),
+            },
+          },
+        },
+        {
+          $pull: {
+            waitingList: {
+              parentUser: parentId,
+              ...(member ? { familyMemberId: memberId } : { familyMemberId: { $exists: false } }),
+            },
+          },
+          $inc: { waitingListCount: -1 },
+        },
+        { new: true, session }
+      );
 
-    if (before === workshop.waitingList.length) {
-      return res.status(404).json({
-        success: false,
-        message: "Entry not found in waiting list",
-      });
+      if (!updated) {
+        await session.abortTransaction();
+        session.endSession();
+        return respond(404, {
+          success: false,
+          message: "Entry not found in waiting list",
+        });
+      }
+
+      await session.commitTransaction();
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
     }
-
-    await workshop.save();
 
     const populated = await Workshop.findById(workshop._id)
       .populate("participants", "entityKey name")
@@ -1747,7 +2094,7 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     const decorated = populated.toObject();
     decorated.__ownerKey = req.user?.entityKey || null;
 
-    return res.json({
+    return respond(200, {
       success: true,
       message: "Removed from waiting list successfully",
       workshop: selectWorkshopView(decorated, access, {
@@ -1756,7 +2103,14 @@ exports.removeEntityFromWaitlist = async (req, res) => {
     });
   } catch (err) {
     console.error("🔥 removeEntityFromWaitlist error:", err);
-    res.status(500).json({
+    await clearIdempotentRequest(idempotencyState);
+    if (isTransactionConflict(err)) {
+      return respondWithIdempotency(res, idempotencyState, 409, {
+        success: false,
+        message: "Request conflict. Please try again.",
+      });
+    }
+    return respondWithIdempotency(res, idempotencyState, 500, {
       success: false,
       message: "Server error removing from waitlist",
     });
@@ -1821,6 +2175,7 @@ exports.exportWorkshopExcel = async (req, res) => {
     const workshop = toAdminWorkshop(workshopDoc, {
       includeParticipantDetails: true,
       includeContactFields: true,
+      includeSensitiveFields: true,
     });
 
     // 2. Setup Excel Logic (Preserved from your code)
@@ -2084,6 +2439,159 @@ exports.getWaitlist = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: err.message || "Server error",
+    });
+  }
+};
+
+/**
+ * Admin-only invariant check.
+ * Verifies count fields against array lengths without mutating data.
+ */
+exports.getWorkshopInvariants = async (req, res) => {
+  try {
+    if (!hasAuthority(req.user, "admin")) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    const limit = clampLimit(req.query.limit, 50, 200);
+    const skip = clampSkip(req.query.skip);
+    const includeSamples = String(req.query.includeSamples || "false") === "true";
+    const sampleLimit = clampLimit(req.query.sampleLimit, 5, 50);
+
+    const workshops = await Workshop.find({})
+      .select(
+        "workshopKey participants familyRegistrations waitingList participantsCount waitingListCount maxParticipants waitingListMax"
+      )
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    let mismatches = 0;
+    const samples = [];
+
+    for (const workshop of workshops) {
+      const participantsTotal =
+        (workshop.participants?.length || 0) +
+        (workshop.familyRegistrations?.length || 0);
+      const waitingTotal = workshop.waitingList?.length || 0;
+      const participantsCount = Number.isFinite(workshop.participantsCount)
+        ? workshop.participantsCount
+        : 0;
+      const waitingListCount = Number.isFinite(workshop.waitingListCount)
+        ? workshop.waitingListCount
+        : 0;
+
+      const participantsMismatch = participantsCount !== participantsTotal;
+      const waitingMismatch = waitingListCount !== waitingTotal;
+      const negativeParticipants = participantsCount < 0;
+      const negativeWaitlist = waitingListCount < 0;
+      const exceedsCapacity =
+        Number.isFinite(workshop.maxParticipants) &&
+        workshop.maxParticipants > 0 &&
+        participantsCount > workshop.maxParticipants;
+      const exceedsWaitlist =
+        Number.isFinite(workshop.waitingListMax) &&
+        workshop.waitingListMax > 0 &&
+        waitingListCount > workshop.waitingListMax;
+
+      const participantIds = (workshop.participants || []).map((p) => String(p));
+      const participantSet = new Set();
+      const participantDuplicates = new Set();
+      participantIds.forEach((id) => {
+        if (participantSet.has(id)) participantDuplicates.add(id);
+        participantSet.add(id);
+      });
+
+      const familyPairs = (workshop.familyRegistrations || []).map((fr) => ({
+        parentUser: fr.parentUser ? String(fr.parentUser) : "",
+        familyMemberId: fr.familyMemberId ? String(fr.familyMemberId) : "",
+      }));
+      const familyPairSet = new Set();
+      const familyPairDuplicates = new Set();
+      familyPairs.forEach(({ parentUser, familyMemberId }) => {
+        if (!parentUser || !familyMemberId) return;
+        const key = `${parentUser}:${familyMemberId}`;
+        if (familyPairSet.has(key)) familyPairDuplicates.add(key);
+        familyPairSet.add(key);
+      });
+
+      const waitlistIds = (workshop.waitingList || []).map((wl) => {
+        if (wl.familyMemberId) return String(wl.familyMemberId);
+        if (wl.parentUser) return String(wl.parentUser);
+        return null;
+      }).filter(Boolean);
+      const waitlistSet = new Set(waitlistIds);
+      const overlapParticipants = participantIds.filter((id) => waitlistSet.has(id));
+
+      const violations = [];
+      if (participantsMismatch) {
+        violations.push("participants_count_mismatch");
+      }
+      if (waitingMismatch) {
+        violations.push("waitinglist_count_mismatch");
+      }
+      if (negativeParticipants) {
+        violations.push("participants_count_negative");
+      }
+      if (negativeWaitlist) {
+        violations.push("waitinglist_count_negative");
+      }
+      if (exceedsCapacity) {
+        violations.push("participants_count_exceeds_max");
+      }
+      if (exceedsWaitlist) {
+        violations.push("waitinglist_count_exceeds_max");
+      }
+      if (participantDuplicates.size > 0) {
+        violations.push("participant_duplicates");
+      }
+      if (familyPairDuplicates.size > 0) {
+        violations.push("family_registration_duplicates");
+      }
+      if (overlapParticipants.length > 0) {
+        violations.push("participant_waitlist_overlap");
+      }
+
+      if (violations.length > 0) {
+        mismatches += 1;
+        console.warn("⚠️ Workshop invariant mismatch", {
+          workshopKey: workshop.workshopKey,
+          participantsCount,
+          computedParticipants: participantsTotal,
+          waitingListCount,
+          computedWaitingList: waitingTotal,
+          violations,
+        });
+
+        if (includeSamples && samples.length < sampleLimit) {
+          samples.push({
+            workshopKey: workshop.workshopKey || null,
+            participantsCount,
+            computedParticipants: participantsTotal,
+            waitingListCount,
+            computedWaitingList: waitingTotal,
+            violations,
+          });
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      checked: workshops.length,
+      mismatches,
+      samples: includeSamples ? samples : [],
+      meta: {
+        limit,
+        skip,
+        nextSkip: skip + workshops.length,
+      },
+    });
+  } catch (err) {
+    console.error("❌ getWorkshopInvariants error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error verifying workshop invariants",
     });
   }
 };

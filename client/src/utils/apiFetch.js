@@ -20,6 +20,8 @@ const API_BASE =
   (typeof globalThis !== "undefined" && globalThis.process?.env?.VITE_API_URL) ||
   "";
 
+import { normalizeError } from "./normalizeError.js";
+
 const ACCESS_TOKEN_KEY = "accessToken";
 const CSRF_COOKIE_NAME = "XSRF-TOKEN";
 const isUnsafeMethod = (method = "GET") =>
@@ -68,12 +70,24 @@ export async function apiFetch(path, options = {}) {
     }
   }
 
+  const attachNormalizedError = async (response) => {
+    if (!response || response.ok) return response;
+    const payload = await response.clone().json().catch(() => null);
+    response.normalizedError = normalizeError(null, {
+      status: response.status,
+      payload,
+    });
+    return response;
+  };
+
   // Initial request
   let res = await fetch(url, {
     ...options,
     headers,
     credentials: options.credentials || "include", // ✅ sends refresh cookie automatically so /refresh endpoint can rotate tokens
   });
+
+  res = await attachNormalizedError(res);
 
   // Handle token refresh if needed
   if (res.status === 401) {
@@ -100,6 +114,7 @@ export async function apiFetch(path, options = {}) {
           headers,
           credentials: options.credentials || "include",
         });
+        res = await attachNormalizedError(res);
       } else {
         if (import.meta.env.MODE !== "production") {
           console.warn("[apiFetch] ❌ Refresh failed, forcing logout");

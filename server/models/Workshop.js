@@ -96,7 +96,8 @@ image: {
     waitingListMax: { type: Number, default: 10, min: 0 },
     autoEnrollOnVacancy: { type: Boolean, default: false },
 
-    participantsCount: { type: Number, default: 0 },
+    participantsCount: { type: Number, default: 0, min: 0 },
+    waitingListCount: { type: Number, default: 0, min: 0 },
     maxParticipants: { type: Number, default: 20, min: 0 },
   },
   { timestamps: true }
@@ -140,10 +141,6 @@ WorkshopSchema.pre("save", function (next) {
       this.endDate = current;
     }
 
-    this.participantsCount =
-      (this.participants?.length || 0) +
-      (this.familyRegistrations?.length || 0);
-
     next();
   } catch (err) {
     console.warn("⚠️ endDate calc error:", err.message);
@@ -156,10 +153,7 @@ WorkshopSchema.pre("save", function (next) {
    ============================================================ */
 WorkshopSchema.methods.canAddParticipant = function () {
   if (this.maxParticipants === 0) return true;
-  return (
-    this.participants.length + this.familyRegistrations.length <
-    this.maxParticipants
-  );
+  return this.participantsCount < this.maxParticipants;
 };
 
 /* ============================================================

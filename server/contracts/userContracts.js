@@ -68,18 +68,11 @@ const shapeListEntity = (entity = {}, parent = {}) =>
     {
       entityKey: resolveEntityKey(entity, "family"),
       name: entity.name || "",
-      email: entity.email || parent.email || "",
-      phone: entity.phone || parent.phone || "",
       city: entity.city || parent.city || "",
       relation: entity.relation || "",
-      birthDate: normalizeDate(entity.birthDate),
-      idNumber: entity.idNumber || "",
-      entityType: entity.entityType || (entity.parentKey ? "familyMember" : "user"),
-      isFamily: entity.isFamily ?? !!entity.parentKey,
-      parentKey: entity.parentKey || "",
       parentName: entity.parentName || parent.name || "",
     },
-    { context: "toListEntity" }
+    { context: "toListEntity", forbidContactFields: true }
   );
 
 function toPublicUser(userDoc) {
@@ -154,7 +147,6 @@ function toAdminUser(userDoc) {
   const entityKey = resolveEntityKey(user);
   const familyMembers = Array.isArray(user.familyMembers) ? user.familyMembers : [];
   const payload = {
-    _id: user._id ? String(user._id) : null,
     entityKey,
     name: user.name || "",
     email: user.email || "",

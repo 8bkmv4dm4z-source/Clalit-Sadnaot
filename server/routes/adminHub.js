@@ -2,7 +2,6 @@ const express = require("express");
 const { authenticate, authorizeAdmin, hasAuthority } = require("../middleware/authMiddleware");
 const { requireAdminHubPassword } = require("../middleware/adminPasswordMiddleware");
 const adminHubController = require("../controllers/adminHubController");
-const { ACCESS_PROOF_HEADER, ACCESS_SCOPE_HEADER } = require("../utils/accessScope");
 
 const router = express.Router();
 
@@ -12,10 +11,6 @@ router.get(
   authenticate,
   (req, res, next) => {
     if (!hasAuthority(req.user, "admin")) return res.status(404).end();
-    // P7: admin state is proven only by reachability, not data or headers.
-    res.removeHeader(ACCESS_SCOPE_HEADER);
-    res.removeHeader(ACCESS_PROOF_HEADER);
-    res.setHeader(ACCESS_SCOPE_HEADER, "public");
     return next();
   },
   (_req, res) => res.status(204).end()

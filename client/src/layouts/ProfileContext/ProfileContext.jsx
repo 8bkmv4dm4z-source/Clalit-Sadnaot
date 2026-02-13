@@ -18,6 +18,7 @@ import React, {
 import { apiFetch } from "../../utils/apiFetch";
 import { useAuth } from "../AuthLayout";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { normalizeError } from "../../utils/normalizeError";
 
 const ProfileCtx = createContext(null);
 export const useProfiles = () => useContext(ProfileCtx);
@@ -76,15 +77,21 @@ export function ProfileProvider({ children }) {
 
       const res = await apiFetch(`/api/users?${params.toString()}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || "Failed to load users");
+      if (!res.ok) {
+        throw (
+          res.normalizedError ||
+          normalizeError(null, { status: res.status, payload: data, fallbackMessage: "Failed to load users" })
+        );
+      }
 
       const list = Array.isArray(data) ? data : [];
 
       setRows(list);
     } catch (e) {
+      const normalized = normalizeError(e, { fallbackMessage: "Failed to load users" });
       console.error("❌ [profiles] fetchProfiles", e);
       setRows([]);
-      setError(e.message);
+      setError(normalized.message);
     } finally {
       setLoading(false);
     }
@@ -162,14 +169,24 @@ export function ProfileProvider({ children }) {
 
         const res = await apiFetch(`/api/users/search?${params.toString()}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data?.message || "Failed to search users");
+        if (!res.ok) {
+          throw (
+            res.normalizedError ||
+            normalizeError(null, {
+              status: res.status,
+              payload: data,
+              fallbackMessage: "Failed to search users",
+            })
+          );
+        }
 
         const list = Array.isArray(data) ? data : [];
 
         searchCache.current.set(normalized, list);
         return list;
       } catch (err) {
-        console.warn("[profiles] remote search failed, fallback local", err);
+        const normalized = normalizeError(err, { fallbackMessage: "Failed to search users" });
+        console.warn("[profiles] remote search failed, fallback local", normalized.message);
       }
 
       const filtered = rows.filter((row) => rowMatchesQuery(row, normalized));
@@ -187,7 +204,16 @@ export function ProfileProvider({ children }) {
       : base;
     const res = await apiFetch(url);
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.message || "Failed to fetch workshops");
+    if (!res.ok) {
+      throw (
+        res.normalizedError ||
+        normalizeError(null, {
+          status: res.status,
+          payload: data,
+          fallbackMessage: "Failed to fetch workshops",
+        })
+      );
+    }
     return Array.isArray(data) ? data : [];
   };
 
@@ -199,7 +225,14 @@ export function ProfileProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok || !data?.success) {
-      return { success: false, message: data?.message || "Update failed" };
+      const normalized =
+        res.normalizedError ||
+        normalizeError(null, {
+          status: res.status,
+          payload: data,
+          fallbackMessage: "Update failed",
+        });
+      return { success: false, message: normalized.message, error: normalized };
     }
     try {
       await fetchProfiles({ limit: 1000, compact: 1 });
@@ -223,14 +256,22 @@ export function ProfileProvider({ children }) {
         );
         const data = await res.json();
         if (!res.ok || data?.success === false) {
-          throw new Error(data?.message || "Delete failed");
+          throw (
+            res.normalizedError ||
+            normalizeError(null, {
+              status: res.status,
+              payload: data,
+              fallbackMessage: "Delete failed",
+            })
+          );
         }
         await fetchProfiles({ limit: 1000, compact: 1 });
         searchCache.current.clear();
         return { success: true, message: data?.message || "Deleted" };
       } catch (err) {
+        const normalized = normalizeError(err, { fallbackMessage: "Delete failed" });
         console.error("❌ [profiles] deleteEntity", err);
-        return { success: false, message: err.message };
+        return { success: false, message: normalized.message, error: normalized };
       }
     },
     [fetchProfiles]
@@ -248,7 +289,16 @@ export function ProfileProvider({ children }) {
 
     const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityKey)}`);
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.message || "Failed to load entity");
+    if (!res.ok) {
+      throw (
+        res.normalizedError ||
+        normalizeError(null, {
+          status: res.status,
+          payload: data,
+          fallbackMessage: "Failed to load entity",
+        })
+      );
+    }
     return data;
   }, []);
 

@@ -1,4 +1,6 @@
 const BASE_FORBIDDEN_RESPONSE_FIELDS = new Set([
+  "_id",
+  "__v",
   "role",
   "roles",
   "permissions",

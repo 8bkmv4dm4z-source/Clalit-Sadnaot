@@ -21,7 +21,8 @@ const pickFields = (src = {}, allowlist = []) =>
   }, {});
 
 const PARTICIPANT_CONTACT_CARD_FIELDS = ["entityKey", "name", "relation", "status", "city"];
-const ADMIN_CONTACT_FIELDS = ["email", "phone", "birthDate", "idNumber", "canCharge"];
+const ADMIN_CONTACT_FIELDS = ["email", "phone"];
+const SENSITIVE_PARTICIPANT_FIELDS = ["birthDate", "idNumber", "canCharge"];
 
 const toPlainWorkshop = (workshop) =>
   workshop?.toObject ? workshop.toObject() : { ...(workshop || {}) };
@@ -97,7 +98,7 @@ const deriveCounts = (src, { includeArrays = false, adminView = false } = {}) =>
 
 const formatParticipant = (
   participant,
-  { adminView = false, includeContactFields = false } = {}
+  { adminView = false, includeContactFields = false, includeSensitiveFields = false } = {}
 ) => {
   const isFamily = !!participant.isFamily;
   const entityKey = toEntityKey(
@@ -121,16 +122,20 @@ const formatParticipant = (
     base.phone = participant.phone || "";
   }
 
-  const allowed =
+  const contactFields =
     adminView && includeContactFields
       ? [...PARTICIPANT_CONTACT_CARD_FIELDS, ...ADMIN_CONTACT_FIELDS]
       : PARTICIPANT_CONTACT_CARD_FIELDS;
+  const allowed =
+    adminView && includeSensitiveFields
+      ? [...contactFields, ...SENSITIVE_PARTICIPANT_FIELDS]
+      : contactFields;
   return pickFields(base, allowed);
 };
 
 const formatWaitlistEntry = (
   entry = {},
-  { adminView = false, includeContactFields = false } = {}
+  { adminView = false, includeContactFields = false, includeSensitiveFields = false } = {}
 ) => {
   const familyKey = toEntityKey(entry.familyMemberKey || entry.familyMemberId, "family");
 
@@ -150,17 +155,21 @@ const formatWaitlistEntry = (
     dto.phone = entry.phone || entry.familyMemberId?.phone || entry.parentUser?.phone || "";
   }
 
-  const allowed =
+  const contactFields =
     adminView && includeContactFields
       ? [...PARTICIPANT_CONTACT_CARD_FIELDS, ...ADMIN_CONTACT_FIELDS]
       : PARTICIPANT_CONTACT_CARD_FIELDS;
+  const allowed =
+    adminView && includeSensitiveFields
+      ? [...contactFields, ...SENSITIVE_PARTICIPANT_FIELDS]
+      : contactFields;
 
   return pickFields(dto, allowed);
 };
 
 const normalizeWorkshopParticipants = (
   workshop,
-  { adminView = false, includeContactFields = false } = {}
+  { adminView = false, includeContactFields = false, includeSensitiveFields = false } = {}
 ) => {
   const participants = (workshop?.participants || []).map((u) =>
     formatParticipant(
@@ -169,7 +178,7 @@ const normalizeWorkshopParticipants = (
         isFamily: false,
         status: "registered",
       },
-      { adminView, includeContactFields }
+      { adminView, includeContactFields, includeSensitiveFields }
     )
   );
 
@@ -192,7 +201,7 @@ const normalizeWorkshopParticipants = (
         isFamily: true,
         status: "registered",
       },
-      { adminView, includeContactFields }
+      { adminView, includeContactFields, includeSensitiveFields }
     );
   });
 
@@ -211,14 +220,17 @@ const normalizeWorkshopParticipants = (
   };
 };
 
-const sanitizeWaitingListEntry = (entry, { adminView = false, includeContactFields = false } = {}) =>
+const sanitizeWaitingListEntry = (
+  entry,
+  { adminView = false, includeContactFields = false, includeSensitiveFields = false } = {}
+) =>
   formatWaitlistEntry(
     {
       ...entry,
       familyMemberKey: entry?.familyMemberKey,
       isFamily: !!entry?.familyMemberKey || !!entry?.familyMemberId,
     },
-    { adminView, includeContactFields }
+    { adminView, includeContactFields, includeSensitiveFields }
   );
 
 const toPublicWorkshop = (workshop) => {
@@ -295,7 +307,11 @@ const toUserWorkshop = (workshop, user = null) => {
 
 const toAdminWorkshop = (
   workshop,
-  { includeParticipantDetails = false, includeContactFields = false } = {}
+  {
+    includeParticipantDetails = false,
+    includeContactFields = false,
+    includeSensitiveFields = false,
+  } = {}
 ) => {
   if (!workshop) return null;
 
@@ -318,14 +334,22 @@ const toAdminWorkshop = (
     const participantBundle = normalizeWorkshopParticipants(src, {
       adminView: true,
       includeContactFields,
+      includeSensitiveFields,
     });
     payload.participants = participantBundle.participants;
     payload.waitingList = (counts.waitingList || []).map((wl) =>
-      sanitizeWaitingListEntry(wl, { adminView: true, includeContactFields })
+      sanitizeWaitingListEntry(wl, {
+        adminView: true,
+        includeContactFields,
+        includeSensitiveFields,
+      })
     );
   }
 
-  return enforceResponseContract(payload, { context: "toAdminWorkshop" });
+  return enforceResponseContract(payload, {
+    context: "toAdminWorkshop",
+    allowlist: includeSensitiveFields ? ["canCharge"] : [],
+  });
 };
 
 async function loadWorkshopByIdentifier(identifier, WorkshopModel) {

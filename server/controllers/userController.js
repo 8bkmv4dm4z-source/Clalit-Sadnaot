@@ -8,7 +8,7 @@ const {
   toSelfProfileEntity,
 } = require("../contracts/userContracts");
 const { hasAuthority } = require("../middleware/authMiddleware");
-const { deriveEntityScope, applyEntityScopeHeader } = require("../utils/accessScope");
+const { deriveEntityScope } = require("../utils/accessScope");
 const { buildEntityFromUserDoc, buildEntityFromFamilyMemberDoc } = require("../services/entities/buildEntity");
 const { normalizeSearchQuery } = require("../services/entities/normalize");
 const { resolveEntity, resolveEntityByKey } = require("../services/entities/resolveEntity");
@@ -528,8 +528,6 @@ exports.getEntityById = async (req, res) => {
       entityKey: targetKey,
       parentKey,
     });
-
-    applyEntityScopeHeader(res, entityAccess.scope);
 
     if (entityAccess.scope === "none") {
       return res.status(403).json({ message: "Forbidden" });

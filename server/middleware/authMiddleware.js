@@ -1,10 +1,7 @@
 // server/middleware/authMiddleware.js
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const {
-  deriveAccessScope,
-  applyAccessHeaders,
-} = require("../utils/accessScope");
+const { deriveAccessScope } = require("../utils/accessScope");
 
 /**
  * 🔒 Middleware: Authenticate user via JWT
@@ -17,20 +14,17 @@ const authenticate = async (req, res, next) => {
     if (!token) {
       // SECURITY FIX: avoid echoing raw headers back into the logs
       console.warn("[AUTH] No token provided.");
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "No token provided" });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded?.sub && !decoded?.id) {
       console.warn("[AUTH] Token missing subject or id");
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "Invalid or expired token" });
     }
     if (!decoded.exp) {
       // P7: Tokens must be time-bound; reject any token without an explicit exp.
       console.warn("[AUTH] Token missing exp");
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
@@ -60,7 +54,6 @@ const authenticate = async (req, res, next) => {
     }
     if (!user) {
       console.warn("[AUTH] User not found for provided token");
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
@@ -68,14 +61,12 @@ const authenticate = async (req, res, next) => {
       const issuedAt = (decoded.iat || 0) * 1000;
       if (issuedAt && issuedAt < new Date(user.passwordChangedAt).getTime()) {
         console.warn("[AUTH] Token issued before password change");
-        applyAccessHeaders(res, deriveAccessScope(null));
         return res.status(401).json({ message: "Invalid or expired token" });
       }
     }
 
     if (!user.isRoleIntegrityValid()) {
       console.warn("[AUTH] Role integrity hash mismatch", { id: user._id, role: user.role });
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(403).json({ message: "Role integrity check failed" });
     }
 
@@ -84,7 +75,6 @@ const authenticate = async (req, res, next) => {
         id: user._id,
         role: user.role,
       });
-      applyAccessHeaders(res, deriveAccessScope(null));
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
@@ -100,7 +90,6 @@ const authenticate = async (req, res, next) => {
     user.authorities = user.authorities || {};
     req.user = user;
     req.access = deriveAccessScope(user);
-    applyAccessHeaders(res, req.access);
     next();
   } catch (err) {
     // Distinguish common JWT errors
@@ -111,7 +100,6 @@ const authenticate = async (req, res, next) => {
 
     // SECURITY FIX: sanitize error logging to avoid leaking token fragments
     console.error(`[AUTH] JWT ${kind}:`, err.message);
-    applyAccessHeaders(res, deriveAccessScope(null));
     return res.status(401).json({ message: "Unauthorized" });
   }
 };

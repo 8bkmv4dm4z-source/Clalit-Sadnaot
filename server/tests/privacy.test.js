@@ -79,16 +79,16 @@ test('profile scope strips role and flattens family entities with keys', () => {
   assert.equal(familyEntity.parentKey, 'parent-key');
 });
 
-test('sanitization emits access envelope instead of isAdmin flag', () => {
+test('sanitization strips admin metadata from payloads', () => {
   const scoped = sanitizeUserForResponse(
     { ...baseUser, role: 'admin', authorities: { admin: true } },
     { authorities: { admin: true }, entityKey: 'admin-key' },
     { scope: 'profile' }
   );
 
-  assert.equal(scoped.access.scope, 'admin');
   assert.ok(!('isAdmin' in scoped));
-  assert.ok(scoped.access.proof);
+  assert.equal(scoped.access, undefined);
+  assert.equal(scoped.roleFingerprint, undefined);
 });
 
 test('toPublicWorkshop strips internal identifiers and relational arrays', () => {
@@ -153,7 +153,10 @@ test('toAdminWorkshop retains participant linkage and waitlist contact data', ()
     ],
   };
 
-  const scoped = toAdminWorkshop(workshop, { includeParticipantDetails: true });
+  const scoped = toAdminWorkshop(workshop, {
+    includeParticipantDetails: true,
+    includeContactFields: true,
+  });
   assert.ok(Array.isArray(scoped.participants));
   assert.equal(scoped.participants[0].email, 'user@example.com');
   assert.equal(scoped.familyRegistrationsCount, 1);

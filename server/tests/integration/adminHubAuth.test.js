@@ -192,7 +192,7 @@ test("admin access probe returns no content for admins", async () => {
 
   assert.equal(response.status, 204);
   assert.equal(response.text, "");
-  assert.equal(response.headers.get("x-access-scope"), "public");
+  assert.equal(response.headers.get("x-access-scope"), null);
   assert.equal(response.headers.get("x-access-proof"), null);
   await stopServer(server);
 });
