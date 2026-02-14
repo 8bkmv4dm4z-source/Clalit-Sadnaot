@@ -52,13 +52,7 @@ const logsDir = path.join(__dirname, "../logs");
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 const logFilePath = path.join(logsDir, "server.log");
 
-const scrub = (s = "") =>
-  String(s)
-    .replace(/Bearer\s+[A-Za-z0-9\.\-_]+/g, "Bearer ***")
-    .replace(
-      /(\"(password|pass|token|secret|authorization|otp|code)\"\s*:\s*\")([^"]+)/gi,
-      '$1***'
-    );
+const { scrub } = require("./utils/logScrub");
 
 function logToFile(level, msg) {
   try {
