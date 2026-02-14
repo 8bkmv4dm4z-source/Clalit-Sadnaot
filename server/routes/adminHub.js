@@ -1,7 +1,13 @@
 const express = require("express");
 const { authenticate, authorizeAdmin, hasAuthority } = require("../middleware/authMiddleware");
 const { requireAdminHubPassword } = require("../middleware/adminPasswordMiddleware");
+const { perUserRateLimit } = require("../middleware/perUserRateLimit");
 const adminHubController = require("../controllers/adminHubController");
+
+const adminHubPasswordLimiter = perUserRateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+});
 
 const router = express.Router();
 
@@ -21,6 +27,7 @@ router.get(
   "/logs",
   authenticate,
   authorizeAdmin,
+  adminHubPasswordLimiter,
   requireAdminHubPassword,
   adminHubController.getLogs
 );
@@ -30,6 +37,7 @@ router.get(
   "/alerts/maxed-workshops",
   authenticate,
   authorizeAdmin,
+  adminHubPasswordLimiter,
   requireAdminHubPassword,
   adminHubController.getMaxedWorkshopAlerts
 );
@@ -39,6 +47,7 @@ router.get(
   "/stale-users",
   authenticate,
   authorizeAdmin,
+  adminHubPasswordLimiter,
   requireAdminHubPassword,
   adminHubController.getStaleUsers
 );
@@ -48,6 +57,7 @@ router.get(
   "/stats",
   authenticate,
   authorizeAdmin,
+  adminHubPasswordLimiter,
   requireAdminHubPassword,
   adminHubController.getStats
 );
