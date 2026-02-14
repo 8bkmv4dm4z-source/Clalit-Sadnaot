@@ -86,10 +86,9 @@ function logToFile(level, msg) {
  * - Non-browser requests (no Origin header) are always allowed.
  */
 const ENV_ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
-const DEV_DEFAULTS = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-];
+const DEV_DEFAULTS = parseCSV(
+  process.env.DEV_ALLOWED_ORIGINS || "http://localhost:5173,http://localhost:3000"
+);
 const DEPLOY_DEFAULTS = [
   process.env.PUBLIC_URL, // e.g. https://sandaot.onrender.com
 ];
