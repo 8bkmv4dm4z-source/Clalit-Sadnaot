@@ -15,6 +15,7 @@ import EditEntityModal from "../../components/people/EditEntityModal";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const normalizeBirthDate = (value: any): string => {
   if (!value) return "";
@@ -201,98 +202,106 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Fields */}
-        <div className="space-y-5">
-          <ProfileField
-            label="שם מלא"
-            value={form.name}
-            editMode={editMode}
-            onChange={(v: string) => handleChange("name", v)}
-          />
-          <ProfileField label="אימייל" value={form.email} editMode={false} />
-          <ProfileField
-            label="תאריך לידה"
-            type="date"
-            value={form.birthDate}
-            editMode={editMode}
-            onChange={(v: string) => handleChange("birthDate", v)}
-            displayExtra={
-              !editMode && form.birthDate ? `(${calcAge(form.birthDate)} שנים)` : ""
-            }
-          />
-          <ProfileField
-            label="עיר"
-            value={form.city}
-            editMode={editMode}
-            onChange={(v: string) => handleChange("city", v)}
-          />
-          <ProfileField
-            label="טלפון"
-            value={form.phone}
-            editMode={editMode}
-            onChange={(v: string) => handleChange("phone", v)}
-          />
-        </div>
+        <Tabs defaultValue="personal" className="mt-2">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="personal">פרטים אישיים</TabsTrigger>
+            <TabsTrigger value="family">בני משפחה</TabsTrigger>
+          </TabsList>
 
-        {/* Family members */}
-        <div className="mt-6 p-4 rounded-xl border border-indigo-200 bg-indigo-50">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">בני משפחה</h3>
-          <p className="text-sm text-gray-600 mb-3">
-            ניתן לערוך בני משפחה באמצעות כפתור עריכה לצד כל כרטיס.
-          </p>
-          {familyMembers.length === 0 ? (
-            <p className="text-gray-600 text-sm">לא נמצאו בני משפחה.</p>
-          ) : (
-            <div className="space-y-3">
-              {familyMembers.map((member: any) => (
-                <div
-                  key={member.entityKey}
-                  className="flex flex-col gap-2 rounded-xl border border-indigo-100 bg-white/80 p-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-gray-800 font-semibold">
-                        {member.name || "ללא שם"}
-                      </div>
-                      {member.relation && (
-                        <div className="text-xs text-gray-500">
-                          קשר: {member.relation}
-                        </div>
-                      )}
-                    </div>
-                    {canEditFamily && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="text-xs"
-                        onClick={async () => {
-                          try {
-                            const entity = await fetchEntityDetails(member.entityKey);
-                            setEditingFamilyMember(entity);
-                          } catch (err: any) {
-                            toast.error(`שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
-                          }
-                        }}
-                      >
-                        ✏️ ערוך
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
-                    <span>טלפון: {member.phone || "-"}</span>
-                    <span>
-                      תאריך לידה:{" "}
-                      {member.birthDate
-                        ? new Date(member.birthDate).toLocaleDateString("he-IL")
-                        : "-"}
-                    </span>
-                  </div>
-                </div>
-              ))}
+          <TabsContent value="personal">
+            <div className="space-y-5">
+              <ProfileField
+                label="שם מלא"
+                value={form.name}
+                editMode={editMode}
+                onChange={(v: string) => handleChange("name", v)}
+              />
+              <ProfileField label="אימייל" value={form.email} editMode={false} />
+              <ProfileField
+                label="תאריך לידה"
+                type="date"
+                value={form.birthDate}
+                editMode={editMode}
+                onChange={(v: string) => handleChange("birthDate", v)}
+                displayExtra={
+                  !editMode && form.birthDate ? `(${calcAge(form.birthDate)} שנים)` : ""
+                }
+              />
+              <ProfileField
+                label="עיר"
+                value={form.city}
+                editMode={editMode}
+                onChange={(v: string) => handleChange("city", v)}
+              />
+              <ProfileField
+                label="טלפון"
+                value={form.phone}
+                editMode={editMode}
+                onChange={(v: string) => handleChange("phone", v)}
+              />
             </div>
-          )}
-        </div>
+          </TabsContent>
+
+          <TabsContent value="family">
+            <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50">
+              <p className="text-sm text-gray-600 mb-3">
+                ניתן לערוך בני משפחה באמצעות כפתור עריכה לצד כל כרטיס.
+              </p>
+              {familyMembers.length === 0 ? (
+                <p className="text-gray-600 text-sm">לא נמצאו בני משפחה.</p>
+              ) : (
+                <div className="space-y-3">
+                  {familyMembers.map((member: any) => (
+                    <div
+                      key={member.entityKey}
+                      className="flex flex-col gap-2 rounded-xl border border-indigo-100 bg-white/80 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-gray-800 font-semibold">
+                            {member.name || "ללא שם"}
+                          </div>
+                          {member.relation && (
+                            <div className="text-xs text-gray-500">
+                              קשר: {member.relation}
+                            </div>
+                          )}
+                        </div>
+                        {canEditFamily && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="text-xs"
+                            onClick={async () => {
+                              try {
+                                const entity = await fetchEntityDetails(member.entityKey);
+                                setEditingFamilyMember(entity);
+                              } catch (err: any) {
+                                toast.error(`שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
+                              }
+                            }}
+                          >
+                            ✏️ ערוך
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+                        <span>טלפון: {member.phone || "-"}</span>
+                        <span>
+                          תאריך לידה:{" "}
+                          {member.birthDate
+                            ? new Date(member.birthDate).toLocaleDateString("he-IL")
+                            : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
 
         {/* Actions */}
         <div className="mt-10 flex flex-wrap gap-3 justify-end">

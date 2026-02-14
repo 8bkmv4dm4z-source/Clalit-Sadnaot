@@ -59,6 +59,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 /** 🔹 QuickEdit modal */
 function QuickEdit({ person, onClose, onSaved }) {
@@ -533,46 +535,24 @@ export default function WorkshopParticipantsModal({
             <span className="text-indigo-600">{activeWorkshop.title}</span>
           </h3>
           <div className="flex flex-wrap gap-2 items-center">
-            <button
-              onClick={() => setView("participants")}
-              className={`px-3 py-1 rounded-lg text-sm ${
-                view === "participants"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              משתתפים
-            </button>
-            <button
-              onClick={() => setView("waitlist")}
-              className={`px-3 py-1 rounded-lg text-sm ${
-                view === "waitlist"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              המתנה
-            </button>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleExport}
-              className="px-3 py-1 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700"
+              className="bg-green-600 text-white hover:bg-green-700 border-green-600"
             >
               📤 ייצא לקובץ אקסל
-            </button>
-            <button
+            </Button>
+            <Button
+              variant={showProfiles ? "destructive" : "default"}
+              size="sm"
               onClick={() => setShowProfiles((s) => !s)}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition ${
-                showProfiles ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
-              }`}
             >
               {showProfiles ? "❌ סגור רשימת משתמשים" : "➕ הוסף משתתף"}
-            </button>
-            <button
-              onClick={handleClose}
-              className="rounded-lg px-3 py-1 text-sm text-gray-600 hover:bg-gray-100"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleClose}>
               ✕ סגור
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -640,20 +620,37 @@ export default function WorkshopParticipantsModal({
 
         {loading ? (
           <p className="text-sm text-gray-600">⏳ טוען נתונים...</p>
-        ) : view === "participants" ? (
-          participants.length ? (
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-              {participants.map(renderParticipant)}
-            </div>
-          ) : (
-            <p className="text-center text-gray-500">אין משתתפים רשומים.</p>
-          )
-        ) : waitlist.length ? (
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            {waitlist.map(renderWaitlistItem)}
-          </div>
         ) : (
-          <p className="text-center text-gray-500">אין רשימת המתנה.</p>
+          <Tabs value={view} onValueChange={setView}>
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="participants">משתתפים</TabsTrigger>
+              <TabsTrigger value="waitlist">רשימת המתנה</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="participants">
+              <ScrollArea className="max-h-[50vh]">
+                {participants.length ? (
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 pr-2">
+                    {participants.map(renderParticipant)}
+                  </div>
+                ) : (
+                  <p className="text-center text-gray-500">אין משתתפים רשומים.</p>
+                )}
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="waitlist">
+              <ScrollArea className="max-h-[50vh]">
+                {waitlist.length ? (
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 pr-2">
+                    {waitlist.map(renderWaitlistItem)}
+                  </div>
+                ) : (
+                  <p className="text-center text-gray-500">אין רשימת המתנה.</p>
+                )}
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 

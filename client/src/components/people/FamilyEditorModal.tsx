@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface FamilyEditorModalProps {
   user: any;
@@ -152,7 +153,8 @@ export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEdito
             <DialogTitle className="text-xl font-bold text-gray-800">ניהול בני משפחה</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          <ScrollArea className="max-h-[60vh] pr-1">
+          <div className="space-y-4">
             {list.map((m: any, idx: number) => (
               <div
                 key={m.entityKey || m._id || idx}
@@ -208,6 +210,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEdito
               ➕ הוסף בן משפחה
             </Button>
           </div>
+          </ScrollArea>
 
           <DialogFooter className="gap-2">
             <Button variant="secondary" onClick={onClose} className="rounded-xl">

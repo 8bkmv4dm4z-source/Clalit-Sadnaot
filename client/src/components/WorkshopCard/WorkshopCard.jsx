@@ -42,6 +42,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 
@@ -406,11 +407,11 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
   // ---------- Skeleton ----------
   if (!workshop || !wid) {
     return (
-      <div className="relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white p-4 animate-pulse">
-        <div className="h-44 w-full bg-gray-100 mb-3" />
-        <div className="h-4 bg-gray-200 rounded w-2/3 mb-2" />
-        <div className="h-3 bg-gray-200 rounded w-1/2 mb-1" />
-        <div className="h-3 bg-gray-200 rounded w-1/3" />
+      <div className="relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white p-4">
+        <Skeleton className="h-44 w-full mb-3" />
+        <Skeleton className="h-4 w-2/3 mb-2" />
+        <Skeleton className="h-3 w-1/2 mb-1" />
+        <Skeleton className="h-3 w-1/3" />
       </div>
     );
   }
