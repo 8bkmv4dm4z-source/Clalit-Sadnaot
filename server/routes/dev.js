@@ -1,8 +1,21 @@
 // routes/dev.js
 const express = require("express");
+const crypto = require("crypto");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
+
+const safeEqual = (a, b) => {
+  if (!a || !b) return false;
+  const aBuf = Buffer.from(String(a));
+  const bBuf = Buffer.from(String(b));
+  if (aBuf.length !== bBuf.length) return false;
+  try {
+    return crypto.timingSafeEqual(aBuf, bBuf);
+  } catch {
+    return false;
+  }
+};
 
 const isNonProduction = process.env.NODE_ENV !== "production";
 const devRoutesEnabled = process.env.ENABLE_DEV_ROUTES === "true";
@@ -27,7 +40,7 @@ const requireDevAdminSecret = (req, res, next) => {
   const providedSecret =
     req.headers["x-dev-admin-key"] || req.headers["x-admin-secret"];
 
-  if (providedSecret !== configuredSecret) {
+  if (!safeEqual(providedSecret, configuredSecret)) {
     return res.status(401).json({ message: "Invalid or missing admin secret" });
   }
 
