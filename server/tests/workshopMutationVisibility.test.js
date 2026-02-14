@@ -208,6 +208,38 @@ test("unregisterEntityFromWorkshop keeps mutation responses scope-safe", async (
   });
 });
 
+test("deriveContextAllowlist does NOT allow adminHidden for non-admin scope", () => {
+  const { deriveContextAllowlist } = require("../contracts/responseGuards");
+
+  // Non-admin workshop mutations should NOT get adminHidden allowlisted
+  assert.deepEqual(
+    deriveContextAllowlist("POST /api/workshops", false),
+    []
+  );
+  assert.deepEqual(
+    deriveContextAllowlist("PUT /api/workshops/abc", false),
+    []
+  );
+  assert.deepEqual(
+    deriveContextAllowlist("DELETE /api/workshops/abc", false),
+    []
+  );
+  assert.deepEqual(
+    deriveContextAllowlist("GET /api/workshops?scope=admin", false),
+    []
+  );
+
+  // Admin scope should get adminHidden allowlisted
+  assert.deepEqual(
+    deriveContextAllowlist("POST /api/workshops", true),
+    ["adminHidden"]
+  );
+  assert.deepEqual(
+    deriveContextAllowlist("GET /api/workshops?scope=admin", true),
+    ["adminHidden"]
+  );
+});
+
 test("admin can explicitly request participant details after mutation", async () => {
   resetModules();
   const workshopDoc = {

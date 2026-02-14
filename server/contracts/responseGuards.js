@@ -35,7 +35,7 @@ const FORBIDDEN_RESPONSE_FIELDS = BASE_FORBIDDEN_RESPONSE_FIELDS;
 
 const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
 
-const deriveContextAllowlist = (context = "") => {
+const deriveContextAllowlist = (context = "", isAdminScope = false) => {
   const raw = String(context || "").trim();
   const match = raw.match(/^([A-Z]+)\s+([^\s]+)/);
   const method = match?.[1];
@@ -47,11 +47,11 @@ const deriveContextAllowlist = (context = "") => {
     const isWorkshopRoute = parsed.pathname === "/api/workshops" || parsed.pathname.startsWith("/api/workshops/");
     const isWorkshopMutation = isWorkshopRoute && ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 
-    if (parsed.pathname === "/api/workshops" && parsed.searchParams.get("scope") === "admin") {
+    if (parsed.pathname === "/api/workshops" && parsed.searchParams.get("scope") === "admin" && isAdminScope) {
       return ["adminHidden"];
     }
 
-    if (isWorkshopMutation) {
+    if (isWorkshopMutation && isAdminScope) {
       return ["adminHidden"];
     }
   } catch {
@@ -68,9 +68,9 @@ const deriveContextAllowlist = (context = "") => {
  */
 function enforceResponseContract(
   payload,
-  { allowlist = [], context = "response", suppressThrow = false, forbidContactFields = false } = {}
+  { allowlist = [], context = "response", suppressThrow = false, forbidContactFields = false, isAdminScope = false } = {}
 ) {
-  const allow = new Set([...allowlist, ...deriveContextAllowlist(context)]);
+  const allow = new Set([...allowlist, ...deriveContextAllowlist(context, isAdminScope)]);
   const stripped = [];
   const forbidden = new Set(BASE_FORBIDDEN_RESPONSE_FIELDS);
   if (forbidContactFields) {
@@ -118,4 +118,5 @@ function enforceResponseContract(
 module.exports = {
   FORBIDDEN_RESPONSE_FIELDS,
   enforceResponseContract,
+  deriveContextAllowlist,
 };

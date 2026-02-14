@@ -213,6 +213,7 @@ app.use((req, res, next) => {
       try {
         enforceResponseContract(payload, {
           context: `${req.method} ${req.originalUrl || req.url || "response"}`,
+          isAdminScope: !!(req.user?.authorities?.admin),
         });
       } catch (err) {
         return next(err);
