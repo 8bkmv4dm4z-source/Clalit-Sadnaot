@@ -195,7 +195,7 @@ exports.deleteUser = async (req, res) => {
     const status = err.statusCode || 500;
     return res
       .status(status)
-      .json({ success: false, message: err.message || "Server error deleting entity" });
+      .json({ success: false, message: "Server error deleting entity" });
   }
 };
 
@@ -327,7 +327,6 @@ exports.searchUsers = async (req, res) => {
     console.error("❌ searchUsers error:", err);
     res.status(500).json({
       message: "Server error performing hybrid search",
-      error: err.message
     });
   }
 };
@@ -440,7 +439,7 @@ exports.getAllUsers = async (req, res) => {
     return res.json(entities.slice(0, limit));
   } catch (err) {
     console.error("❌ [getAllUsers] Error:", err);
-    return res.status(500).json({ message: "Server error loading users", error: err.message });
+    return res.status(500).json({ message: "Server error loading users" });
   }
 };
 
@@ -467,7 +466,6 @@ exports.getUserAuditReport = async (_req, res) => {
       success: false,
       message: "Audit scan failed",
       lastAudit: snapshot?.lastAuditResult || null,
-      error: err.message,
     });
   }
 };
@@ -715,7 +713,7 @@ exports.updateEntity = async (req, res) => {
     const status = err.statusCode || 500;
     res
       .status(status)
-      .json({ message: err.message || "Server error updating entity" });
+      .json({ message: "Server error updating entity" });
   }
 };
 
@@ -835,6 +833,6 @@ exports.getUserWorkshopsList = async (req, res) => {
     console.error("❌ getUserWorkshopsList error:", err);
     res
       .status(500)
-      .json({ message: "Server error fetching workshops list", error: err.message });
+      .json({ message: "Server error fetching workshops list" });
   }
 };

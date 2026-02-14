@@ -610,7 +610,7 @@ exports.getAllWorkshops = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ getAllWorkshops error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -1055,7 +1055,7 @@ exports.updateWorkshop = async (req, res) => {
     console.error("❌ [updateWorkshop] Error:", err);
     await clearIdempotentRequest(idempotencyState);
     return respondWithIdempotency(res, idempotencyState, 500, {
-      message: err.message || "Failed to update workshop",
+      message: "Failed to update workshop",
     });
   }
 };
@@ -1226,7 +1226,7 @@ exports.createWorkshop = async (req, res) => {
     console.error("❌ [createWorkshop] Error:", err);
     await clearIdempotentRequest(idempotencyState);
     return respondWithIdempotency(res, idempotencyState, 500, {
-      message: err.message || "Failed to create workshop",
+      message: "Failed to create workshop",
     });
   }
 };
@@ -2350,7 +2350,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
   } catch (err) {
     console.error("❌ exportWorkshopExcel error:", err);
-    res.status(500).json({ success: false, message: "Error sending report: " + err.message });
+    res.status(500).json({ success: false, message: "Error generating report" });
   }
 };
 
@@ -2438,7 +2438,7 @@ exports.getWaitlist = async (req, res) => {
     console.error("❌ getWaitlist error:", err);
     return res.status(500).json({
       success: false,
-      message: err.message || "Server error",
+      message: "Server error",
     });
   }
 };
@@ -2911,7 +2911,6 @@ exports.searchWorkshops = async (req, res) => {
     console.error("❌ [searchWorkshops] Error:", err);
     res.status(500).json({
       message: "Server error performing workshop search",
-      error: err.message,
     });
   }
 };
