@@ -232,7 +232,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
   } = useProfiles();
 
   // workshops context (for unregister)
-  const { unregisterEntityFromWorkshop, fetchWorkshops } = useWorkshops();
+  const { unregisterEntityFromWorkshop, fetchWorkshops, getEntityWorkshopsFromMaps } = useWorkshops();
 
   const isSelectMode = mode === "select" && typeof onSelectUser === "function";
 
@@ -377,9 +377,25 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         ? ["name", "relation", "phone", "birthDate", "email"]
         : userAllowed;
 
+      const blockedKeys = new Set([
+        "entityKey",
+        "__entityKey",
+        "_id",
+        "id",
+        "parentId",
+        "parentUserId",
+        "parentKey",
+        "parentName",
+        "parentEmail",
+        "parentPhone",
+        "entityType",
+        "isFamily",
+      ]);
+
       const updates = {};
-      
+
       for (const k of allowedKeys) {
+        if (blockedKeys.has(k)) continue;
         if (editBuffer[k] !== undefined) {
           let val = editBuffer[k];
           
@@ -440,10 +456,19 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       const entityKey = ids.entityKey;
       const parentEntityKey = ids.parentKey;
 
-      const list = await getUserWorkshops({
-        entityKey: isFamily ? parentEntityKey : entityKey,
-        familyEntityKey: isFamily ? entityKey : undefined,
+      let list = getEntityWorkshopsFromMaps({
+        entityKey,
+        parentKey: parentEntityKey,
+        isFamily,
+        name: row?.name,
       });
+
+      if (!Array.isArray(list) || !list.length) {
+        list = await getUserWorkshops({
+          entityKey: isFamily ? parentEntityKey : entityKey,
+          familyEntityKey: isFamily ? entityKey : undefined,
+        });
+      }
 
       setUserWorkshops(Array.isArray(list) ? list : []);
       setModalTitle(isFamily ? `${row.name} (${row.relation || "בן משפחה"})` : row.name);
@@ -475,10 +500,19 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     try {
       setBusyRowKey(rowKey);
 
-      const list = await getUserWorkshops({
-        entityKey: isFamily ? parentEntityKey : entityKey,
-        familyEntityKey: isFamily ? entityKey : undefined,
+      let list = getEntityWorkshopsFromMaps({
+        entityKey,
+        parentKey: parentEntityKey,
+        isFamily,
+        name: row?.name,
       });
+
+      if (!Array.isArray(list) || !list.length) {
+        list = await getUserWorkshops({
+          entityKey: isFamily ? parentEntityKey : entityKey,
+          familyEntityKey: isFamily ? entityKey : undefined,
+        });
+      }
 
       const workshopIds = (Array.isArray(list) ? list : [])
         .map((w) => String(w.workshopKey || w.workshopId || w.id))

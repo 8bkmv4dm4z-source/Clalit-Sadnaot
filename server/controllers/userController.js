@@ -6,6 +6,7 @@ const {
   toOwnerUser,
   toAdminUser,
   toListEntity,
+  toAdminListEntity,
   toSelfProfileEntity,
 } = require("../contracts/userContracts");
 const { hasAuthority } = require("../middleware/authMiddleware");
@@ -103,15 +104,19 @@ const normalizeBirthDate = (value) => {
   return null;
 };
 
-const collectListEntitiesFromUserDoc = (userDoc, target = [], { includeFamily = true } = {}) => {
+const collectListEntitiesFromUserDoc = (
+  userDoc,
+  target = [],
+  { includeFamily = true, mapper = toListEntity } = {}
+) => {
   const userEntity = buildEntityFromUserDoc(userDoc);
-  if (userEntity) target.push(toListEntity(userEntity));
+  if (userEntity) target.push(mapper(userEntity));
   if (!includeFamily) return target;
 
   const members = userDoc?.familyMembers || [];
   for (const member of members) {
     const entity = buildEntityFromFamilyMemberDoc(member, userDoc);
-    if (entity) target.push(toListEntity(entity, userDoc));
+    if (entity) target.push(mapper(entity, userDoc));
   }
   return target;
 };
@@ -428,7 +433,7 @@ exports.getAllUsers = async (req, res) => {
 
     const entities = [];
     for (const userDoc of users) {
-      collectListEntitiesFromUserDoc(userDoc, entities);
+      collectListEntitiesFromUserDoc(userDoc, entities, { mapper: toAdminListEntity });
       if (entities.length >= limit) break;
     }
 

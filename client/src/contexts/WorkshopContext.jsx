@@ -43,6 +43,7 @@ import { normalizeEntity } from "../utils/normalizeEntity";
 import { useAdminCapabilityStatus } from "../context/AdminCapabilityContext";
 import { normalizeError } from "../utils/normalizeError";
 import { apiFetch } from "../utils/apiFetch";
+import { deriveWorkshopsByEntity } from "../utils/workshopDerivation";
 
 /* ───────────────────────── Debug Helpers ───────────────────────── */
 // Enable via query string: ?debug=ws
@@ -1019,6 +1020,40 @@ export const WorkshopProvider = ({ children }) => {
     }
   };
 
+
+
+  const getEntityWorkshopsFromMaps = useCallback(
+    ({ entityKey, parentKey = "", isFamily = false, name = "" } = {}) => {
+      const targetKey = sid(entityKey);
+      if (!targetKey) return [];
+
+      const userEntity = {
+        entityKey: isFamily ? sid(parentKey) : targetKey,
+        name: isFamily ? "" : name || user?.name || "",
+      };
+      const familyMembers = isFamily
+        ? [{ entityKey: targetKey, name, relation: "", isFamily: true }]
+        : [];
+
+      const byEntity = deriveWorkshopsByEntity({
+        displayedWorkshops,
+        userWorkshopMap,
+        familyWorkshopMap,
+        userEntity,
+        user,
+        familyMembers,
+        allEntities: familyMembers,
+      });
+
+      if (isFamily) {
+        return byEntity[targetKey]?.workshops || [];
+      }
+
+      return byEntity[sid(userEntity.entityKey)]?.workshops || [];
+    },
+    [displayedWorkshops, familyWorkshopMap, user, userWorkshopMap]
+  );
+
   const loadMoreWorkshops = async () => {
     dbgCtx("loadMoreWorkshops:call", {
       loading,
@@ -1063,6 +1098,7 @@ export const WorkshopProvider = ({ children }) => {
         fetchWorkshops: fetchAllWorkshops,
         loadMoreWorkshops,
         fetchRegisteredWorkshops,
+        getEntityWorkshopsFromMaps,
 
         deleteWorkshop,
         registerEntityToWorkshop,
