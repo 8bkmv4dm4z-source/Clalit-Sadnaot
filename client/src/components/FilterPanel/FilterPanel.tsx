@@ -1,6 +1,13 @@
 import React from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface DeriveOptions {
   types?: string[];
@@ -33,31 +40,29 @@ export default function FilterPanel({ deriveOptions = {}, searchQuery, setSearch
           onChange={(e) => setSearchQuery(e.target.value)}
         />
 
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.type || ""} onChange={(e) => handleChange("type", e.target.value)}>
-          <option value="">סוג</option>
-          {types.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.ageGroup || ""} onChange={(e) => handleChange("ageGroup", e.target.value)}>
-          <option value="">קבוצת גיל</option>
-          {ages.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.city || ""} onChange={(e) => handleChange("city", e.target.value)}>
-          <option value="">עיר</option>
-          {cities.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.coach || ""} onChange={(e) => handleChange("coach", e.target.value)}>
-          <option value="">מאמן</option>
-          {coaches.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.day || ""} onChange={(e) => handleChange("day", e.target.value)}>
-          <option value="">יום</option>
-          {days.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select className="rounded-xl border border-gray-200 px-3 py-2 text-sm" value={filters.hour || ""} onChange={(e) => handleChange("hour", e.target.value)}>
-          <option value="">שעה</option>
-          {hours.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
+        <FilterSelect label="סוג" value={filters.type || ""} onChange={(v) => handleChange("type", v)} options={types} />
+        <FilterSelect label="קבוצת גיל" value={filters.ageGroup || ""} onChange={(v) => handleChange("ageGroup", v)} options={ages} />
+        <FilterSelect label="עיר" value={filters.city || ""} onChange={(v) => handleChange("city", v)} options={cities} />
+        <FilterSelect label="מאמן" value={filters.coach || ""} onChange={(v) => handleChange("coach", v)} options={coaches} />
+        <FilterSelect label="יום" value={filters.day || ""} onChange={(v) => handleChange("day", v)} options={days} />
+        <FilterSelect label="שעה" value={filters.hour || ""} onChange={(v) => handleChange("hour", v)} options={hours} />
       </div>
     </section>
+  );
+}
+
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+  return (
+    <Select value={value || "__all__"} onValueChange={(v) => onChange(v === "__all__" ? "" : v)}>
+      <SelectTrigger className="rounded-xl border-gray-200 text-sm">
+        <SelectValue placeholder={label} />
+      </SelectTrigger>
+      <SelectContent dir="rtl">
+        <SelectItem value="__all__">{label}</SelectItem>
+        {options.map((v) => (
+          <SelectItem key={v} value={v}>{v}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

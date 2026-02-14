@@ -14,7 +14,6 @@
  * - existingIds (from WorkshopParticipantsModal) are treated as entityKey strings
  */
 
-import { createPortal } from "react-dom";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MoreVertical } from "lucide-react";
@@ -25,6 +24,12 @@ import {
 } from "../../utils/entityTypes";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 /* ---------------- helpers ---------------- */
 const calcAge = (dateStr) => {
@@ -100,120 +105,43 @@ function ActionMenu({
   onDeleteEntity,
   disabled = false,
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const portalRef = useRef(document.createElement("div"));
-
-  /* Mount a detached element into <body> so dropdown isn’t clipped by table overflow */
-  useEffect(() => {
-    const node = portalRef.current;
-    document.body.appendChild(node);
-    return () => {
-      if (node && node.parentNode) node.parentNode.removeChild(node);
-    };
-  }, []);
-
-  /* Close on outside click */
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  /* Compute dynamic position + RTL-safe alignment */
-  const rect = ref.current?.getBoundingClientRect() || {};
-  const htmlDir =
-    document.documentElement.getAttribute("dir") ||
-    document.body.getAttribute("dir") ||
-    "ltr";
-  const isRTL = htmlDir.toLowerCase() === "rtl";
-
-  const menu = (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.15 }}
-          className="absolute bg-white border border-gray-200 rounded-md shadow-lg text-sm overflow-hidden z-[99999]"
-          style={{
-            top: rect.bottom + window.scrollY + 4,
-            width: 176,
-            ...(isRTL
-              ? {
-                  // RTL → open slightly to the right (so it’s centered visually)
-                  right: window.innerWidth - rect.left + window.scrollX - 8,
-                }
-              : {
-                  // LTR → open slightly to the right of the button
-                  left: rect.right - 168 + window.scrollX,
-                }),
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
+  return (
+    <div
+      className="relative inline-block text-right"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <DropdownMenu dir="rtl">
+        <DropdownMenuTrigger asChild>
           <button
-            onClick={() => {
-              setOpen(false);
-              onEdit?.();
-            }}
-            className="block w-full text-right px-3 py-2 hover:bg-gray-50"
+            className="p-1.5 rounded hover:bg-gray-100 w-8 h-8 flex items-center justify-center"
+            disabled={disabled}
           >
+            <MoreVertical size={18} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-44">
+          <DropdownMenuItem onClick={() => onEdit?.()}>
             ✏️ ערוך
-          </button>
-          <button
-            onClick={() => {
-              setOpen(false);
-              onShowWorkshops?.();
-            }}
-            className="block w-full text-right px-3 py-2 hover:bg-gray-50"
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onShowWorkshops?.()}>
             🎟 ראה סדנאות
-          </button>
-          <button
-            onClick={() => {
-              setOpen(false);
-              onDeleteFromWorkshops?.();
-            }}
-            className="block w-full text-right px-3 py-2 hover:bg-red-50 text-red-600"
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onDeleteFromWorkshops?.()}
+            className="text-red-600 focus:text-red-600 focus:bg-red-50"
           >
             🗑 מחק מכל הסדנאות
-          </button>
-          <button
-            onClick={() => {
-              setOpen(false);
-              onDeleteEntity?.();
-            }}
-            className="block w-full text-right px-3 py-2 hover:bg-red-100 text-red-700"
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onDeleteEntity?.()}
+            className="text-red-700 focus:text-red-700 focus:bg-red-100"
           >
             🧨 מחק פרופיל
-          </button>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-
-  return (
-    <>
-      <div
-        ref={ref}
-        className="relative inline-block text-right z-[5000]"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          className="p-1.5 rounded hover:bg-gray-100 w-8 h-8 flex items-center justify-center"
-          onClick={() => !disabled && setOpen((v) => !v)}
-          disabled={disabled}
-        >
-          <MoreVertical size={18} />
-        </button>
-      </div>
-      {createPortal(menu, portalRef.current)}
-    </>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

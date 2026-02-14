@@ -1,9 +1,8 @@
 /**
  * Header.jsx — Unified Calendar Link
  * -----------------------------------
- * ✅ "הסדנאות שלי" now links directly to /myworkshops
- * ✅ Includes 📅 icon next to the text
- * ✅ Keeps all other logic and responsive layout intact
+ * Mobile menu uses shadcn Sheet (right side for RTL).
+ * Desktop layout uses motion.div for smooth layout transitions.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,9 +10,17 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useProfiles } from "../../layouts/ProfileContext";
-import { CalendarDays } from "lucide-react"; // 📅 modern lightweight icon
-import { AnimatePresence, motion } from "framer-motion";
+import { CalendarDays, Menu } from "lucide-react";
+import { motion } from "framer-motion";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 export default function Header() {
   const location = useLocation();
@@ -25,26 +32,16 @@ export default function Header() {
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
 
-  // 🔹 Scroll shadow effect
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 4);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // 🔹 Close mobile menu on navigation & resize
+  // Close mobile menu on navigation
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768) setMenuOpen(false);
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   const navIsActive = useCallback(
     (to) => location.pathname === to,
@@ -63,11 +60,14 @@ export default function Header() {
     "rtl inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 whitespace-nowrap justify-center w-full md:w-auto";
   const linkActive = "bg-white/90 text-blue-800 shadow-sm";
   const linkIdle = "text-white/90 hover:bg-white/20 hover:text-white";
+  const sheetLinkBase =
+    "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 whitespace-nowrap w-full";
+  const sheetLinkActive = "bg-indigo-100 text-indigo-800";
+  const sheetLinkIdle = "text-gray-700 hover:bg-gray-100";
 
   const linkGroup = useMemo(
     () => (
       <div className="flex flex-col md:flex-row md:items-center gap-2 sm:gap-3 flex-wrap md:justify-center">
-        {/* All Workshops */}
         <button
           onClick={() => {
             setViewMode("all");
@@ -83,7 +83,6 @@ export default function Header() {
           <span>כל הסדנאות</span>
         </button>
 
-        {/* My Workshops (Calendar view) */}
         <NavLink
           to="/myworkshops"
           className={`${linkBase} ${
@@ -94,7 +93,6 @@ export default function Header() {
           <span>הסדנאות שלי</span>
         </NavLink>
 
-        {/* Profile */}
         <NavLink
           to="/profile"
           className={`${linkBase} ${
@@ -104,7 +102,6 @@ export default function Header() {
           <span>הפרופיל שלי</span>
         </NavLink>
 
-        {/* Admin Tools */}
         {canAccessAdmin && !isChecking && (
           <>
             <NavLink
@@ -174,7 +171,6 @@ export default function Header() {
     >
       <nav className="mx-auto max-w-6xl px-4 sm:px-6 py-3">
         <div className="flex items-center justify-between gap-3">
-          {/* 🏠 Brand */}
           <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
             תפריט
           </h1>
@@ -183,48 +179,117 @@ export default function Header() {
             <span className="hidden sm:inline text-sm text-white/90 font-medium truncate max-w-[180px]">
               {currentUser.name}
             </span>
-            <button
-              onClick={() => setMenuOpen((p) => !p)}
-              className="md:hidden p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
-              aria-label="פתח/סגור תפריט"
-              aria-expanded={menuOpen}
-            >
-              <span
-                className={`block h-0.5 w-6 bg-white transition-transform duration-200 ${
-                  menuOpen ? "translate-y-1.5 rotate-45" : ""
-                }`}
-              />
-              <span
-                className={`block h-0.5 w-6 bg-white my-1 transition-opacity duration-200 ${
-                  menuOpen ? "opacity-0" : "opacity-80"
-                }`}
-              />
-              <span
-                className={`block h-0.5 w-6 bg-white transition-transform duration-200 ${
-                  menuOpen ? "-translate-y-1.5 -rotate-45" : ""
-                }`}
-              />
-            </button>
+
+            {/* Mobile Menu - Sheet */}
+            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+              <SheetTrigger asChild>
+                <button
+                  className="md:hidden p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
+                  aria-label="פתח/סגור תפריט"
+                >
+                  <Menu size={24} className="text-white" />
+                </button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-72 bg-white" dir="rtl">
+                <SheetHeader>
+                  <SheetTitle className="text-lg font-bold text-indigo-800">
+                    {currentUser.name}
+                  </SheetTitle>
+                </SheetHeader>
+                <div className="flex flex-col gap-2 mt-4">
+                  <button
+                    onClick={() => {
+                      setViewMode("all");
+                      if (!location.pathname.startsWith("/workshops"))
+                        navigate("/workshops");
+                      setMenuOpen(false);
+                    }}
+                    className={`${sheetLinkBase} ${
+                      navIsActive("/workshops") && viewMode === "all"
+                        ? sheetLinkActive
+                        : sheetLinkIdle
+                    }`}
+                  >
+                    כל הסדנאות
+                  </button>
+
+                  <NavLink
+                    to="/myworkshops"
+                    className={`${sheetLinkBase} ${
+                      navIsActive("/myworkshops") ? sheetLinkActive : sheetLinkIdle
+                    }`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <CalendarDays size={16} />
+                    הסדנאות שלי
+                  </NavLink>
+
+                  <NavLink
+                    to="/profile"
+                    className={`${sheetLinkBase} ${
+                      navIsActive("/profile") ? sheetLinkActive : sheetLinkIdle
+                    }`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    הפרופיל שלי
+                  </NavLink>
+
+                  {canAccessAdmin && !isChecking && (
+                    <>
+                      <div className="border-t border-gray-200 my-2" />
+                      <NavLink
+                        to="/profiles"
+                        className={`${sheetLinkBase} ${
+                          navIsActive("/profiles") ? sheetLinkActive : sheetLinkIdle
+                        }`}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        ניהול משתמשים
+                      </NavLink>
+
+                      <NavLink
+                        to="/admin/hub"
+                        className={`${sheetLinkBase} ${
+                          navIsActive("/admin/hub") ? sheetLinkActive : sheetLinkIdle
+                        }`}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        Admin Hub
+                      </NavLink>
+
+                      <NavLink
+                        to="/editworkshop"
+                        onClick={() => {
+                          localStorage.removeItem("editingWorkshopId");
+                          setMenuOpen(false);
+                        }}
+                        className={`${sheetLinkBase} ${
+                          navIsActive("/editworkshop") ? sheetLinkActive : sheetLinkIdle
+                        }`}
+                      >
+                        ➕ צור סדנה חדשה
+                      </NavLink>
+                    </>
+                  )}
+
+                  <div className="border-t border-gray-200 my-2" />
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      handleLogout();
+                      setMenuOpen(false);
+                    }}
+                    className="w-full"
+                  >
+                    התנתקות
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
 
-        {/* 🔗 Navigation Links */}
-        <AnimatePresence initial={false}>
-          {menuOpen && (
-            <motion.div
-              key="mobile-menu"
-              initial={{ opacity: 0, height: 0, y: -12 }}
-              animate={{ opacity: 1, height: "auto", y: 0 }}
-              exit={{ opacity: 0, height: 0, y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-              className="md:hidden grid grid-cols-1 gap-3 mt-3 overflow-hidden"
-            >
-              {linkGroup}
-              {logoutButton}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
+        {/* Desktop Navigation */}
         <motion.div
           layout
           transition={{ duration: 0.2 }}

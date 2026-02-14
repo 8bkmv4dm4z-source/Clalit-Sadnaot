@@ -1,6 +1,6 @@
 // WorkshopCard.jsx — FIXED FINAL VERSION
 
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
@@ -36,6 +36,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 
@@ -120,20 +126,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
   const [feedback, setFeedback] = useState(null);
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [visibilityLoading, setVisibilityLoading] = useState(false);
-  const [adminOpen, setAdminOpen] = useState(false);
   const [viewport, setViewport] = useState("desktop");
-
-  const adminMenuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) {
-        setAdminOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
 
   useEffect(() => {
     const computeViewport = () => {
@@ -516,9 +509,6 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
                   loading={visibilityLoading}
                 />
                 <AdminMenu
-                  adminMenuRef={adminMenuRef}
-                  adminOpen={adminOpen}
-                  setAdminOpen={setAdminOpen}
                   workshopId={wid}
                   onManageParticipants={onManageParticipants}
                   onEditWorkshop={onEditWorkshop}
@@ -864,9 +854,6 @@ function AdminVisibilityToggle({ hidden, onToggle, loading }) {
 
 /* ---------- Admin Menu ---------- */
 function AdminMenu({
-  adminMenuRef,
-  adminOpen,
-  setAdminOpen,
   workshopId,
   onManageParticipants,
   onEditWorkshop,
@@ -880,14 +867,12 @@ function AdminMenu({
   };
 
   const handleAction = (type) => {
-    setAdminOpen(false);
     const fn = handlers[type];
     if (typeof fn === "function") {
       fn(workshopId);
       return;
     }
 
-    // fallback broadcast
     window.dispatchEvent(
       new CustomEvent("workshop-admin-action", {
         detail: { type, workshopId },
@@ -895,51 +880,32 @@ function AdminMenu({
     );
   };
 
-  useEffect(() => {
-    const handler = () => {};
-    window.addEventListener("workshop-admin-action", handler);
-
-    return () =>
-      window.removeEventListener("workshop-admin-action", handler);
-  }, []);
-
   return (
-    <div className={`relative ${className}`} ref={adminMenuRef}>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setAdminOpen((s) => !s);
-        }}
-        className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
-        title="אפשרויות ניהול"
-      >
-        <MoreVertical size={18} className="text-indigo-700" />
-      </button>
-
-      {adminOpen && (
-        <div className="absolute left-0 top-8 z-20 w-40 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden">
+    <div className={className} onClick={(e) => e.stopPropagation()}>
+      <DropdownMenu dir="rtl">
+        <DropdownMenuTrigger asChild>
           <button
-            onClick={() => handleAction("edit")}
-            className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
+            className="p-1.5 rounded-lg bg-white/60 border border-indigo-100 hover:bg-white shadow-sm"
+            title="אפשרויות ניהול"
           >
+            <MoreVertical size={18} className="text-indigo-700" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40">
+          <DropdownMenuItem onClick={() => handleAction("edit")}>
             ✏️ ערוך
-          </button>
-
-          <button
-            onClick={() => handleAction("manage")}
-            className="w-full text-right px-3 py-2 text-sm hover:bg-indigo-50"
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleAction("manage")}>
             👥 משתתפים
-          </button>
-
-          <button
+          </DropdownMenuItem>
+          <DropdownMenuItem
             onClick={() => handleAction("delete")}
-            className="w-full text-right px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            className="text-red-600 focus:text-red-600 focus:bg-red-50"
           >
             🗑️ מחק
-          </button>
-        </div>
-      )}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
