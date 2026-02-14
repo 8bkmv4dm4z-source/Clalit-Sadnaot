@@ -29,6 +29,13 @@ import {
   EyeOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 
@@ -709,127 +716,115 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
       </div>
 
       {/* ===================== FAMILY MODAL ===================== */}
-      {showFamilyModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-md text-right">
-            <h2 className="text-lg font-bold text-indigo-800 mb-4 border-b border-indigo-100 pb-2">
+      <Dialog open={showFamilyModal} onOpenChange={(open) => { if (!open) setShowFamilyModal(false); }}>
+        <DialogContent className="max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-indigo-800 border-b border-indigo-100 pb-2">
               רישום בני משפחה לסדנה "{title}"
-            </h2>
+            </DialogTitle>
+          </DialogHeader>
 
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1.5">
-              {(user?.familyMembers || []).map((member) => {
-                const memberId = str(member?.entityKey);
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1.5">
+            {(user?.familyMembers || []).map((member) => {
+              const memberId = str(member?.entityKey);
 
-                const isRegistered = familyRegisteredIdSet.has(memberId);
-                const isWL = waitRows.some(
-                  (e) => e.parentKey === userKey && e.entityKey === memberId
-                );
+              const isRegistered = familyRegisteredIdSet.has(memberId);
+              const isWL = waitRows.some(
+                (e) => e.parentKey === userKey && e.entityKey === memberId
+              );
 
-                const btn = getEntityButton(member);
+              const btn = getEntityButton(member);
 
-                return (
-                  <div
-                    key={memberId}
-                    className="flex items-center justify-between bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2"
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-indigo-200/60 flex items-center justify-center text-indigo-800">
-                        <UserIcon size={16} />
+              return (
+                <div
+                  key={memberId}
+                  className="flex items-center justify-between bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-indigo-200/60 flex items-center justify-center text-indigo-800">
+                      <UserIcon size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-indigo-900 truncate">
+                        {member.name}
                       </div>
-                      <div className="min-w-0">
-                        <div className="font-semibold text-indigo-900 truncate">
-                          {member.name}
-                        </div>
 
-                        <div className="flex items-center gap-2 text-[11px] text-gray-600">
-                          {member.relation && (
-                            <span className="truncate">
-                              {member.relation}
-                            </span>
-                          )}
+                      <div className="flex items-center gap-2 text-[11px] text-gray-600">
+                        {member.relation && (
+                          <span className="truncate">
+                            {member.relation}
+                          </span>
+                        )}
 
-                          {isRegistered && (
-                            <span className="inline-flex items-center gap-1 text-green-700">
-                              <Check size={12} /> רשום
-                            </span>
-                          )}
+                        {isRegistered && (
+                          <span className="inline-flex items-center gap-1 text-green-700">
+                            <Check size={12} /> רשום
+                          </span>
+                        )}
 
-                          {!isRegistered && isWL && (
-                            <span className="inline-flex items-center gap-1 text-amber-600">
-                              <Hourglass size={12} /> ממתין
-                            </span>
-                          )}
-                        </div>
+                        {!isRegistered && isWL && (
+                          <span className="inline-flex items-center gap-1 text-amber-600">
+                            <Hourglass size={12} /> ממתין
+                          </span>
+                        )}
                       </div>
                     </div>
-
-                    {/* BUTTON */}
-                    {btn?.label && (
-                      <button
-                        onClick={(e) => {
-                            if (!isLoggedIn) return;
-
-                          e.stopPropagation();
-                          runEntityAction(member);
-                        }}
-                        disabled={loading || !btn?.action}
-                        className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${btn.color} disabled:opacity-60`}
-                      >
-                        {loading ? "..." : btn.label}
-                      </button>
-                    )}
                   </div>
-                );
-              })}
-            </div>
 
-            <button
-              onClick={(e) => {
-                  if (!isLoggedIn) return;
+                  {/* BUTTON */}
+                  {btn?.label && (
+                    <button
+                      onClick={(e) => {
+                          if (!isLoggedIn) return;
 
-                e.stopPropagation();
-                setShowFamilyModal(false);
-              }}
-              className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
-            >
-              סגור
-            </button>
+                        e.stopPropagation();
+                        runEntityAction(member);
+                      }}
+                      disabled={loading || !btn?.action}
+                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow ${btn.color} disabled:opacity-60`}
+                    >
+                      {loading ? "..." : btn.label}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+
+          <Button
+            onClick={(e) => {
+                if (!isLoggedIn) return;
+              e.stopPropagation();
+              setShowFamilyModal(false);
+            }}
+            className="mt-2 w-full"
+          >
+            סגור
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* ===================== DESCRIPTION MODAL ===================== */}
-      {showDescriptionModal && (
-        <div
-          className="fixed inset-0 bg-black/50 flex justify-center items-center z-50"
-          onClick={(e) => {
-              if (!isLoggedIn) return;
-
-            e.stopPropagation();
-            setShowDescriptionModal(false);
-          }}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 shadow-2xl w-[92%] max-w-lg text-right"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-bold text-indigo-800 mb-4 border-b border-indigo-100 pb-2">
+      <Dialog open={showDescriptionModal} onOpenChange={(open) => { if (!open) setShowDescriptionModal(false); }}>
+        <DialogContent className="max-w-lg" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-indigo-800 border-b border-indigo-100 pb-2">
               תיאור הסדנה "{title}"
-            </h2>
+            </DialogTitle>
+          </DialogHeader>
 
-            <div className="max-h-[60vh] overflow-y-auto pr-1.5">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{description}</p>
-            </div>
-
-            <button
-              onClick={() => setShowDescriptionModal(false)}
-              className="mt-5 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-all"
-            >
-              סגור
-            </button>
+          <div className="max-h-[60vh] overflow-y-auto pr-1.5">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700">{description}</p>
           </div>
-        </div>
-      )}
+
+          <Button
+            onClick={() => setShowDescriptionModal(false)}
+            className="mt-2 w-full"
+          >
+            סגור
+          </Button>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

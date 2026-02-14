@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
+import { toast } from "sonner";
 
 export default function Verify() {
   const navigate = useNavigate();
@@ -64,7 +65,7 @@ export default function Verify() {
     setStatus("idle");
 
     if (result.success) {
-      alert("✅ התחברת בהצלחה!");
+      toast.success("התחברת בהצלחה!");
       navigate("/workshops");
     } else {
       const message = result.message || "❌ קוד שגוי או פג תוקף.";

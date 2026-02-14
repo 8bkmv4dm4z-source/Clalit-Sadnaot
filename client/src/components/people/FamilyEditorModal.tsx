@@ -1,11 +1,29 @@
 /**
  * FamilyEditorModal.tsx — Family Management Modal (Full Server Sync)
- * Uses shadcn/ui Input, Button components
+ * Uses shadcn/ui Dialog, AlertDialog, Input, Button + Sonner toast
  */
 
 import React, { useState } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -18,6 +36,7 @@ interface FamilyEditorModalProps {
 export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEditorModalProps) {
   const [list, setList] = useState<any[]>(user.familyMembers || []);
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ idx: number; name: string } | null>(null);
 
   const updateField = (idx: number, key: string, value: string) => {
     setList((prev) => {
@@ -48,14 +67,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEdito
 
     const memberKey = resolveMemberKey(member);
     if (!memberKey) {
-      alert("❌ חסר מזהה בן משפחה (entityKey)");
+      toast.error("חסר מזהה בן משפחה (entityKey)");
       return;
     }
-
-    const confirmDelete = window.confirm(
-      `האם אתה בטוח שברצונך למחוק את ${member.name || "בן המשפחה"}?`
-    );
-    if (!confirmDelete) return;
 
     try {
       setSaving(true);
@@ -68,9 +82,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEdito
 
       onSave?.({ ...user, familyMembers: updatedList });
       window.dispatchEvent(new Event("entity-updated"));
-      alert(`✅ ${member.name || "בן משפחה"} נמחק בהצלחה`);
+      toast.success(`${member.name || "בן משפחה"} נמחק בהצלחה`);
     } catch (e: any) {
-      alert("❌ שגיאה במחיקת בן המשפחה: " + e.message);
+      toast.error("שגיאה במחיקת בן המשפחה: " + e.message);
     } finally {
       setSaving(false);
     }
@@ -121,114 +135,116 @@ export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEdito
       window.dispatchEvent(new Event("entity-updated"));
       onSave?.({ ...user, familyMembers: list });
       onClose?.();
-      alert("✅ בני המשפחה נשמרו בהצלחה");
+      toast.success("בני המשפחה נשמרו בהצלחה");
     } catch (e: any) {
       const normalized = normalizeError(e, { fallbackMessage: "Update failed" });
-      alert("❌ שגיאה בשמירת בני משפחה: " + normalized.message);
+      toast.error("שגיאה בשמירת בני משפחה: " + normalized.message);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl p-6"
-        dir="rtl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-gray-800">ניהול בני משפחה</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-600 hover:bg-gray-100 rounded-lg px-3 py-1"
-          >
-            ✕
-          </button>
-        </div>
+    <>
+      <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+        <DialogContent className="max-w-2xl" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-gray-800">ניהול בני משפחה</DialogTitle>
+          </DialogHeader>
 
-        {/* Members List */}
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-          {list.map((m: any, idx: number) => (
-            <div
-              key={m.entityKey || m._id || idx}
-              className="border border-gray-200 rounded-xl p-4 bg-gray-50"
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            {list.map((m: any, idx: number) => (
+              <div
+                key={m.entityKey || m._id || idx}
+                className="border border-gray-200 rounded-xl p-4 bg-gray-50"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    placeholder="שם"
+                    value={m.name || ""}
+                    onChange={(e) => updateField(idx, "name", e.target.value)}
+                  />
+                  <Input
+                    placeholder="קשר"
+                    value={m.relation || ""}
+                    onChange={(e) => updateField(idx, "relation", e.target.value)}
+                  />
+                  <Input
+                    placeholder="טלפון"
+                    value={m.phone || ""}
+                    onChange={(e) => updateField(idx, "phone", e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    value={(m.birthDate || "").split("T")[0] || ""}
+                    onChange={(e) => updateField(idx, "birthDate", e.target.value)}
+                  />
+                  <Input
+                    placeholder="אימייל (לא חובה)"
+                    value={m.email || ""}
+                    onChange={(e) => updateField(idx, "email", e.target.value)}
+                  />
+                </div>
+
+                <div className="flex justify-end mt-3">
+                  <Button
+                    variant="link"
+                    onClick={() => setDeleteConfirm({ idx, name: m.name || "בן המשפחה" })}
+                    disabled={saving}
+                    className="text-red-600 text-sm hover:text-red-700 disabled:opacity-60"
+                  >
+                    🗑️ מחק
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            <Button
+              variant="outline"
+              onClick={addMember}
+              disabled={saving}
+              className="w-full rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium border-indigo-200"
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input
-                  placeholder="שם"
-                  value={m.name || ""}
-                  onChange={(e) => updateField(idx, "name", e.target.value)}
-                />
-                <Input
-                  placeholder="קשר"
-                  value={m.relation || ""}
-                  onChange={(e) => updateField(idx, "relation", e.target.value)}
-                />
-                <Input
-                  placeholder="טלפון"
-                  value={m.phone || ""}
-                  onChange={(e) => updateField(idx, "phone", e.target.value)}
-                />
-                <Input
-                  type="date"
-                  value={(m.birthDate || "").split("T")[0] || ""}
-                  onChange={(e) => updateField(idx, "birthDate", e.target.value)}
-                />
-                <Input
-                  placeholder="אימייל (לא חובה)"
-                  value={m.email || ""}
-                  onChange={(e) => updateField(idx, "email", e.target.value)}
-                />
-              </div>
+              ➕ הוסף בן משפחה
+            </Button>
+          </div>
 
-              {/* Delete Button */}
-              <div className="flex justify-end mt-3">
-                <Button
-                  variant="link"
-                  onClick={() => deleteMember(idx)}
-                  disabled={saving}
-                  className="text-red-600 text-sm hover:text-red-700 disabled:opacity-60"
-                >
-                  🗑️ מחק
-                </Button>
-              </div>
-            </div>
-          ))}
+          <DialogFooter className="gap-2">
+            <Button variant="secondary" onClick={onClose} className="rounded-xl">
+              ביטול
+            </Button>
+            <Button onClick={saveAll} disabled={saving} className="rounded-xl">
+              {saving ? "שומר..." : "שמור"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {/* Add Button */}
-          <Button
-            variant="outline"
-            onClick={addMember}
-            disabled={saving}
-            className="w-full rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium border-indigo-200"
-          >
-            ➕ הוסף בן משפחה
-          </Button>
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-end gap-2 mt-6">
-          <Button
-            variant="secondary"
-            onClick={onClose}
-            className="rounded-xl"
-          >
-            ביטול
-          </Button>
-          <Button
-            onClick={saveAll}
-            disabled={saving}
-            className="rounded-xl"
-          >
-            {saving ? "שומר..." : "שמור"}
-          </Button>
-        </div>
-      </div>
-    </div>
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>מחיקת בן משפחה</AlertDialogTitle>
+            <AlertDialogDescription>
+              האם אתה בטוח שברצונך למחוק את {deleteConfirm?.name}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ביטול</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteConfirm) {
+                  deleteMember(deleteConfirm.idx);
+                  setDeleteConfirm(null);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              מחק
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

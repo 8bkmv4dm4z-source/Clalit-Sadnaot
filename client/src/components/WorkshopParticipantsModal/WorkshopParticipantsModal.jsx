@@ -40,6 +40,25 @@ import AllProfiles from "../../pages/AllProfiles";
 import { getEntityIdentifiers } from "../../utils/entityTypes";
 import { normalizeEntity } from "../../utils/normalizeEntity";
 import { formatParticipantContact } from "../../utils/participantDisplay";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /** 🔹 QuickEdit modal */
 function QuickEdit({ person, onClose, onSaved }) {
@@ -79,31 +98,18 @@ function QuickEdit({ person, onClose, onSaved }) {
       onClose?.();
     } catch (e) {
       const normalized = normalizeError(e, { fallbackMessage: "עדכון נכשל" });
-      alert("❌ שגיאה בעדכון: " + normalized.message);
+      toast.error("שגיאה בעדכון: " + normalized.message);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-5"
-        dir="rtl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-lg font-bold text-gray-800">עריכת משתתף</h4>
-          <button
-            onClick={onClose}
-            className="text-gray-600 hover:bg-gray-100 rounded-lg px-3 py-1"
-          >
-            ✕
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md" dir="rtl">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-gray-800">עריכת משתתף</DialogTitle>
+        </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           {["name", "email", "phone"].map((key) => (
@@ -115,9 +121,9 @@ function QuickEdit({ person, onClose, onSaved }) {
                 : key === "phone"
                 ? "טלפון:"
                 : ""}
-              <input
+              <Input
                 type="text"
-                className="mt-1 border rounded-lg px-3 py-2"
+                className="mt-1"
                 value={form[key]}
                 onChange={(e) => update(key, e.target.value)}
               />
@@ -126,22 +132,15 @@ function QuickEdit({ person, onClose, onSaved }) {
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
+          <Button variant="secondary" onClick={onClose}>
             ביטול
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
-          >
+          </Button>
+          <Button onClick={save} disabled={saving}>
             {saving ? "שומר..." : "שמור"}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -175,6 +174,7 @@ export default function WorkshopParticipantsModal({
   const [message, setMessage] = useState(null);
   const [editPerson, setEditPerson] = useState(null);
   const [showProfiles, setShowProfiles] = useState(false);
+  const [unregisterConfirm, setUnregisterConfirm] = useState(null);
 
   const dedupeByEntityKey = (list) => {
     const map = new Map();
@@ -349,9 +349,11 @@ export default function WorkshopParticipantsModal({
     fetchAll();
   }, [fetchAll]);
 
-  /** Remove entity (participant or waitlist) */
-  const handleUnregister = async (person, fromWaitlist = false) => {
-    if (!window.confirm("לבטל הרשמה למשתתף זה?")) return;
+  /** Remove entity (participant or waitlist) — triggered by AlertDialog confirm */
+  const confirmUnregister = async () => {
+    if (!unregisterConfirm) return;
+    const { person, fromWaitlist } = unregisterConfirm;
+    setUnregisterConfirm(null);
 
     try {
       const { entityKey } = getEntityIdentifiers(person);
@@ -375,8 +377,13 @@ export default function WorkshopParticipantsModal({
       await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
       const normalized = normalizeError(e, { fallbackMessage: "שגיאה בביטול" });
-      alert("❌ " + normalized.message);
+      toast.error(normalized.message);
     }
+  };
+
+  /** Request unregister — opens confirmation AlertDialog */
+  const handleUnregister = (person, fromWaitlist = false) => {
+    setUnregisterConfirm({ person, fromWaitlist });
   };
 
   /** Promote from waitlist → participants */
@@ -387,7 +394,7 @@ export default function WorkshopParticipantsModal({
       if (!entityKey) throw new Error("Missing entityKey");
 
       if (isCapacityFull) {
-        alert("❌ אין מקום פנוי לקידום משתתף זה.");
+        toast.error("אין מקום פנוי לקידום משתתף זה.");
         return;
       }
 
@@ -409,7 +416,7 @@ export default function WorkshopParticipantsModal({
       await fetchWorkshops({ force: true, scope: accessScope });
     } catch (e) {
       const normalized = normalizeError(e, { fallbackMessage: "שגיאה בקידום" });
-      alert("❌ " + normalized.message);
+      toast.error(normalized.message);
     }
   };
 
@@ -424,9 +431,9 @@ export default function WorkshopParticipantsModal({
         throw new Error(result?.message || 'שגיאה ביצוא דו"ח');
       }
 
-      alert('📤 דו"ח נשלח למייל שלך!');
+      toast.success('דו"ח נשלח למייל שלך!');
     } catch (e) {
-      alert("❌ " + e.message);
+      toast.error(e.message);
     }
   }, [accessScope, exportWorkshop, activeWorkshopKey, view]);
 
@@ -607,9 +614,9 @@ export default function WorkshopParticipantsModal({
                   setShowProfiles(false);
                   await fetchAll();
                   await fetchWorkshops();
-                  alert("✅ נוסף בהצלחה!");
+                  toast.success("נוסף בהצלחה!");
                 } catch (e) {
-                  alert("❌ " + e.message);
+                  toast.error(e.message);
                 }
               }}
               existingIds={existingKeys}
@@ -660,6 +667,28 @@ export default function WorkshopParticipantsModal({
           }}
         />
       )}
+
+      {/* Unregister Confirmation */}
+      <AlertDialog open={!!unregisterConfirm} onOpenChange={(open) => { if (!open) setUnregisterConfirm(null); }}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>ביטול הרשמה</AlertDialogTitle>
+            <AlertDialogDescription>
+              האם אתה בטוח שברצונך לבטל את ההרשמה של{" "}
+              {unregisterConfirm?.person?.name || "משתתף זה"}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ביטול</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmUnregister}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              בטל הרשמה
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

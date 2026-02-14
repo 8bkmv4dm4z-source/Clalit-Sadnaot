@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useWorkshops } from "../../layouts/WorkshopContext";
+import { toast } from "sonner";
 
 // 1. Import the new Image Selector
 import ImageSelector from "../../components/ImageSelector";
@@ -244,24 +245,24 @@ export default function EditWorkshop() {
     const required = ["title", "coach", "startDate", "sessionsCount"];
     for (const f of required) {
       if (!form[f] || String(form[f]).trim() === "") {
-        alert(`יש למלא את השדה "${f}" לפני השמירה.`);
+        toast.error(`יש למלא את השדה "${f}" לפני השמירה.`);
         return false;
       }
     }
     if (!form.city || form.city.trim() === "") {
-      alert("יש להזין עיר.");
+      toast.error("יש להזין עיר.");
       return false;
     }
     if (!form.address || form.address.trim() === "") {
-      alert("יש להזין כתובת מלאה לסדנה.");
+      toast.error("יש להזין כתובת מלאה לסדנה.");
       return false;
     }
     if (!Array.isArray(form.days) || form.days.length === 0) {
-      alert("יש לבחור לפחות יום אחד בשבוע.");
+      toast.error("יש לבחור לפחות יום אחד בשבוע.");
       return false;
     }
     if (Number.isNaN(Number(form.sessionsCount)) || Number(form.sessionsCount) < 1) {
-      alert("מספר המפגשים חייב להיות מספר חיובי.");
+      toast.error("מספר המפגשים חייב להיות מספר חיובי.");
       return false;
     }
     return true;
@@ -336,7 +337,7 @@ export default function EditWorkshop() {
 
     } catch (err) {
       console.error("❌ save error:", err);
-      alert(err.message || "שגיאה בשמירה");
+      toast.error(err.message || "שגיאה בשמירה");
     } finally {
       setSaving(false);
     }

@@ -12,6 +12,7 @@ import { useAuth } from "../../layouts/AuthLayout";
 import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { toast } from "sonner";
 
 const calcAge = (dateStr) => {
   if (!dateStr) return null;
@@ -106,10 +107,10 @@ export default function EditProfile() {
       const result = await updateEntity(payload);
       if (!result?.success) throw new Error(result?.message || "Update failed");
 
-      alert("✅ הנתונים עודכנו בהצלחה!");
+      toast.success("הנתונים עודכנו בהצלחה!");
       navigate("/profiles");
     } catch (err) {
-      alert("❌ שגיאה בעדכון המשתמש: " + err.message);
+      toast.error("שגיאה בעדכון המשתמש: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -166,10 +167,10 @@ export default function EditProfile() {
       setEditingFamilyId(null);
       setFamilyForm({});
       setAddingFamily(false);
-      alert("✅ בן המשפחה נשמר בהצלחה!");
+      toast.success("בן המשפחה נשמר בהצלחה!");
     } catch (err) {
       const normalized = normalizeError(err, { fallbackMessage: "Failed to update profile" });
-      alert("❌ שגיאה: " + normalized.message);
+      toast.error("שגיאה: " + normalized.message);
     } finally {
       setSaving(false);
     }

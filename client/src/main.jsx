@@ -24,12 +24,12 @@
  */
 
 import "./styles/index.css";
-// client/src/main.jsx (or App.jsx)
 import "./styles/SimpleGCal.css";
 
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "sonner";
 import App from "./App";
 
 // ✅ Context providers
@@ -48,6 +48,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <ProfileProvider>
               <WorkshopProvider>
                 <App />
+                <Toaster
+                  dir="rtl"
+                  position="top-center"
+                  richColors
+                  closeButton
+                />
               </WorkshopProvider>
             </ProfileProvider>
           </AdminCapabilityProvider>

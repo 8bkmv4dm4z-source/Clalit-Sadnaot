@@ -12,6 +12,7 @@ import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import EditEntityModal from "../../components/people/EditEntityModal";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -106,10 +107,10 @@ export default function Profile() {
 
       await fetchWorkshops();
 
-      alert("✅ הנתונים עודכנו בהצלחה!");
+      toast.success("הנתונים עודכנו בהצלחה!");
       setEditMode(false);
     } catch (err: any) {
-      alert("❌ שגיאה בעדכון הפרופיל: " + err.message);
+      toast.error("שגיאה בעדכון הפרופיל: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -270,7 +271,7 @@ export default function Profile() {
                             const entity = await fetchEntityDetails(member.entityKey);
                             setEditingFamilyMember(entity);
                           } catch (err: any) {
-                            alert(`❌ שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
+                            toast.error(`שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
                           }
                         }}
                       >

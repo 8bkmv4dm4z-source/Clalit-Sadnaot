@@ -24,6 +24,7 @@ import {
   getEntityIdentifiers,
 } from "../../utils/entityTypes";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { toast } from "sonner";
 
 /* ---------------- helpers ---------------- */
 const calcAge = (dateStr) => {
@@ -439,7 +440,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       setEditBuffer({});
     } catch (err) {
       console.error("Save error:", err);
-      alert("שגיאה בשמירה: " + (err.message || "Unknown error"));
+      toast.error("שגיאה בשמירה: " + (err.message || "Unknown error"));
       // We do NOT revert optimistic update here to keep UI snappy, 
       // but in a strict app, you might trigger a refresh here to undo changes.
     }
@@ -535,10 +536,10 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
         console.warn("fetchProfiles refresh failed", err);
       }
 
-      alert("כל ההרשמות נמחקו בהצלחה.");
+      toast.success("כל ההרשמות נמחקו בהצלחה.");
     } catch (e) {
       console.error("bulkRemoveFromWorkshops error:", e);
-      alert("שגיאה במחיקה מסדנאות: " + (e?.message || "שגיאה לא ידועה"));
+      toast.error("שגיאה במחיקה מסדנאות: " + (e?.message || "שגיאה לא ידועה"));
     } finally {
       setBusyRowKey(null);
     }
@@ -562,10 +563,10 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
     try {
       const response = await deleteEntity({ entityKey });
       if (!response?.success) throw new Error(response?.message || "Delete failed");
-      alert(response.message || (isFamily ? "בן המשפחה נמחק" : "המשתמש נמחק"));
+      toast.success(response.message || (isFamily ? "בן המשפחה נמחק" : "המשתמש נמחק"));
     } catch (err) {
       console.error("Delete entity error:", err);
-      alert(err?.message || "שגיאה במחיקת פרופיל");
+      toast.error(err?.message || "שגיאה במחיקת פרופיל");
     } finally {
       setDeletingRowId(null);
     }
