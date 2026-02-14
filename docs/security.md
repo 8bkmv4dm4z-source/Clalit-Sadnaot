@@ -711,3 +711,24 @@ The full middleware stack in `server.js`, applied in order:
 | `express-mongo-sanitize` | ^2.2.0 | NoSQL injection prevention |
 | `hpp` | ^0.2.x | HTTP parameter pollution |
 | `celebrate` / `joi` | Latest | Request validation |
+
+---
+
+## Changelog
+
+### 2026-02-14 — Security Hardening (Audit Findings)
+
+| ID | Severity | Summary |
+|----|----------|---------|
+| H1 | High | Added per-user rate limiting (5 req/15 min) to admin hub password-protected routes |
+| H2 | High | Added CSRF protection to admin workshop mutation routes (POST, PUT, DELETE, export) |
+| H3 | High | Tightened 11 Joi schemas from `.unknown(true)` to `.unknown(false)` to reject payload pollution |
+| M1 | Medium | Added `validateWorkshopSearch` and `validateUserSearch` query validation with bounds enforcement |
+| M2 | Medium | Added per-user rate limiting to user search and list-all routes |
+| M3 | Medium | Gated `adminHidden` response guard allowlist on `isAdminScope` flag |
+| M4 | Medium | Extended log scrubbing to redact PII fields (email, phone, idNumber, birthDate) and raw emails |
+| M5 | Medium | Replaced direct string comparison with `crypto.timingSafeEqual` in dev route secret validation |
+| M6 | Medium | Removed raw `err.message` from all client-facing error responses in controllers |
+| L1 | Low | Documented `x-admin-password` CORS header scope (kept global, mitigated by admin auth) |
+| L2 | Low | Replaced hardcoded dev CORS origins with `DEV_ALLOWED_ORIGINS` env var |
+| L3 | Low | Replaced substring-based sensitive key matching with exact-match Set in audit log sanitization |
