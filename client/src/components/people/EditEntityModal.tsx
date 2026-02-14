@@ -1,24 +1,29 @@
 /**
- * EditEntityModal.jsx — Universal Edit Modal
- * -------------------------------------------------------------
- * ✅ Modern UI (similar to profile page)
- * ✅ Animations with smooth fade & scale-in
- * ✅ Works for both user & family member
- * ✅ Editable fields: all main user vars
- * ✅ Saves without page reload
+ * EditEntityModal.tsx — Universal Edit Modal
+ * Uses shadcn/ui Input, Label, Button components
+ * Animations with Framer Motion (to be replaced by Dialog in Phase 3)
  */
 
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
 import { motion, AnimatePresence } from "framer-motion";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
-export default function EditEntityModal({ entity, onClose, onSave }) {
+interface EditEntityModalProps {
+  entity: any;
+  onClose: () => void;
+  onSave?: (data: any) => void;
+}
+
+export default function EditEntityModal({ entity, onClose, onSave }: EditEntityModalProps) {
   const [form, setForm] = useState({ ...entity });
   const [saving, setSaving] = useState(false);
 
-  const handleChange = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const handleChange = (key: string, value: string) => {
+    setForm((prev: any) => ({ ...prev, [key]: value }));
   };
 
   const saveEntity = async () => {
@@ -54,7 +59,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
       ]);
 
       const allow = isFamily ? familyAllowed : userAllowed;
-      const updates = {};
+      const updates: Record<string, any> = {};
       Object.entries(rest).forEach(([key, value]) => {
         if (blocked.has(key)) return;
         if (!allow.has(key)) return;
@@ -74,7 +79,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
       const data = await res.json();
       if (!res.ok) {
         throw (
-          res.normalizedError ||
+          (res as any).normalizedError ||
           normalizeError(null, {
             status: res.status,
             payload: data,
@@ -85,7 +90,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
       onSave?.({ entityKey: targetKey, ...updates });
       onClose?.();
-    } catch (e) {
+    } catch (e: any) {
       const normalized = normalizeError(e, { fallbackMessage: "Update failed" });
       alert("❌ שגיאה בעדכון: " + normalized.message);
     } finally {
@@ -95,7 +100,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    return () => (document.body.style.overflow = "auto");
+    return () => { document.body.style.overflow = "auto"; };
   }, []);
 
   return (
@@ -110,13 +115,13 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
         <motion.div
           className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[85vh]"
           dir="rtl"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
           transition={{ duration: 0.25 }}
         >
-          {/* --- Header --- */}
+          {/* Header */}
           <div className="text-center mb-4">
             <h3 className="text-2xl font-bold text-indigo-700 mb-1">
               עריכת {form.isFamily ? "בן משפחה" : "משתמש"}
@@ -128,27 +133,24 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
           <hr className="my-4" />
 
-          {/* --- Form --- */}
+          {/* Form */}
           <div className="space-y-4">
             <Field label="שם מלא">
-              <input
-                className="input w-full"
+              <Input
                 value={form.name || ""}
                 onChange={(e) => handleChange("name", e.target.value)}
               />
             </Field>
 
             <Field label="אימייל">
-              <input
-                className="input w-full"
+              <Input
                 value={form.email || ""}
                 onChange={(e) => handleChange("email", e.target.value)}
               />
             </Field>
 
             <Field label="טלפון">
-              <input
-                className="input w-full"
+              <Input
                 value={form.phone || ""}
                 onChange={(e) => handleChange("phone", e.target.value)}
               />
@@ -156,8 +158,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
             {!form.isFamily && (
               <Field label="עיר">
-                <input
-                  className="input w-full"
+                <Input
                   value={form.city || ""}
                   onChange={(e) => handleChange("city", e.target.value)}
                 />
@@ -165,9 +166,8 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
             )}
 
             <Field label="תאריך לידה">
-              <input
+              <Input
                 type="date"
-                className="input w-full"
                 value={(form.birthDate || "").split("T")[0] || ""}
                 onChange={(e) => handleChange("birthDate", e.target.value)}
               />
@@ -175,8 +175,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
             {!form.isFamily && (
               <Field label="תעודת זהות">
-                <input
-                  className="input w-full"
+                <Input
                   value={form.idNumber || ""}
                   onChange={(e) => handleChange("idNumber", e.target.value)}
                 />
@@ -185,8 +184,7 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
 
             {form.isFamily && (
               <Field label="קשר משפחתי">
-                <input
-                  className="input w-full"
+                <Input
                   value={form.relation || ""}
                   onChange={(e) => handleChange("relation", e.target.value)}
                 />
@@ -194,21 +192,20 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
             )}
           </div>
 
-          {/* --- Actions --- */}
+          {/* Actions */}
           <div className="flex justify-end gap-3 mt-8">
-            <button
+            <Button
+              variant="secondary"
               onClick={onClose}
-              className="btn bg-gray-200 text-gray-700 hover:bg-gray-300"
             >
               ביטול
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={saveEntity}
               disabled={saving}
-              className="btn bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {saving ? "שומר..." : "שמור"}
-            </button>
+            </Button>
           </div>
         </motion.div>
       </motion.div>
@@ -216,11 +213,11 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
   );
 }
 
-/* 🧩 Reusable labeled field */
-function Field({ label, children }) {
+/* Reusable labeled field */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}:</label>
+      <Label className="block text-sm font-medium text-gray-700 mb-1">{label}:</Label>
       {children}
     </div>
   );

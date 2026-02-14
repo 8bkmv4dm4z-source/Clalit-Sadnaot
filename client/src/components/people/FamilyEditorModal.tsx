@@ -1,24 +1,25 @@
 /**
- * FamilyEditorModal.jsx — Family Management Modal (Full Server Sync)
- * ------------------------------------------------------------------
- * ✅ Hebrew UI + English dev notes
- * ✅ Add / Edit / Delete family members (all synced via /update-entity)
- * ✅ Uses entityKey for every server call (matches hashed IDs)
- * ✅ Refetch-safe and consistent with updateEntity controller
+ * FamilyEditorModal.tsx — Family Management Modal (Full Server Sync)
+ * Uses shadcn/ui Input, Button components
  */
 
 import React, { useState } from "react";
 import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
-export default function FamilyEditorModal({ user, onClose, onSave }) {
-  const [list, setList] = useState(user.familyMembers || []);
+interface FamilyEditorModalProps {
+  user: any;
+  onClose: () => void;
+  onSave?: (data: any) => void;
+}
+
+export default function FamilyEditorModal({ user, onClose, onSave }: FamilyEditorModalProps) {
+  const [list, setList] = useState<any[]>(user.familyMembers || []);
   const [saving, setSaving] = useState(false);
 
-  /* ------------------------------------------------------------
-     🔹 Update a specific field in a given member index
-  ------------------------------------------------------------ */
-  const updateField = (idx, key, value) => {
+  const updateField = (idx: number, key: string, value: string) => {
     setList((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [key]: value };
@@ -26,9 +27,6 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     });
   };
 
-  /* ------------------------------------------------------------
-     ➕ Add a new blank family member
-  ------------------------------------------------------------ */
   const addMember = () => {
     setList((prev) => [
       ...prev,
@@ -42,12 +40,9 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     ]);
   };
 
-  const resolveMemberKey = (member) => member?.entityKey || member?._id || "";
+  const resolveMemberKey = (member: any) => member?.entityKey || member?._id || "";
 
-  /* ------------------------------------------------------------
-     ❌ Delete a family member (server removes from workshops)
-  ------------------------------------------------------------ */
-  const deleteMember = async (idx) => {
+  const deleteMember = async (idx: number) => {
     const member = list[idx];
     if (!member) return;
 
@@ -68,22 +63,19 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
         method: "DELETE",
       });
 
-      const updatedList = list.filter((_, i) => i !== idx);
+      const updatedList = list.filter((_: any, i: number) => i !== idx);
       setList(updatedList);
 
       onSave?.({ ...user, familyMembers: updatedList });
       window.dispatchEvent(new Event("entity-updated"));
       alert(`✅ ${member.name || "בן משפחה"} נמחק בהצלחה`);
-    } catch (e) {
+    } catch (e: any) {
       alert("❌ שגיאה במחיקת בן המשפחה: " + e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  /* ------------------------------------------------------------
-     💾 Save each member (uses entityKey per member)
-  ------------------------------------------------------------ */
   const saveAll = async () => {
     try {
       setSaving(true);
@@ -116,7 +108,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw (
-            res.normalizedError ||
+            (res as any).normalizedError ||
             normalizeError(null, {
               status: res.status,
               payload: data,
@@ -130,7 +122,7 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
       onSave?.({ ...user, familyMembers: list });
       onClose?.();
       alert("✅ בני המשפחה נשמרו בהצלחה");
-    } catch (e) {
+    } catch (e: any) {
       const normalized = normalizeError(e, { fallbackMessage: "Update failed" });
       alert("❌ שגיאה בשמירת בני משפחה: " + normalized.message);
     } finally {
@@ -138,9 +130,6 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
     }
   };
 
-  /* ------------------------------------------------------------
-     🧱 UI (Hebrew interface)
-  ------------------------------------------------------------ */
   return (
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -164,38 +153,33 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
 
         {/* Members List */}
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-          {list.map((m, idx) => (
+          {list.map((m: any, idx: number) => (
             <div
               key={m.entityKey || m._id || idx}
               className="border border-gray-200 rounded-xl p-4 bg-gray-50"
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  className="border rounded-lg px-3 py-2"
+                <Input
                   placeholder="שם"
                   value={m.name || ""}
                   onChange={(e) => updateField(idx, "name", e.target.value)}
                 />
-                <input
-                  className="border rounded-lg px-3 py-2"
+                <Input
                   placeholder="קשר"
                   value={m.relation || ""}
                   onChange={(e) => updateField(idx, "relation", e.target.value)}
                 />
-                <input
-                  className="border rounded-lg px-3 py-2"
+                <Input
                   placeholder="טלפון"
                   value={m.phone || ""}
                   onChange={(e) => updateField(idx, "phone", e.target.value)}
                 />
-                <input
+                <Input
                   type="date"
-                  className="border rounded-lg px-3 py-2"
                   value={(m.birthDate || "").split("T")[0] || ""}
                   onChange={(e) => updateField(idx, "birthDate", e.target.value)}
                 />
-                <input
-                  className="border rounded-lg px-3 py-2"
+                <Input
                   placeholder="אימייל (לא חובה)"
                   value={m.email || ""}
                   onChange={(e) => updateField(idx, "email", e.target.value)}
@@ -204,42 +188,45 @@ export default function FamilyEditorModal({ user, onClose, onSave }) {
 
               {/* Delete Button */}
               <div className="flex justify-end mt-3">
-                <button
+                <Button
+                  variant="link"
                   onClick={() => deleteMember(idx)}
                   disabled={saving}
-                  className="text-red-600 text-sm hover:underline disabled:opacity-60"
+                  className="text-red-600 text-sm hover:text-red-700 disabled:opacity-60"
                 >
                   🗑️ מחק
-                </button>
+                </Button>
               </div>
             </div>
           ))}
 
           {/* Add Button */}
-          <button
+          <Button
+            variant="outline"
             onClick={addMember}
             disabled={saving}
-            className="w-full py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium disabled:opacity-60"
+            className="w-full rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium border-indigo-200"
           >
             ➕ הוסף בן משפחה
-          </button>
+          </Button>
         </div>
 
         {/* Actions */}
         <div className="flex justify-end gap-2 mt-6">
-          <button
+          <Button
+            variant="secondary"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
+            className="rounded-xl"
           >
             ביטול
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={saveAll}
             disabled={saving}
-            className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="rounded-xl"
           >
             {saving ? "שומר..." : "שמור"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

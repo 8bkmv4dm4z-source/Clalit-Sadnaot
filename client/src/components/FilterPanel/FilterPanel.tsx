@@ -1,17 +1,33 @@
 import React from "react";
 import { useAuth } from "../../layouts/AuthLayout";
+import { Input } from "@/components/ui/input";
 
-export default function FilterPanel({ deriveOptions = {}, searchQuery, setSearchQuery }) {
-  const { filters, setFilters } = useAuth();
+interface DeriveOptions {
+  types?: string[];
+  ages?: string[];
+  cities?: string[];
+  coaches?: string[];
+  days?: string[];
+  hours?: string[];
+}
+
+interface FilterPanelProps {
+  deriveOptions?: DeriveOptions;
+  searchQuery: string;
+  setSearchQuery: (value: string) => void;
+}
+
+export default function FilterPanel({ deriveOptions = {}, searchQuery, setSearchQuery }: FilterPanelProps) {
+  const { filters, setFilters } = useAuth() as any;
   const { types = [], ages = [], cities = [], coaches = [], days = [], hours = [] } = deriveOptions;
 
-  const handleChange = (key, value) => setFilters({ ...filters, [key]: value });
+  const handleChange = (key: string, value: string) => setFilters({ ...filters, [key]: value });
 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <input
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        <Input
+          className="w-full rounded-xl border-gray-200 focus-visible:ring-indigo-500"
           placeholder="חיפוש..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

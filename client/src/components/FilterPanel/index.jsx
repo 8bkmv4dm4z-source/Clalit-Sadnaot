@@ -21,4 +21,4 @@
  * (No explicit props or destructured props detected.)
  */
 
-export {default} from './FilterPanel';
+export {default} from './FilterPanel.tsx';

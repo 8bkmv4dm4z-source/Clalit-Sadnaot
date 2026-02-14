@@ -1,10 +1,8 @@
 /**
- * Profile.jsx — User Profile Page (Full DB-Sync, Hebrew UI + English Notes)
+ * Profile.tsx — User Profile Page (Full DB-Sync, Hebrew UI + English Notes)
  * -----------------------------------------------------------------------
- * ✅ Updates user via /api/users/update-entity (AuthContext updateEntity)
- * ✅ Always fetches /api/users/getMe on mount (single source of truth)
- * ✅ Keeps full design, modal, and Hebrew layout intact
- * ✅ Prevents local-only updates (server is always authority)
+ * Updates user via /api/users/update-entity (AuthContext updateEntity)
+ * Always fetches /api/users/getMe on mount (single source of truth)
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from "react";
@@ -14,8 +12,10 @@ import { apiFetch } from "../../utils/apiFetch";
 import { normalizeError } from "../../utils/normalizeError";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import EditEntityModal from "../../components/people/EditEntityModal";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
-const normalizeBirthDate = (value) => {
+const normalizeBirthDate = (value: any): string => {
   if (!value) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
 
@@ -33,7 +33,7 @@ const normalizeBirthDate = (value) => {
   return "";
 };
 
-const normalizeProfilePayload = (payload = {}) => ({
+const normalizeProfilePayload = (payload: any = {}) => ({
   entityKey: payload.entityKey || "",
   name: payload.name || "",
   email: payload.email || "",
@@ -43,17 +43,16 @@ const normalizeProfilePayload = (payload = {}) => ({
 });
 
 export default function Profile() {
-  const { user, updateEntity } = useAuth();
-  const { fetchWorkshops } = useWorkshops();
-  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
+  const { user, updateEntity } = useAuth() as any;
+  const { fetchWorkshops } = useWorkshops() as any;
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus() as any;
 
-  // 🔹 Local UI state
   const [form, setForm] = useState(normalizeProfilePayload(user));
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editingFamilyMember, setEditingFamilyMember] = useState(null);
-  const [familyEntityKeys, setFamilyEntityKeys] = useState([]);
-  const [familyEntities, setFamilyEntities] = useState([]);
+  const [editingFamilyMember, setEditingFamilyMember] = useState<any>(null);
+  const [familyEntityKeys, setFamilyEntityKeys] = useState<string[]>([]);
+  const [familyEntities, setFamilyEntities] = useState<any[]>([]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -63,13 +62,13 @@ export default function Profile() {
         const payload = data.data;
         setForm(normalizeProfilePayload(payload));
         const keys = Array.isArray(payload.familyMembers)
-          ? payload.familyMembers.map((member) => member?.entityKey).filter(Boolean)
+          ? payload.familyMembers.map((member: any) => member?.entityKey).filter(Boolean)
           : [];
         setFamilyEntityKeys(keys);
       }
-    } catch (err) {
+    } catch (err: any) {
       const normalized = normalizeError(err, { fallbackMessage: "Failed to refresh user data" });
-      console.warn("⚠️ Failed to refresh user data:", normalized.message);
+      console.warn("Failed to refresh user data:", normalized.message);
     }
   }, []);
 
@@ -77,27 +76,18 @@ export default function Profile() {
     if (user) {
       setForm(normalizeProfilePayload(user));
       const keys = Array.isArray(user.familyMembers)
-        ? user.familyMembers.map((member) => member?.entityKey).filter(Boolean)
+        ? user.familyMembers.map((member: any) => member?.entityKey).filter(Boolean)
         : [];
       setFamilyEntityKeys(keys);
     }
   }, [user]);
 
-  /* ------------------------------------------------------------
-     🔄 Refresh user info from backend (single source of truth)
-  ------------------------------------------------------------ */
   useEffect(() => {
     refreshUser();
   }, [refreshUser]);
 
-  /* ------------------------------------------------------------
-     🧩 Controlled input updates
-  ------------------------------------------------------------ */
-  const handleChange = (key, value) => setForm((p) => ({ ...p, [key]: value }));
+  const handleChange = (key: string, value: string) => setForm((p: any) => ({ ...p, [key]: value }));
 
-  /* ------------------------------------------------------------
-     💾 Save user profile (via update-entity)
-  ------------------------------------------------------------ */
   const handleSave = async () => {
     try {
       setSaving(true);
@@ -114,32 +104,25 @@ export default function Profile() {
 
       if (!result.success) throw new Error(result.message);
 
-      // Refresh dependent UI
       await fetchWorkshops();
 
       alert("✅ הנתונים עודכנו בהצלחה!");
       setEditMode(false);
-    } catch (err) {
+    } catch (err: any) {
       alert("❌ שגיאה בעדכון הפרופיל: " + err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  /* ------------------------------------------------------------
-     ↩️ Cancel editing
-  ------------------------------------------------------------ */
   const handleCancel = () => {
     setForm(normalizeProfilePayload(user));
     setEditMode(false);
   };
 
-  /* ------------------------------------------------------------
-     📆 Calculate age helper
-  ------------------------------------------------------------ */
-  const calcAge = (birthDate) => {
+  const calcAge = (birthDate: string) => {
     if (!birthDate) return "";
-    const diff = new Date() - new Date(birthDate);
+    const diff = Date.now() - new Date(birthDate).getTime();
     return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
   };
 
@@ -147,12 +130,12 @@ export default function Profile() {
 
   const canEditFamily = !!user?.entityKey && (!isChecking && (canAccessAdmin || user?.entityKey === form.entityKey));
 
-  const fetchEntityDetails = useCallback(async (entityKey) => {
+  const fetchEntityDetails = useCallback(async (entityKey: string) => {
     const res = await apiFetch(`/api/users/entity/${encodeURIComponent(entityKey)}`);
     const data = await res.json();
     if (!res.ok) {
       throw (
-        res.normalizedError ||
+        (res as any).normalizedError ||
         normalizeError(null, {
           status: res.status,
           payload: data,
@@ -176,9 +159,9 @@ export default function Profile() {
         );
         if (!alive) return;
         setFamilyEntities(results.filter(Boolean));
-      } catch (err) {
+      } catch (err: any) {
         if (!alive) return;
-        console.warn("⚠️ Failed to load family entities:", err.message);
+        console.warn("Failed to load family entities:", err.message);
         setFamilyEntities([]);
       }
     };
@@ -188,9 +171,6 @@ export default function Profile() {
     };
   }, [familyEntityKeys, fetchEntityDetails]);
 
-  /* ------------------------------------------------------------
-     ⏳ Guard: wait for user
-  ------------------------------------------------------------ */
   if (!user)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500">
@@ -198,9 +178,6 @@ export default function Profile() {
       </div>
     );
 
-  /* ------------------------------------------------------------
-     🧱 UI Layout
-  ------------------------------------------------------------ */
   return (
     <div
       className="min-h-screen bg-gradient-to-br from-indigo-100 via-blue-50 to-gray-50 py-10 flex justify-center"
@@ -229,7 +206,7 @@ export default function Profile() {
             label="שם מלא"
             value={form.name}
             editMode={editMode}
-            onChange={(v) => handleChange("name", v)}
+            onChange={(v: string) => handleChange("name", v)}
           />
           <ProfileField label="אימייל" value={form.email} editMode={false} />
           <ProfileField
@@ -237,7 +214,7 @@ export default function Profile() {
             type="date"
             value={form.birthDate}
             editMode={editMode}
-            onChange={(v) => handleChange("birthDate", v)}
+            onChange={(v: string) => handleChange("birthDate", v)}
             displayExtra={
               !editMode && form.birthDate ? `(${calcAge(form.birthDate)} שנים)` : ""
             }
@@ -246,13 +223,13 @@ export default function Profile() {
             label="עיר"
             value={form.city}
             editMode={editMode}
-            onChange={(v) => handleChange("city", v)}
+            onChange={(v: string) => handleChange("city", v)}
           />
           <ProfileField
             label="טלפון"
             value={form.phone}
             editMode={editMode}
-            onChange={(v) => handleChange("phone", v)}
+            onChange={(v: string) => handleChange("phone", v)}
           />
         </div>
 
@@ -266,7 +243,7 @@ export default function Profile() {
             <p className="text-gray-600 text-sm">לא נמצאו בני משפחה.</p>
           ) : (
             <div className="space-y-3">
-              {familyMembers.map((member) => (
+              {familyMembers.map((member: any) => (
                 <div
                   key={member.entityKey}
                   className="flex flex-col gap-2 rounded-xl border border-indigo-100 bg-white/80 p-3"
@@ -283,20 +260,22 @@ export default function Profile() {
                       )}
                     </div>
                     {canEditFamily && (
-                      <button
+                      <Button
                         type="button"
-                        className="btn btn-secondary px-3 py-1.5 text-xs"
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs"
                         onClick={async () => {
                           try {
                             const entity = await fetchEntityDetails(member.entityKey);
                             setEditingFamilyMember(entity);
-                          } catch (err) {
+                          } catch (err: any) {
                             alert(`❌ שגיאה בטעינת פרטי בן המשפחה: ${err.message}`);
                           }
                         }}
                       >
                         ✏️ ערוך
-                      </button>
+                      </Button>
                     )}
                   </div>
                   <div className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
@@ -318,27 +297,22 @@ export default function Profile() {
         <div className="mt-10 flex flex-wrap gap-3 justify-end">
           {editMode ? (
             <>
-              <button
+              <Button
                 onClick={handleSave}
                 disabled={saving}
-                className={`btn btn-primary px-5 py-2.5 ${
-                  saving ? "cursor-not-allowed bg-gray-400" : ""
-                }`}
+                className={saving ? "cursor-not-allowed" : ""}
               >
                 {saving ? "שומר..." : "💾 שמור"}
-              </button>
-              <button onClick={handleCancel} className="btn btn-secondary px-5 py-2.5">
+              </Button>
+              <Button onClick={handleCancel} variant="secondary">
                 ביטול
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
-                onClick={() => setEditMode(true)}
-                className="btn btn-primary px-5 py-2.5"
-              >
+              <Button onClick={() => setEditMode(true)}>
                 ✏️ ערוך פרטים
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -358,19 +332,26 @@ export default function Profile() {
   );
 }
 
-/* ------------------------------------------------------------
-   🧩 ProfileField Subcomponent
------------------------------------------------------------- */
-function ProfileField({ label, value, onChange, editMode, type = "text", displayExtra = "" }) {
+/* ProfileField Subcomponent */
+interface ProfileFieldProps {
+  label: string;
+  value: string;
+  onChange?: (value: string) => void;
+  editMode: boolean;
+  type?: string;
+  displayExtra?: string;
+}
+
+function ProfileField({ label, value, onChange, editMode, type = "text", displayExtra = "" }: ProfileFieldProps) {
   return (
     <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50">
       <span className="text-gray-700 font-medium">{label}:</span>
       {editMode ? (
-        <input
+        <Input
           type={type}
           value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="input mt-2"
+          onChange={(e) => onChange?.(e.target.value)}
+          className="mt-2"
         />
       ) : (
         <p className="text-gray-800 mt-1">

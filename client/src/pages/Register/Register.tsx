@@ -1,4 +1,4 @@
-// src/pages/Auth/Register.jsx
+// src/pages/Register/Register.tsx
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -11,14 +11,9 @@ import {
   validateRequired,
   validateSafeText,
 } from "../../utils/validation";
-
-/**
- * Register.jsx — Strict Schema-Aligned Version (2025)
- * ---------------------------------------------------
- * ✅ Every field matches UserSchema exactly.
- * ✅ No "email or phone" fallback — both fields exist.
- * ✅ city, canCharge, idNumber, birthDate, familyMembers — all present.
- */
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 const initialAccount = {
   name: "",
@@ -34,7 +29,7 @@ const initialAccount = {
 
 export default function Register() {
   const [account, setAccount] = useState({ ...initialAccount });
-  const [familyMembers, setFamilyMembers] = useState([]);
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [showFamily, setShowFamily] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({
@@ -55,25 +50,25 @@ export default function Register() {
   });
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
-  const [serverDetails, setServerDetails] = useState([]);
-  const [lastPayload, setLastPayload] = useState(null);
+  const [serverDetails, setServerDetails] = useState<string[]>([]);
+  const [lastPayload, setLastPayload] = useState<any>(null);
 
   const [phase, setPhase] = useState("form");
   const [pendingEmail, setPendingEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState("");
   const [otpSuccess, setOtpSuccess] = useState("");
-  const [otpDetails, setOtpDetails] = useState([]);
+  const [otpDetails, setOtpDetails] = useState<string[]>([]);
   const [otpLoading, setOtpLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const navigate = useNavigate();
-  const { startRegistration, confirmRegistration } = useAuth();
+  const { startRegistration, confirmRegistration } = useAuth() as any;
   const conflictMessage =
     'הערך שסופק כבר קיים במערכת. נסה/י דוא"ל או ת"ז אחרת.';
 
-  const applyConflictHint = (status) => {
+  const applyConflictHint = (status: number) => {
     if (status !== 409) return;
     setTouched((prev) => ({
       ...prev,
@@ -87,7 +82,7 @@ export default function Register() {
     }));
   };
 
-  const runValidation = (field, value, nextAccount = account) => {
+  const runValidation = (field: string, value: any, nextAccount = account) => {
     switch (field) {
       case "name":
         {
@@ -124,7 +119,7 @@ export default function Register() {
     }
   };
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     const nextValue = type === "checkbox" ? checked : value;
     const nextAccount = { ...account, [name]: nextValue };
@@ -152,8 +147,7 @@ export default function Register() {
     });
   };
 
-  const markTouched = (field) => {
-    // Email/ID errors should surface only after the submit action, not on blur.
+  const markTouched = (field: string) => {
     if (field === "email" || field === "idNumber") return;
     setTouched((prev) => ({
       ...prev,
@@ -161,7 +155,7 @@ export default function Register() {
     }));
   };
 
-  const handleFamilyChange = (index, field, value) => {
+  const handleFamilyChange = (index: number, field: string, value: string) => {
     setFamilyMembers((prev) =>
       prev.map((m, i) => (i === index ? { ...m, [field]: value } : m))
     );
@@ -182,12 +176,12 @@ export default function Register() {
     ]);
   };
 
-  const removeFamilyMember = (index) => {
+  const removeFamilyMember = (index: number) => {
     setFamilyMembers((prev) => prev.filter((_, i) => i !== index));
   };
 
   const validateForm = () => {
-    const validationResults = {
+    const validationResults: Record<string, any> = {
       name: runValidation("name", account.name),
       email: runValidation("email", account.email),
       phone: runValidation("phone", account.phone),
@@ -214,10 +208,10 @@ export default function Register() {
       idNumber: true,
     });
 
-    return Object.values(validationResults).every((res) => res.valid);
+    return Object.values(validationResults).every((res: any) => res.valid);
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setSubmitError("");
@@ -249,7 +243,7 @@ export default function Register() {
     const trimmedId = account.idNumber.trim();
     const trimmedCity = account.city.trim();
 
-    const payload = {
+    const payload: any = {
       name: trimmedName,
       email: trimmedEmail,
       password: account.password,
@@ -291,7 +285,7 @@ export default function Register() {
     }
   };
 
-  const handleVerifyOtp = async (e) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError("");
     setOtpSuccess("");
@@ -351,10 +345,13 @@ export default function Register() {
 
   const canSubmit = useMemo(() => {
     const requiredFields = ["name", "email", "phone", "password", "confirm", "idNumber"];
-    const allFilled = requiredFields.every((field) => Boolean(String(account[field] || "").trim()));
+    const allFilled = requiredFields.every((field) => Boolean(String((account as any)[field] || "").trim()));
     const noErrors = Object.values(errors).every((msg) => !msg);
     return allFilled && noErrors && !loading;
   }, [account, errors, loading]);
+
+  const inputClasses = "w-full rounded-lg bg-gray-50 shadow-inner text-sm focus-visible:ring-indigo-400";
+  const familyInputClasses = "w-full rounded-lg text-sm focus-visible:ring-indigo-400";
 
   return (
     <div
@@ -405,14 +402,14 @@ export default function Register() {
             פרטי משתמש ראשי
           </h3>
 
-          <input
+          <Input
             name="name"
             value={account.name}
             onChange={handleChange}
             onBlur={() => markTouched("name")}
             required
             placeholder="שם מלא"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+            className={`${inputClasses} ${
               errors.name && touched.name ? "border-rose-400" : ""
             }`}
           />
@@ -420,7 +417,7 @@ export default function Register() {
             <p className="text-xs text-rose-600">{errors.name}</p>
           )}
 
-          <input
+          <Input
             name="email"
             type="email"
             value={account.email}
@@ -428,7 +425,7 @@ export default function Register() {
             onBlur={() => markTouched("email")}
             required
             placeholder="אימייל"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+            className={`${inputClasses} ${
               errors.email && touched.email ? "border-rose-400" : ""
             }`}
           />
@@ -436,7 +433,7 @@ export default function Register() {
             <p className="text-xs text-rose-600">{errors.email}</p>
           )}
 
-          <input
+          <Input
             name="phone"
             type="tel"
             value={account.phone}
@@ -444,7 +441,7 @@ export default function Register() {
             onBlur={() => markTouched("phone")}
             required
             placeholder="טלפון"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+            className={`${inputClasses} ${
               errors.phone && touched.phone ? "border-rose-400" : ""
             }`}
           />
@@ -453,7 +450,7 @@ export default function Register() {
           )}
 
           <div className="relative">
-            <input
+            <Input
               type={showPassword ? "text" : "password"}
               name="password"
               value={account.password}
@@ -461,7 +458,7 @@ export default function Register() {
               onBlur={() => markTouched("password")}
               required
               placeholder="סיסמה (לפחות 8 תווים, אות גדולה, ספרה ותו)"
-              className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+              className={`${inputClasses} pr-10 ${
                 errors.password && touched.password ? "border-rose-400" : ""
               }`}
             />
@@ -479,7 +476,7 @@ export default function Register() {
           )}
 
           <div className="relative">
-            <input
+            <Input
               type={showConfirmPassword ? "text" : "password"}
               name="confirm"
               value={account.confirm}
@@ -487,7 +484,7 @@ export default function Register() {
               onBlur={() => markTouched("confirm")}
               required
               placeholder="אימות סיסמה"
-              className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none pr-10 ${
+              className={`${inputClasses} pr-10 ${
                 errors.confirm && touched.confirm ? "border-rose-400" : ""
               }`}
             />
@@ -504,14 +501,14 @@ export default function Register() {
             <p className="text-xs text-rose-600">{errors.confirm}</p>
           )}
 
-          <input
+          <Input
             name="idNumber"
             value={account.idNumber}
             onChange={handleChange}
             onBlur={() => markTouched("idNumber")}
             required
             placeholder="תעודת זהות"
-            className={`w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+            className={`${inputClasses} ${
               errors.idNumber && touched.idNumber ? "border-rose-400" : ""
             }`}
           />
@@ -519,43 +516,44 @@ export default function Register() {
             <p className="text-xs text-rose-600">{errors.idNumber}</p>
           )}
 
-          <input
+          <Input
             type="date"
             name="birthDate"
             value={account.birthDate}
             onChange={handleChange}
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={inputClasses}
           />
 
-          <input
+          <Input
             name="city"
             value={account.city}
             onChange={handleChange}
             placeholder="עיר מגורים"
-            className="w-full px-3 py-2 border rounded-lg bg-gray-50 shadow-inner text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            className={inputClasses}
           />
 
-          <label className="flex items-center gap-2 text-gray-700 mt-1">
+          <Label className="flex items-center gap-2 text-gray-700 mt-1">
             <input
               type="checkbox"
               name="canCharge"
               checked={account.canCharge}
-              onChange={handleChange}
+              onChange={handleChange as any}
               className="w-5 h-5 accent-indigo-600"
             />
             הרשאה לגבייה
-          </label>
+          </Label>
         </div>
 
         {/* Family Members */}
         <div className="pt-5 border-t border-indigo-100">
-          <button
+          <Button
             type="button"
+            variant="link"
             onClick={() => setShowFamily(!showFamily)}
-            className="w-full text-indigo-600 font-semibold text-sm hover:underline"
+            className="w-full text-indigo-600 font-semibold text-sm"
           >
             {showFamily ? "➖ הסתר בני משפחה" : "➕ הוסף בני משפחה"}
-          </button>
+          </Button>
 
           {showFamily && (
             <div className="mt-4 space-y-4">
@@ -568,87 +566,88 @@ export default function Register() {
                     <h4 className="font-semibold text-gray-700">
                       בן משפחה {index + 1}
                     </h4>
-                    <button
+                    <Button
                       type="button"
+                      variant="link"
                       onClick={() => removeFamilyMember(index)}
-                      className="text-red-500 text-sm hover:underline"
+                      className="text-red-500 text-sm p-0 h-auto"
                     >
                       הסר
-                    </button>
+                    </Button>
                   </div>
 
-                  <input
+                  <Input
                     type="text"
                     placeholder="שם מלא"
                     value={member.name}
                     onChange={(e) =>
                       handleFamilyChange(index, "name", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="text"
                     placeholder="קרבה (אח, בת, אב...)"
                     value={member.relation}
                     onChange={(e) =>
                       handleFamilyChange(index, "relation", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="text"
                     placeholder="תעודת זהות"
                     value={member.idNumber}
                     onChange={(e) =>
                       handleFamilyChange(index, "idNumber", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="date"
                     value={member.birthDate}
                     onChange={(e) =>
                       handleFamilyChange(index, "birthDate", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="email"
                     placeholder="אימייל (אופציונלי)"
                     value={member.email}
                     onChange={(e) =>
                       handleFamilyChange(index, "email", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="tel"
                     placeholder="טלפון (אופציונלי)"
                     value={member.phone}
                     onChange={(e) =>
                       handleFamilyChange(index, "phone", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
-                  <input
+                  <Input
                     type="text"
                     placeholder="עיר (אופציונלי)"
                     value={member.city}
                     onChange={(e) =>
                       handleFamilyChange(index, "city", e.target.value)
                     }
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                    className={familyInputClasses}
                   />
                 </div>
               ))}
 
-              <button
+              <Button
                 type="button"
                 onClick={addFamilyMember}
-                className="w-full mt-2 py-2.5 rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 shadow-md transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg hover:brightness-105 active:scale-[0.98]"
+                className="w-full rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 shadow-md transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg hover:brightness-105 active:scale-[0.98]"
               >
                 ➕ הוסף בן משפחה
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -664,23 +663,23 @@ export default function Register() {
               להקליד אותו כדי להשלים את פתיחת החשבון.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
-              <input
+              <Input
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
                 value={otpCode}
                 onChange={(e) => setOtpCode(e.target.value)}
                 placeholder="הקלד/י את קוד האימות"
-                className="flex-1 px-3 py-2 border rounded-lg bg-white shadow-inner text-sm focus:ring-2 focus:ring-emerald-400 focus:outline-none"
+                className="flex-1 bg-white shadow-inner text-sm focus-visible:ring-emerald-400"
               />
-              <button
+              <Button
                 type="button"
-                onClick={handleVerifyOtp}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl font-semibold text-white bg-gradient-to-r from-emerald-600 via-green-600 to-teal-500 shadow-md transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg hover:brightness-105 active:scale-[0.98]"
+                onClick={handleVerifyOtp as any}
+                className="w-full sm:w-auto rounded-xl font-semibold text-white bg-gradient-to-r from-emerald-600 via-green-600 to-teal-500 shadow-md transition-all duration-300 transform hover:scale-[1.02] hover:shadow-lg hover:brightness-105 active:scale-[0.98]"
                 disabled={otpLoading}
               >
                 {otpLoading ? "מאמת..." : "אימות קוד והשלמת הרשמה"}
-              </button>
+              </Button>
             </div>
             {otpError && (
               <div className="bg-rose-50 text-rose-700 text-sm rounded-lg p-3 border border-rose-100">
@@ -720,12 +719,12 @@ export default function Register() {
             {submitSuccess}
           </div>
         )}
-        <button
+        <Button
           type="submit"
           disabled={!canSubmit}
-          className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
+          className={`w-full py-3 h-auto rounded-xl font-semibold text-white shadow-lg transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
             !canSubmit
-              ? "bg-gray-400 cursor-not-allowed"
+              ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400"
               : "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
           }`}
         >
@@ -734,7 +733,7 @@ export default function Register() {
             : phase === "otp"
             ? "שליחת קוד חדש"
             : "שלח קוד אימות"}
-        </button>
+        </Button>
       </form>
     </div>
   );

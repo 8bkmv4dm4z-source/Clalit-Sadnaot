@@ -21,4 +21,4 @@
  * (No explicit props or destructured props detected.)
  */
 
-export { default } from './SearchBar';
+export { default } from './SearchBar.tsx';

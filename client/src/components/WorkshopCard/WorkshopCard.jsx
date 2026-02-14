@@ -28,6 +28,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 
@@ -523,9 +524,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
           {/* Type */}
           {type && (
-            <div className="text-[10px] sm:text-[11px] font-semibold text-indigo-700 bg-indigo-100 rounded-full px-2.5 sm:px-3 py-1 w-max ml-auto shadow-sm">
+            <Badge variant="secondary" className="text-[10px] sm:text-[11px] text-indigo-700 bg-indigo-100 rounded-full w-max ml-auto shadow-sm hover:bg-indigo-100">
               {highlight(type, searchQuery)}
-            </div>
+            </Badge>
           )}
 
           {/* INFO ROWS */}

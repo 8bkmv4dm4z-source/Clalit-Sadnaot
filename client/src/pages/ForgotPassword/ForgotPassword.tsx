@@ -2,10 +2,13 @@ import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { validateEmail, validateRequired } from "../../utils/validation";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
-  const { requestPasswordReset } = useAuth();
+  const { requestPasswordReset } = useAuth() as any;
 
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("idle");
@@ -19,7 +22,7 @@ export default function ForgotPassword() {
     return !fieldError && status !== "submitting";
   }, [email, fieldError, status]);
 
-  const runValidation = (value) => {
+  const runValidation = (value: string) => {
     const required = validateRequired(value, "כתובת אימייל");
     if (!required.valid) return required.message;
     const emailCheck = validateEmail(value);
@@ -31,7 +34,7 @@ export default function ForgotPassword() {
     setFieldError(runValidation(email));
   };
 
-  const onSubmit = async (evt) => {
+  const onSubmit = async (evt: React.FormEvent) => {
     evt.preventDefault();
     const validationMessage = runValidation(email);
     setFieldError(validationMessage);
@@ -71,10 +74,10 @@ export default function ForgotPassword() {
 
         <form onSubmit={onSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-semibold text-indigo-700 mb-2">
+            <Label className="block text-sm font-semibold text-indigo-700 mb-2">
               כתובת אימייל
-            </label>
-            <input
+            </Label>
+            <Input
               type="email"
               value={email}
               onChange={(e) => {
@@ -84,7 +87,7 @@ export default function ForgotPassword() {
                 }
               }}
               onBlur={handleBlur}
-              className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+              className={`rounded-xl bg-gray-50 focus-visible:ring-indigo-400 ${
                 fieldError && touched ? "border-rose-400" : "border-indigo-100"
               }`}
               placeholder="example@gmail.com"
@@ -106,27 +109,28 @@ export default function ForgotPassword() {
             </p>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={!canSubmit}
-            className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
+            className={`w-full py-3 h-auto rounded-xl font-semibold text-white shadow-lg transition-all ${
               canSubmit
                 ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
-                : "bg-gray-400 cursor-not-allowed"
+                : "bg-gray-400 cursor-not-allowed hover:bg-gray-400"
             }`}
           >
             {status === "submitting" ? "שולח בקשה..." : "שלחו לי קישור"}
-          </button>
+          </Button>
         </form>
 
         <div className="text-center text-sm text-gray-600 space-y-2">
           <p>נזכרתם בסיסמה?</p>
-          <button
+          <Button
+            variant="link"
             onClick={() => navigate("/login")}
-            className="text-indigo-600 font-semibold hover:underline"
+            className="text-indigo-600 font-semibold"
           >
             חזרה למסך התחברות
-          </button>
+          </Button>
         </div>
       </div>
     </div>

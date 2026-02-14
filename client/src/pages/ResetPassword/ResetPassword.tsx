@@ -6,6 +6,9 @@ import {
   validatePasswordConfirmation,
   validateRequired,
 } from "../../utils/validation";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 function useQueryParams() {
   const { search } = useLocation();
@@ -17,9 +20,9 @@ const phoneDigitsPattern = /^[0-9]{4,15}$/;
 export default function ResetPassword() {
   const query = useQueryParams();
   const navigate = useNavigate();
-  const { completePasswordReset } = useAuth();
+  const { completePasswordReset } = useAuth() as any;
 
-  const initialToken = query.get("token") ? query.get("token").trim() : "";
+  const initialToken = query.get("token") ? query.get("token")!.trim() : "";
 
   const [token, setToken] = useState(initialToken);
   const [phoneAnswer, setPhoneAnswer] = useState("");
@@ -60,7 +63,7 @@ export default function ResetPassword() {
     );
   }, [phoneAnswer, password, confirmPassword, fieldErrors, hasToken, status]);
 
-  const validateField = (field, value) => {
+  const validateField = (field: string, value: string) => {
     let message = "";
     switch (field) {
       case "password": {
@@ -90,13 +93,13 @@ export default function ResetPassword() {
     return !message;
   };
 
-  const markTouched = (field) =>
+  const markTouched = (field: string) =>
     setTouched((prev) => ({
       ...prev,
       [field]: true,
     }));
 
-  const handleSubmit = async (evt) => {
+  const handleSubmit = async (evt: React.FormEvent) => {
     evt.preventDefault();
 
     const passwordValid = validateField("password", password);
@@ -165,10 +168,10 @@ export default function ResetPassword() {
 
         <form onSubmit={handleSubmit} className="grid gap-6">
           <div>
-            <label className="block text-sm font-semibold text-indigo-700 mb-2">
+            <Label className="block text-sm font-semibold text-indigo-700 mb-2">
               ספרות אחרונות של מספר הטלפון
-            </label>
-            <input
+            </Label>
+            <Input
               type="text"
               value={phoneAnswer}
               onChange={(e) => {
@@ -182,7 +185,7 @@ export default function ResetPassword() {
               }}
               inputMode="numeric"
               maxLength={15}
-              className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+              className={`rounded-xl bg-gray-50 focus-visible:ring-indigo-400 ${
                 fieldErrors.phoneAnswer && touched.phoneAnswer
                   ? "border-rose-400"
                   : "border-indigo-100"
@@ -196,11 +199,11 @@ export default function ResetPassword() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="block text-sm font-semibold text-indigo-700 mb-2">
+              <Label className="block text-sm font-semibold text-indigo-700 mb-2">
                 סיסמה חדשה
-              </label>
+              </Label>
               <div className="relative">
-                <input
+                <Input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => {
@@ -214,7 +217,7 @@ export default function ResetPassword() {
                     markTouched("password");
                     validateField("password", password);
                   }}
-                  className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                  className={`rounded-xl bg-gray-50 focus-visible:ring-indigo-400 ${
                     fieldErrors.password && touched.password
                       ? "border-rose-400"
                       : "border-indigo-100"
@@ -235,10 +238,10 @@ export default function ResetPassword() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-indigo-700 mb-2">
+              <Label className="block text-sm font-semibold text-indigo-700 mb-2">
                 אימות סיסמה
-              </label>
-              <input
+              </Label>
+              <Input
                 type={showPassword ? "text" : "password"}
                 value={confirmPassword}
                 onChange={(e) => {
@@ -249,7 +252,7 @@ export default function ResetPassword() {
                   markTouched("confirmPassword");
                   validateField("confirmPassword", confirmPassword);
                 }}
-                className={`w-full px-4 py-2 rounded-xl border bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                className={`rounded-xl bg-gray-50 focus-visible:ring-indigo-400 ${
                   fieldErrors.confirmPassword && touched.confirmPassword
                     ? "border-rose-400"
                     : "border-indigo-100"
@@ -276,27 +279,28 @@ export default function ResetPassword() {
             </p>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={!canSubmit}
-            className={`w-full py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
+            className={`w-full py-3 h-auto rounded-xl font-semibold text-white shadow-lg transition-all ${
               canSubmit
                 ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:brightness-105"
-                : "bg-gray-400 cursor-not-allowed"
+                : "bg-gray-400 cursor-not-allowed hover:bg-gray-400"
             }`}
           >
             {status === "submitting" ? "מעדכן..." : "שמור סיסמה חדשה"}
-          </button>
+          </Button>
         </form>
 
         <div className="text-center text-sm text-gray-600 space-y-2">
           <p>חוזרים להתחברות?</p>
-          <button
+          <Button
+            variant="link"
             onClick={() => navigate("/login")}
-            className="text-indigo-600 font-semibold hover:underline"
+            className="text-indigo-600 font-semibold"
           >
             אל מסך ההתחברות
-          </button>
+          </Button>
         </div>
       </div>
     </div>
