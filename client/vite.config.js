@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const spaFallback = () => ({
   name: 'local-spa-fallback',
@@ -33,6 +36,11 @@ const spaFallback = () => ({
 
 export default defineConfig({
   plugins: [react(), spaFallback()],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src')
+    }
+  },
   server: {
     port: 5173,
     proxy: {

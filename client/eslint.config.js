@@ -7,7 +7,7 @@ import babelParser from "@babel/eslint-parser";
 export default [
   js.configs.recommended,
   {
-    files: ["src/**/*.{js,jsx}"],
+    files: ["src/**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -48,7 +48,7 @@ export default [
       "import/resolver": {
         alias: {
           map: [["@", "./src"]],
-          extensions: [".js", ".jsx", ".json"]
+          extensions: [".js", ".jsx", ".ts", ".tsx", ".json"]
         }
       }
     },
