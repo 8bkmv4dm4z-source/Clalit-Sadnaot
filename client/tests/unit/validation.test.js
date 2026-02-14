@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   validateIsraeliId,
   validatePasswordComplexity,
-} from '../../src/utils/validation.js'
+} from '../../src/utils/validation.ts'
 
 test('validatePasswordComplexity accepts a valid password', () => {
   const result = validatePasswordComplexity('Strong!Pass1')

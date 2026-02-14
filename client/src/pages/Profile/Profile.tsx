@@ -16,6 +16,8 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
 
 const normalizeBirthDate = (value: any): string => {
   if (!value) return "";
@@ -187,20 +189,25 @@ export default function Profile() {
     >
       <div className="w-full max-w-lg container-box p-8 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center gap-5 mb-8 border-b pb-5 border-indigo-200">
-          <img
-            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
-              user.name || "משתמש"
-            )}&background=6366F1&color=fff&size=120`}
-            alt="avatar"
-            className="rounded-full w-24 h-24 shadow-md"
-          />
+        <div className="flex items-center gap-5 mb-6 pb-5">
+          <Avatar className="w-24 h-24 shadow-md">
+            <AvatarImage
+              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                user.name || "משתמש"
+              )}&background=6366F1&color=fff&size=120`}
+              alt="avatar"
+            />
+            <AvatarFallback className="text-2xl bg-indigo-500 text-white">
+              {(user.name || "מ").charAt(0)}
+            </AvatarFallback>
+          </Avatar>
           <div>
             <h2 className="text-2xl font-bold text-gray-900 font-[Poppins]">
               {form.name || "משתמש"}
             </h2>
           </div>
         </div>
+        <Separator className="mb-6" />
 
         <Tabs defaultValue="personal" className="mt-2">
           <TabsList className="grid w-full grid-cols-2 mb-4">

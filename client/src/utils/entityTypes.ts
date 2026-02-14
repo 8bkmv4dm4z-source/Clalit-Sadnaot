@@ -1,7 +1,42 @@
-export const ENTITY_TYPE_USER = "user";
-export const ENTITY_TYPE_FAMILY_MEMBER = "familyMember";
+export const ENTITY_TYPE_USER = "user" as const;
+export const ENTITY_TYPE_FAMILY_MEMBER = "familyMember" as const;
 
-export const isFamilyEntity = (entity) => {
+export type EntityType = typeof ENTITY_TYPE_USER | typeof ENTITY_TYPE_FAMILY_MEMBER;
+
+export interface EntityLike {
+  entityKey?: string;
+  entity_key?: string;
+  id?: string;
+  _id?: string;
+  entityType?: string;
+  isFamily?: boolean;
+  parentKey?: string;
+  parentEntityKey?: string;
+  parent?: { entityKey?: string; entity_key?: string };
+  parentUser?: { entityKey?: string; entity_key?: string };
+  name?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  birthDate?: string | null;
+  relation?: string;
+  idNumber?: string;
+  parentName?: string;
+  parentEmail?: string;
+  parentPhone?: string;
+  entities?: EntityLike[];
+  familyMembers?: EntityLike[];
+  [key: string]: any;
+}
+
+export interface EntityIdentifiers {
+  isFamily: boolean;
+  parentKey: string;
+  entityKey: string;
+  key: string;
+}
+
+export const isFamilyEntity = (entity: EntityLike | null | undefined): boolean => {
   if (!entity) return false;
   if (entity.entityType === ENTITY_TYPE_FAMILY_MEMBER) return true;
   if (entity.isFamily === true) return true;
@@ -9,7 +44,7 @@ export const isFamilyEntity = (entity) => {
   return false;
 };
 
-export const getEntityIdentifiers = (entity = {}) => {
+export const getEntityIdentifiers = (entity: EntityLike = {}): EntityIdentifiers => {
   const isFamily = isFamilyEntity(entity);
   const entityKey = String(
     entity.entityKey || entity.entity_key || entity.id || entity._id || ""
@@ -31,7 +66,7 @@ export const getEntityIdentifiers = (entity = {}) => {
   return { isFamily, parentKey, entityKey, key };
 };
 
-export const withEntityFlags = (entity = {}) => {
+export const withEntityFlags = (entity: EntityLike = {}): EntityLike => {
   const { isFamily, entityKey, parentKey, key } = getEntityIdentifiers(entity);
   return {
     ...entity,
@@ -42,6 +77,7 @@ export const withEntityFlags = (entity = {}) => {
     __entityKey: key,
   };
 };
+
 const ALLOWED_ME_FIELDS = [
   "entityKey",
   "name",
@@ -55,38 +91,37 @@ const ALLOWED_ME_FIELDS = [
   "parentName",
   "parentEmail",
   "parentPhone",
-];
+] as const;
 
-const pickAllowedMeFields = (src = {}) => {
-  const safe = {};
+const pickAllowedMeFields = (src: Record<string, any> = {}): Record<string, any> => {
+  const safe: Record<string, any> = {};
   for (const key of ALLOWED_ME_FIELDS) {
     if (src[key] !== undefined) safe[key] = src[key];
   }
   return safe;
 };
 
-export const normalizeMePayload = (payload = {}) => {
+export const normalizeMePayload = (payload: any = {}): EntityLike | null => {
   const raw = payload?.data ?? payload ?? {};
   if (!raw.entityKey) return null;
 
-  // Strip privileged/sensitive fields (role, authorities) and flatten entities
   const baseUser = withEntityFlags(pickAllowedMeFields(raw));
 
-  const normalizeEntity = (entity, { isFamily = false } = {}) =>
+  const normalizeEntity = (entity: EntityLike, { isFamily = false } = {}) =>
     withEntityFlags({
       ...pickAllowedMeFields(entity),
       isFamily,
     });
 
-  const normalizedEntities = Array.isArray(raw.entities)
+  const normalizedEntities: EntityLike[] = Array.isArray(raw.entities)
     ? raw.entities
-        .map((entity) => normalizeEntity(entity, { isFamily: isFamilyEntity(entity) }))
-        .filter((e) => e.entityKey)
+        .map((entity: EntityLike) => normalizeEntity(entity, { isFamily: isFamilyEntity(entity) }))
+        .filter((e: EntityLike) => e.entityKey)
     : [];
 
-  const normalizedFamily = Array.isArray(raw.familyMembers)
+  const normalizedFamily: EntityLike[] = Array.isArray(raw.familyMembers)
     ? raw.familyMembers
-        .map((member) =>
+        .map((member: EntityLike) =>
           normalizeEntity(
             {
               ...member,
@@ -95,10 +130,10 @@ export const normalizeMePayload = (payload = {}) => {
             { isFamily: true }
           )
         )
-        .filter((e) => e.entityKey)
+        .filter((e: EntityLike) => e.entityKey)
     : [];
 
-  const deduped = new Map();
+  const deduped = new Map<string, EntityLike>();
   [baseUser, ...normalizedEntities, ...normalizedFamily].forEach((entity) => {
     if (!entity?.entityKey) return;
     const existing = deduped.get(entity.entityKey) || {};
@@ -129,10 +164,9 @@ export const normalizeMePayload = (payload = {}) => {
   };
 };
 
-export const flattenUserEntities = (user = {}) => {
+export const flattenUserEntities = (user: EntityLike = {}) => {
   const baseUser = withEntityFlags({ ...user, entityType: ENTITY_TYPE_USER, isFamily: false });
 
-  // Prefer pre-flattened payloads from the server
   if (Array.isArray(user.entities) && user.entities.length > 0) {
     const normalized = user.entities.map((e) => withEntityFlags(e));
     const userEntity = normalized.find((e) => !e.isFamily) || baseUser;

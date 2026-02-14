@@ -21,6 +21,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 
 export default function Header() {
   const location = useLocation();
@@ -236,7 +237,7 @@ export default function Header() {
 
                   {canAccessAdmin && !isChecking && (
                     <>
-                      <div className="border-t border-gray-200 my-2" />
+                      <Separator className="my-2" />
                       <NavLink
                         to="/profiles"
                         className={`${sheetLinkBase} ${
@@ -272,7 +273,7 @@ export default function Header() {
                     </>
                   )}
 
-                  <div className="border-t border-gray-200 my-2" />
+                  <Separator className="my-2" />
                   <Button
                     variant="outline"
                     onClick={() => {

@@ -1,7 +1,6 @@
-// src/utils/normalizeEntity.js
-import { getEntityIdentifiers, withEntityFlags } from "./entityTypes";
+import { getEntityIdentifiers, withEntityFlags, type EntityLike } from "./entityTypes.ts";
 
-export function normalizeEntity(raw = {}) {
+export function normalizeEntity(raw: EntityLike = {}): EntityLike {
   if (!raw || typeof raw !== "object") return {};
 
   // entity-type flags (isFamily, isParent, etc.)
@@ -10,7 +9,7 @@ export function normalizeEntity(raw = {}) {
   // merge backend → flagged (flagged never overwrites actual data)
   const merged = { ...raw, ...flagged };
 
-  const { key: identityKey, parentKey, familyMemberKey } =
+  const { key: identityKey, parentKey } =
     getEntityIdentifiers(merged);
 
   const entityKey = identityKey || "";

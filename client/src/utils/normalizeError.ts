@@ -15,7 +15,9 @@ const SAFE_MESSAGES = new Set([
   "Unable to add to waiting list",
 ]);
 
-const STATUS_KIND_MAP = [
+type ErrorKind = "Network" | "Auth" | "Forbidden" | "NotFound" | "Conflict" | "Validation" | "Server" | "Unknown";
+
+const STATUS_KIND_MAP: Array<{ match: (status: number) => boolean; kind: ErrorKind }> = [
   { match: (status) => status === 401, kind: "Auth" },
   { match: (status) => status === 403, kind: "Forbidden" },
   { match: (status) => status === 404, kind: "NotFound" },
@@ -25,7 +27,7 @@ const STATUS_KIND_MAP = [
   { match: (status) => typeof status === "number" && status >= 500, kind: "Server" },
 ];
 
-const KIND_MESSAGES = {
+const KIND_MESSAGES: Record<ErrorKind, string> = {
   Network: "Network error. Please check your connection and try again.",
   Auth: "Your session has expired. Please sign in again.",
   Forbidden: "You do not have permission to perform this action.",
@@ -36,9 +38,9 @@ const KIND_MESSAGES = {
   Unknown: DEFAULT_FALLBACK_MESSAGE,
 };
 
-const isProduction = () => import.meta.env.MODE === "production";
+const isProduction = (): boolean => import.meta.env.MODE === "production";
 
-const sanitizeMessage = (value) => {
+const sanitizeMessage = (value: unknown): string => {
   if (typeof value !== "string") return "";
   let message = value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   if (!message) return "";
@@ -48,7 +50,7 @@ const sanitizeMessage = (value) => {
   return message;
 };
 
-const extractPayloadMessage = (payload) => {
+const extractPayloadMessage = (payload: any): string => {
   if (!payload) return "";
   if (typeof payload === "string") return payload;
   if (typeof payload.message === "string") return payload.message;
@@ -61,19 +63,37 @@ const extractPayloadMessage = (payload) => {
   return "";
 };
 
-const resolveKind = (status, isNetwork) => {
+const resolveKind = (status: number | null, isNetwork: boolean): ErrorKind => {
   if (isNetwork) return "Network";
-  for (const rule of STATUS_KIND_MAP) {
-    if (rule.match(status)) return rule.kind;
+  if (status !== null) {
+    for (const rule of STATUS_KIND_MAP) {
+      if (rule.match(status)) return rule.kind;
+    }
   }
   return "Unknown";
 };
 
-const isRetryableKind = (kind) => ["Network", "Conflict", "Server"].includes(kind);
+const isRetryableKind = (kind: ErrorKind): boolean => ["Network", "Conflict", "Server"].includes(kind);
 
-export function normalizeError(error, { status, payload, fallbackMessage } = {}) {
+export interface NormalizedError {
+  kind: ErrorKind;
+  status: number | null;
+  code: string | null;
+  message: string;
+  debugId: string | null;
+  retryable: boolean;
+  raw: null;
+}
+
+interface NormalizeErrorOptions {
+  status?: number;
+  payload?: any;
+  fallbackMessage?: string;
+}
+
+export function normalizeError(error: any, { status, payload, fallbackMessage }: NormalizeErrorOptions = {}): NormalizedError {
   const axiosStatus = error?.response?.status;
-  const resolvedStatus = status ?? axiosStatus ?? error?.status ?? null;
+  const resolvedStatus: number | null = status ?? axiosStatus ?? error?.status ?? null;
   const resolvedPayload = payload ?? error?.response?.data ?? null;
   const rawMessage = extractPayloadMessage(resolvedPayload) || error?.message || "";
   const sanitized = sanitizeMessage(rawMessage);
@@ -84,12 +104,12 @@ export function normalizeError(error, { status, payload, fallbackMessage } = {})
     (error?.name === "TypeError" && error?.message?.includes("fetch"));
 
   const kind = resolveKind(resolvedStatus, isNetwork);
-  const debugId =
+  const debugId: string | null =
     resolvedPayload?.debugId ||
     resolvedPayload?.requestId ||
     resolvedPayload?.correlationId ||
     null;
-  const code = typeof resolvedPayload?.code === "string" ? resolvedPayload.code : null;
+  const code: string | null = typeof resolvedPayload?.code === "string" ? resolvedPayload.code : null;
 
   const safeFallback = fallbackMessage || KIND_MESSAGES[kind] || DEFAULT_FALLBACK_MESSAGE;
   const isSafeAllowlist = SAFE_MESSAGES.has(sanitized);

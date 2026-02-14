@@ -43,6 +43,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const str = (v) => (v === 0 || v ? String(v) : "");
 
@@ -648,16 +654,22 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
           {/* Description CTA */}
           {description && (
-            <button
-              onClick={(e) => {
-
-                e.stopPropagation();
-                setShowDescriptionModal(true);
-              }}
-              className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
-            >
-              <Info size={16} /> קרא עוד על הסדנה
-            </button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDescriptionModal(true);
+                    }}
+                    className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
+                  >
+                    <Info size={16} /> קרא עוד על הסדנה
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>לחץ לצפייה בתיאור המלא</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         
           {/* --------------------- SELF BUTTON --------------------- */}
@@ -829,27 +841,33 @@ function AdminVisibilityToggle({ hidden, onToggle, loading }) {
   const knobPosition = hidden ? "translate-x-7" : "translate-x-1";
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        if (typeof onToggle === "function") onToggle(e);
-      }}
-      disabled={loading}
-      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold transition ${pillColors} disabled:opacity-70 disabled:cursor-not-allowed`}
-      title="הצג/הסתר למשתמשים"
-    >
-      <span
-        className={`relative inline-flex items-center h-7 w-14 rounded-full ${sliderBg} transition-colors`}
-      >
-        <span
-          className={`absolute h-5 w-5 bg-white rounded-full shadow transform transition-transform ${knobPosition}`}
-        />
-      </span>
-      <span className="inline-flex items-center gap-1">
-        {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-        {loading ? "..." : hidden ? "מוסתר" : "גלוי"}
-      </span>
-    </button>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (typeof onToggle === "function") onToggle(e);
+            }}
+            disabled={loading}
+            className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold transition ${pillColors} disabled:opacity-70 disabled:cursor-not-allowed`}
+          >
+            <span
+              className={`relative inline-flex items-center h-7 w-14 rounded-full ${sliderBg} transition-colors`}
+            >
+              <span
+                className={`absolute h-5 w-5 bg-white rounded-full shadow transform transition-transform ${knobPosition}`}
+              />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+              {loading ? "..." : hidden ? "מוסתר" : "גלוי"}
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>הצג/הסתר למשתמשים</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

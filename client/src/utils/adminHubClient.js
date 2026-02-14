@@ -1,4 +1,4 @@
-import { apiFetch } from "./apiFetch.js";
+import { apiFetch } from "./apiFetch.ts";
 
 export const buildAdminHeaders = (adminPassword) => {
   if (!adminPassword) throw new Error("Admin password is required");

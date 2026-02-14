@@ -1,5 +1,5 @@
 /**
- * apiFetch.js — Unified Secure Fetch Wrapper (with backend URL)
+ * apiFetch.ts — Unified Secure Fetch Wrapper (with backend URL)
  * -------------------------------------------------------------
  * DATA FLOW
  * - Call sites across the app (contexts, pages, components) invoke `apiFetch(path, options)` instead of `fetch`.
@@ -17,23 +17,23 @@
 
 const API_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  (typeof globalThis !== "undefined" && globalThis.process?.env?.VITE_API_URL) ||
+  (typeof globalThis !== "undefined" && (globalThis as any).process?.env?.VITE_API_URL) ||
   "";
 
-import { normalizeError } from "./normalizeError.js";
+import { normalizeError } from "./normalizeError.ts";
 
 const ACCESS_TOKEN_KEY = "accessToken";
 const CSRF_COOKIE_NAME = "XSRF-TOKEN";
-const isUnsafeMethod = (method = "GET") =>
+const isUnsafeMethod = (method = "GET"): boolean =>
   !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method.toUpperCase());
 
-const readCookie = (name) => {
+const readCookie = (name: string): string | null => {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
   return match ? decodeURIComponent(match[1]) : null;
 };
 
-const ensureCsrfToken = async () => {
+const ensureCsrfToken = async (): Promise<string | null> => {
   const existing = readCookie(CSRF_COOKIE_NAME);
   if (existing) return existing;
 
@@ -46,17 +46,17 @@ const ensureCsrfToken = async () => {
   return data.csrfToken || readCookie(CSRF_COOKIE_NAME);
 };
 
-export async function apiFetch(path, options = {}) {
+export async function apiFetch(path: string, options: RequestInit & { headers?: Record<string, string> } = {}): Promise<Response> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const method = (options.method || "GET").toUpperCase();
 
-  // ✅ Normalize and prepend API base so callers can pass "/api/..." or absolute URLs interchangeably
+  // Normalize and prepend API base so callers can pass "/api/..." or absolute URLs interchangeably
   const url = path.startsWith("http")
     ? path
     : `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   // Merge headers with token and defaults; caller-specified headers win but we always default to JSON.
-  const headers = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -70,10 +70,10 @@ export async function apiFetch(path, options = {}) {
     }
   }
 
-  const attachNormalizedError = async (response) => {
+  const attachNormalizedError = async (response: Response): Promise<Response> => {
     if (!response || response.ok) return response;
     const payload = await response.clone().json().catch(() => null);
-    response.normalizedError = normalizeError(null, {
+    (response as any).normalizedError = normalizeError(null, {
       status: response.status,
       payload,
     });
@@ -84,7 +84,7 @@ export async function apiFetch(path, options = {}) {
   let res = await fetch(url, {
     ...options,
     headers,
-    credentials: options.credentials || "include", // ✅ sends refresh cookie automatically so /refresh endpoint can rotate tokens
+    credentials: options.credentials || "include",
   });
 
   res = await attachNormalizedError(res);
@@ -97,13 +97,13 @@ export async function apiFetch(path, options = {}) {
     try {
       const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: "POST",
-        credentials: "include", // include refresh cookie so server can validate
+        credentials: "include",
       });
 
       const refreshData = await refreshRes.json();
       if (refreshRes.ok && refreshData.accessToken) {
         if (import.meta.env.MODE !== "production") {
-          console.info("[apiFetch] ✅ Access token refreshed successfully");
+          console.info("[apiFetch] Access token refreshed successfully");
         }
         localStorage.setItem(ACCESS_TOKEN_KEY, refreshData.accessToken);
         headers.Authorization = `Bearer ${refreshData.accessToken}`;
@@ -117,7 +117,7 @@ export async function apiFetch(path, options = {}) {
         res = await attachNormalizedError(res);
       } else {
         if (import.meta.env.MODE !== "production") {
-          console.warn("[apiFetch] ❌ Refresh failed, forcing logout");
+          console.warn("[apiFetch] Refresh failed, forcing logout");
         }
         localStorage.removeItem(ACCESS_TOKEN_KEY);
       }

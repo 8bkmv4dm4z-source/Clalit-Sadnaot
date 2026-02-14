@@ -1,10 +1,15 @@
 /**
- * validation.js — Client-side validation helpers
+ * validation.ts — Client-side validation helpers
  * ------------------------------------------------
  * Matches Joi logic on server/middleware/validation.js
  */
+
+export interface ValidationResult {
+  valid: boolean;
+  message: string;
+}
+
 const PATTERNS = {
-  // Matches server/middleware/validation.js
   safeText: /^[^<>${}]{1,}$/,
   phone: /^[0-9+\-\s]{6,20}$/,
   idNumber: /^[0-9]{5,10}$/,
@@ -12,7 +17,7 @@ const PATTERNS = {
 };
 
 const HEBREW_MESSAGES = {
-  required: (label) => `נא להזין ${label}.`,
+  required: (label: string) => `נא להזין ${label}.`,
   email: "נא להזין כתובת אימייל תקינה.",
   phone: "נא להזין מספר טלפון תקין (ספרות, רווחים, מקפים או +).",
   passwordLength: "הסיסמה חייבת להכיל לפחות 8 תווים.",
@@ -25,16 +30,15 @@ const HEBREW_MESSAGES = {
   israelId: "מספר תעודת הזהות שהוזן אינו תקין.",
 };
 
-export const validateRequired = (value, label) => {
+export const validateRequired = (value: unknown, label: string): ValidationResult => {
   const isValid = Boolean(String(value || "").trim());
   return { valid: isValid, message: isValid ? "" : HEBREW_MESSAGES.required(label) };
 };
 
-export const validateEmail = (value) => {
+export const validateEmail = (value: unknown): ValidationResult => {
   const raw = String(value || "");
   const email = raw.trim();
 
-  // Reject multiple values or whitespace tricks up-front
   if (!email || raw !== email || /[,;]/.test(email) || /\s/.test(email)) {
     return { valid: false, message: HEBREW_MESSAGES.email };
   }
@@ -44,16 +48,15 @@ export const validateEmail = (value) => {
   return { valid, message: valid ? "" : HEBREW_MESSAGES.email };
 };
 
-export const validatePhone = (value) => {
+export const validatePhone = (value: unknown): ValidationResult => {
   const normalized = String(value || "").trim();
   const valid = PATTERNS.phone.test(normalized);
   return { valid, message: valid ? "" : HEBREW_MESSAGES.phone };
 };
 
-export const validatePasswordComplexity = (value) => {
+export const validatePasswordComplexity = (value: unknown): ValidationResult => {
   const password = String(value || "");
-  
-  // ✅ SYNCED: Check for 8 characters (matches server Joi .min(8))
+
   if (password.length < 8) {
     return { valid: false, message: HEBREW_MESSAGES.passwordLength };
   }
@@ -73,19 +76,19 @@ export const validatePasswordComplexity = (value) => {
   return { valid: true, message: "" };
 };
 
-export const validatePasswordConfirmation = (password, confirm) => {
+export const validatePasswordConfirmation = (password: unknown, confirm: unknown): ValidationResult => {
   const match = String(password || "") === String(confirm || "");
   return { valid: match, message: match ? "" : HEBREW_MESSAGES.passwordConfirm };
 };
 
-export const validateSafeText = (value, label = "השדה") => {
+export const validateSafeText = (value: unknown, label = "השדה"): ValidationResult => {
   const text = String(value || "").trim();
   if (!text) return { valid: true, message: "" };
   const valid = PATTERNS.safeText.test(text);
   return { valid, message: valid ? "" : `${label} ${HEBREW_MESSAGES.safeText}` };
 };
 
-export const validateIsraeliId = (value) => {
+export const validateIsraeliId = (value: unknown): ValidationResult => {
   const digits = String(value || "").trim();
 
   if (!PATTERNS.idNumber.test(digits)) {

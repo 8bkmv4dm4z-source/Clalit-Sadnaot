@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { normalizeMePayload } from '../../src/utils/entityTypes.js'
+import { normalizeMePayload } from '../../src/utils/entityTypes.ts'
 
 test('normalizeMePayload unwraps /getme envelope and strips privileged fields', () => {
   const payload = {
