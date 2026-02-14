@@ -8,6 +8,7 @@ const {
   authenticate: protect,
   authorizeAdmin,
 } = require("../middleware/authMiddleware");
+const { csrfProtection } = require("../middleware/csrf");
 
 const workshopController = require("../controllers/workshopController");
 
@@ -112,6 +113,7 @@ router.post(
   "/:id/export",
   protect,
   authorizeAdmin,
+  csrfProtection,
   workshopController.exportWorkshopExcel
 );
 
@@ -151,6 +153,7 @@ router.post(
   "/",
   protect,
   authorizeAdmin,
+  csrfProtection,
   validateWorkshopCreate,
   workshopController.createWorkshop
 );
@@ -159,6 +162,7 @@ router.put(
   "/:id",
   protect,
   authorizeAdmin,
+  csrfProtection,
   validateWorkshopEdit,
   workshopController.updateWorkshop
 );
@@ -167,6 +171,7 @@ router.delete(
   "/:id",
   protect,
   authorizeAdmin,
+  csrfProtection,
   workshopController.deleteWorkshop
 );
 
