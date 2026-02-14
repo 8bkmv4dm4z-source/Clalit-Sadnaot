@@ -104,13 +104,15 @@ const validateLogin = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
     password: Joi.string().min(4).max(64).required(),
-  }).unknown(true),
+    captchaToken: Joi.string().trim().optional(),
+  }).unknown(false),
 });
 
 const validateSendOtp = celebrate({
   [Segments.BODY]: Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
-  }).unknown(true),
+    captchaToken: Joi.string().trim().optional(),
+  }).unknown(false),
 });
 
 const validatePasswordResetRequest = celebrate({
@@ -133,7 +135,7 @@ const validateOTP = celebrate({
       )
       .required(),
     captchaToken: Joi.string().trim().optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 
 const phoneDigits = Joi.string().trim().pattern(/^[0-9]{4,15}$/);
@@ -183,7 +185,8 @@ const validateUserRegistration = celebrate({
     idNumber: Joi.string().trim().pattern(idPattern).optional(),
     birthDate: Joi.date().iso().optional(),
     canCharge: Joi.boolean().optional(),
-  }).unknown(true),
+    captchaToken: Joi.string().trim().optional(),
+  }).unknown(false),
 });
 
 const validateUserEdit = celebrate({
@@ -194,7 +197,7 @@ const validateUserEdit = celebrate({
     idNumber: Joi.string().trim().pattern(idPattern).optional(),
     birthDate: Joi.date().iso().optional(),
     canCharge: Joi.boolean().optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 
 /* ============================================================
@@ -209,7 +212,7 @@ const validateFamilyMember = celebrate({
     email: Joi.string().email().lowercase().trim().optional(),
     city: Joi.string().trim().pattern(safeText).optional(),
     birthDate: Joi.date().iso().optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 
 /* ============================================================
@@ -390,7 +393,7 @@ const validateWorkshopCreate = celebrate({
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),
     waitingListMax: Joi.number().integer().min(0).max(500).optional(),
     autoEnrollOnVacancy: Joi.boolean().optional(),
-  }).unknown(true), // Allow extra fields just in case
+  }).unknown(false),
 });
 
 /* ============================================================
@@ -433,7 +436,7 @@ const validateWorkshopEdit = celebrate({
     maxParticipants: Joi.number().integer().min(0).max(500).optional(),
     waitingListMax: Joi.number().integer().min(0).max(500).optional(),
     autoEnrollOnVacancy: Joi.boolean().optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 /* ============================================================
    🧍 REGISTER / UNREGISTER
@@ -449,7 +452,8 @@ const validateWorkshopRegistration = celebrate({
 
     // new entity-based API: /register-entity (opaque entityKey)
     entityKey: Joi.string().trim().pattern(entityKeyPattern).optional(),
-  }).unknown(true),
+    captchaToken: Joi.string().trim().optional(),
+  }).unknown(false),
 });
 
 const validateWorkshopUnregister = celebrate({
@@ -459,7 +463,7 @@ const validateWorkshopUnregister = celebrate({
 
     // new unregister by entityKey (for /unregister-entity)
     entityKey: Joi.string().trim().pattern(entityKeyPattern).optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 
 // SECURITY FIX: validate waitlist mutations to prevent unsafe payloads
@@ -487,7 +491,7 @@ const validateProfile = celebrate({
     idNumber: Joi.string().trim().pattern(idPattern).optional(),
     birthDate: Joi.date().iso().optional(),
     canCharge: Joi.boolean().optional(),
-  }).unknown(true),
+  }).unknown(false),
 });
 
 /* ============================================================
