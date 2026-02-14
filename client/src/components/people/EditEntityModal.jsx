@@ -32,9 +32,32 @@ export default function EditEntityModal({ entity, onClose, onSave }) {
         throw new Error("Missing entityKey for update");
       }
 
+      const userAllowed = new Set(["name", "email", "phone", "city", "birthDate", "idNumber", "canCharge"]);
+      const familyAllowed = new Set(["name", "relation", "phone", "email", "birthDate"]);
+      const blocked = new Set([
+        "entityKey",
+        "familyEntityKey",
+        "_id",
+        "id",
+        "parentId",
+        "parentUserId",
+        "parentKey",
+        "parentName",
+        "parentEmail",
+        "parentPhone",
+        "entityType",
+        "isFamily",
+        "__entityKey",
+        "adminHidden",
+        "roles",
+        "role",
+      ]);
+
+      const allow = isFamily ? familyAllowed : userAllowed;
       const updates = {};
       Object.entries(rest).forEach(([key, value]) => {
-        if (isFamily && (key === "idNumber" || key === "city")) return;
+        if (blocked.has(key)) return;
+        if (!allow.has(key)) return;
         if (typeof value === "string" && value.trim() === "") return;
         if (value === null || value === undefined) return;
         updates[key] = value;

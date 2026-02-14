@@ -75,6 +75,27 @@ const shapeListEntity = (entity = {}, parent = {}) =>
     { context: "toListEntity", forbidContactFields: true }
   );
 
+const shapeAdminListEntity = (entity = {}, parent = {}) =>
+  enforceResponseContract(
+    {
+      entityKey: resolveEntityKey(entity, "family"),
+      name: entity.name || "",
+      email: entity.email || parent.email || "",
+      phone: entity.phone || parent.phone || "",
+      city: entity.city || parent.city || "",
+      relation: entity.relation || "",
+      birthDate: normalizeDate(entity.birthDate),
+      parentKey: entity.parentKey || resolveEntityKey(parent) || "",
+      parentName: entity.parentName || parent.name || "",
+      parentEmail: entity.parentEmail || parent.email || "",
+      parentPhone: entity.parentPhone || parent.phone || "",
+      parentCity: entity.parentCity || parent.city || "",
+      entityType: entity.entityType || (entity.parentKey ? "familyMember" : "user"),
+      isFamily: entity.isFamily ?? !!entity.parentKey,
+    },
+    { context: "toAdminListEntity" }
+  );
+
 function toPublicUser(userDoc) {
   const user = toPlain(userDoc);
   const payload = {
@@ -163,7 +184,7 @@ function toAdminUser(userDoc) {
 
 function toPublicEntity(entityDoc, parentDoc = null) {
   const entity =
-    entityDoc?.entityType === "familyMember" || entityDoc?.relation || parentDoc
+    entityDoc?.entityType === "familyMember" || entityDoc?.relation || (parentDoc && Object.keys(parentDoc).length > 0)
       ? buildEntityFromFamilyMemberDoc(entityDoc, parentDoc || {})
       : buildEntityFromUserDoc(entityDoc);
   const normalized = normalizeEntity(entity || {});
@@ -180,7 +201,7 @@ function toPublicEntity(entityDoc, parentDoc = null) {
 
 function toListEntity(entityDoc = {}, parentDoc = {}) {
   const entity =
-    entityDoc?.entityType === "familyMember" || entityDoc?.relation || parentDoc
+    entityDoc?.entityType === "familyMember" || entityDoc?.relation || (parentDoc && Object.keys(parentDoc).length > 0)
       ? buildEntityFromFamilyMemberDoc(entityDoc, parentDoc || {})
       : buildEntityFromUserDoc(entityDoc);
   const normalized = normalizeEntity(entity || {});
@@ -195,9 +216,36 @@ function toListEntity(entityDoc = {}, parentDoc = {}) {
   );
 }
 
+function toAdminListEntity(entityDoc = {}, parentDoc = {}) {
+  const entity =
+    entityDoc?.entityType === "familyMember" || entityDoc?.relation || (parentDoc && Object.keys(parentDoc).length > 0)
+      ? buildEntityFromFamilyMemberDoc(entityDoc, parentDoc || {})
+      : buildEntityFromUserDoc(entityDoc);
+  const normalized = normalizeEntity(entity || {});
+  return shapeAdminListEntity(
+    {
+      entityKey: normalized.entityKey || resolveEntityKey(entityDoc, "family"),
+      name: normalized.name || "",
+      email: normalized.email || parentDoc?.email || "",
+      phone: normalized.phone || parentDoc?.phone || "",
+      city: normalized.city || "",
+      relation: normalized.relation || "",
+      birthDate: normalizeDate(normalized.birthDate),
+      parentKey: normalized.parentKey || "",
+      parentName: normalized.parentName || parentDoc?.name || "",
+      parentEmail: normalized.parentEmail || parentDoc?.email || "",
+      parentPhone: normalized.parentPhone || parentDoc?.phone || "",
+      parentCity: normalized.parentCity || parentDoc?.city || "",
+      entityType: normalized.entityType || "user",
+      isFamily: Boolean(normalized.isFamily || normalized.parentKey),
+    },
+    parentDoc || {}
+  );
+}
+
 function toSelfProfileEntity(entityDoc = {}, parentDoc = {}) {
   const entity =
-    entityDoc?.entityType === "familyMember" || entityDoc?.relation || parentDoc
+    entityDoc?.entityType === "familyMember" || entityDoc?.relation || (parentDoc && Object.keys(parentDoc).length > 0)
       ? buildEntityFromFamilyMemberDoc(entityDoc, parentDoc || {})
       : buildEntityFromUserDoc(entityDoc);
   const normalized = normalizeEntity(entity || {});
@@ -221,5 +269,6 @@ module.exports = {
   toAdminUser,
   toPublicEntity,
   toListEntity,
+  toAdminListEntity,
   toSelfProfileEntity,
 };
