@@ -16,20 +16,24 @@ const DefaultAuditLogModel = require("../models/AdminAuditLog");
 
 let AuditLogModel = DefaultAuditLogModel;
 
-const SENSITIVE_KEYS = [
+const SENSITIVE_KEYS = new Set([
   "password",
+  "passwordhash",
   "token",
+  "tokenhash",
+  "refreshtoken",
   "otp",
+  "otpcode",
+  "otpexpires",
   "email",
   "phone",
   "idnumber",
   "id_number",
   "_id",
   "id",
-];
+]);
 
-const isSensitiveKey = (key = "") =>
-  SENSITIVE_KEYS.some((needle) => key.toLowerCase().includes(needle));
+const isSensitiveKey = (key = "") => SENSITIVE_KEYS.has(key.toLowerCase());
 
 const sanitizeMetadata = (metadata = {}) => {
   if (!metadata || typeof metadata !== "object") return {};

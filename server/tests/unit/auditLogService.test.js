@@ -124,6 +124,53 @@ test("AuditLogEntry schema applies TTL from AUDIT_RETENTION_DAYS", () => {
   process.env.AUDIT_RETENTION_DAYS = priorRetention;
 });
 
+test("isSensitiveKey uses exact-match and does not strip workshopId or sessionId", async () => {
+  process.env.AUDIT_HMAC_SECRET = "unit-hmac-secret";
+  const { recordEvent, useAuditLogModel } = reloadAuditLogService();
+
+  const created = [];
+  const fakeModel = {
+    async create(payload) {
+      created.push(payload);
+      return payload;
+    },
+  };
+
+  useAuditLogModel(fakeModel);
+
+  await recordEvent({
+    eventType: AuditEventTypes.SECURITY,
+    subjectType: "user",
+    subjectKey: "entity-456",
+    actorKey: "actor-789",
+    metadata: {
+      workshopId: "ws-123",
+      sessionId: "sess-abc",
+      emailVerified: true,
+      email: "sensitive@example.com",
+      phone: "0541234567",
+      _id: "mongo-id",
+      password: "secret",
+      token: "jwt-token",
+      detail: "safe-value",
+    },
+  });
+
+  const meta = created[0].metadata;
+  // Exact-match keys should NOT be stripped
+  assert.equal(meta.workshopId, "ws-123");
+  assert.equal(meta.sessionId, "sess-abc");
+  assert.equal(meta.emailVerified, true);
+  assert.equal(meta.detail, "safe-value");
+
+  // Sensitive keys should still be stripped
+  assert.equal(meta.email, undefined);
+  assert.equal(meta.phone, undefined);
+  assert.equal(meta._id, undefined);
+  assert.equal(meta.password, undefined);
+  assert.equal(meta.token, undefined);
+});
+
 test("recordEvent rejects unknown audit event types", async () => {
   const { recordEvent } = reloadAuditLogService();
   await assert.rejects(
