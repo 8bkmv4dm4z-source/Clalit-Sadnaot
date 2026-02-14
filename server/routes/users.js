@@ -7,8 +7,15 @@ const { authenticate: protect, authorizeAdmin } = require("../middleware/authMid
 // 🧩 Joi / Celebrate Validation Schemas
 const {
   validateUserRegistration,
-  validateUserEdit
+  validateUserEdit,
+  validateUserSearch,
 } = require("../middleware/validation");
+const { perUserRateLimit } = require("../middleware/perUserRateLimit");
+
+const searchLimiter = perUserRateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+});
 
 
 // ============================================================
@@ -22,14 +29,14 @@ router.get("/getMe", protect, (req, res, next) => {
 // 🔍 Smart Search (NEW)
 // ============================================================
 // ✅ Uses text index for admin global search, and family-level search for normal users
-router.get("/search", protect, usersController.searchUsers);
+router.get("/search", protect, searchLimiter, validateUserSearch, usersController.searchUsers);
 
 // ============================================================
 // 👥 General Users CRUD
 // ============================================================
 
 // 🔹 Get all users (Admin only)
-router.get("/", protect, authorizeAdmin, usersController.getAllUsers);
+router.get("/", protect, authorizeAdmin, searchLimiter, usersController.getAllUsers);
 
 // 🔍 Data integrity report (Admin only)
 router.get(

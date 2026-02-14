@@ -18,6 +18,7 @@ const {
   validateWorkshopRegistration,
   validateWorkshopUnregister,
   validateWaitlistEntity,
+  validateWorkshopSearch,
 } = require("../middleware/validation");
 
 const participantActionLimiter = perUserRateLimit({
@@ -66,7 +67,7 @@ router.get(
    🟢 LIST ROUTES
    ============================================================ */
 // Search must come before /:id
-router.get("/search", workshopController.searchWorkshops);
+router.get("/search", validateWorkshopSearch, workshopController.searchWorkshops);
 router.get("/registered", protect, workshopController.getRegisteredWorkshops);
 router.get("/", workshopController.getAllWorkshops);
 

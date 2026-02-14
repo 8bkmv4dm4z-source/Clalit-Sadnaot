@@ -491,6 +491,32 @@ const validateProfile = celebrate({
 });
 
 /* ============================================================
+   🔍 SEARCH VALIDATION
+   ============================================================ */
+const validateWorkshopSearch = celebrate({
+  [Segments.QUERY]: Joi.object({
+    q: Joi.string().max(100).trim().optional(),
+    city: Joi.string().max(50).trim().optional(),
+    coach: Joi.string().max(50).trim().optional(),
+    type: Joi.string().max(50).trim().optional(),
+    day: Joi.string().max(20).trim().optional(),
+    hour: Joi.string().max(20).trim().optional(),
+    ageGroup: Joi.string().max(50).trim().optional(),
+    available: Joi.boolean().optional(),
+    page: Joi.number().integer().min(1).max(1000).optional(),
+    limit: Joi.number().integer().min(1).max(200).optional(),
+  }).unknown(false),
+});
+
+const validateUserSearch = celebrate({
+  [Segments.QUERY]: Joi.object({
+    q: Joi.string().max(100).trim().optional(),
+    limit: Joi.number().integer().min(1).max(200).optional(),
+    page: Joi.number().integer().min(1).max(1000).optional(),
+  }).unknown(false),
+});
+
+/* ============================================================
    📦 EXPORT MODULES
    ============================================================ */
 module.exports = {
@@ -513,4 +539,6 @@ module.exports = {
   validateSendOtp,
   validatePasswordResetRequest,
   validateAddressRemote,
+  validateWorkshopSearch,
+  validateUserSearch,
 };
