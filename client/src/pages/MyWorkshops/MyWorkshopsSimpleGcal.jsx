@@ -274,18 +274,11 @@ function MyWorkshopsScreen() {
   }, [workshopsByEntity, selectedEntityKey]);
 
   /* ---------------- legend colors ---------------- */
-  const PALETTE = [
-    "#4f46e5",
-    "#059669",
-    "#dc2626",
-    "#0ea5e9",
-    "#d97706",
-    "#9333ea",
-    "#16a34a",
-    "#ea580c",
-  ];
-
   const legendColorMap = useMemo(() => {
+    const PALETTE = [
+      "#4f46e5", "#059669", "#dc2626", "#0ea5e9",
+      "#d97706", "#9333ea", "#16a34a", "#ea580c",
+    ];
     const ids = Object.keys(filteredWorkshopsByEntity);
     const m = {};
     ids.forEach((id, i) => (m[id] = PALETTE[i % PALETTE.length]));

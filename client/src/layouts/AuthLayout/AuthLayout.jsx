@@ -245,7 +245,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       refreshInFlightRef.current = null;
     }
-  }, [logout]);
+  }, [logout, normalizeResponseError]);
 
   /* ============================================================
      🔐 authFetch helper — auto refresh on 401 once
@@ -382,7 +382,7 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
     },
-    [accessToken, authFetch, loading, logout]
+    [accessToken, authFetch, loading, logout, normalizeResponseError]
   );
 
   /* ============================================================

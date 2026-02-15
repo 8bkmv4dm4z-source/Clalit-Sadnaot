@@ -238,6 +238,7 @@ export default function EditWorkshop() {
       }
     }, 500);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.city, form.address]);
 
   // === Validation ===

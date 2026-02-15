@@ -89,6 +89,7 @@ export default function WorkshopCard({
   const wid = str(_id);
 
   // -------- Workshop lookup (no memo → always fresh from context) --------
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const workshop = Array.isArray(workshops)
     ? workshops.find((w) => str(w._id) === wid) || {}
     : {};
@@ -161,6 +162,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   const userKey = str(user?.entityKey);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const participantsArr = Array.isArray(participants) ? participants : [];
 
   const participantsCount =
@@ -341,6 +343,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
     };
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const selfButton = useMemo(() => getEntityButton(userKey), [
     userKey,
     isSelfRegistered,

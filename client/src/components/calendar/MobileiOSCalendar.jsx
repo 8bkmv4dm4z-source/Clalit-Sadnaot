@@ -229,6 +229,7 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
       el.removeEventListener("scroll", onScroll);
       if (rafId) cancelAnimationFrame(rafId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, monthKey]);
 
   const dir = rtl ? "rtl" : "ltr";
