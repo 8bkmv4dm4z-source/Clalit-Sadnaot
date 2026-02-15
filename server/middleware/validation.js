@@ -191,12 +191,32 @@ const validateUserRegistration = celebrate({
 
 const validateUserEdit = celebrate({
   [Segments.BODY]: Joi.object({
-    name: Joi.string().trim().pattern(safeText).max(80).optional(),
-    phone: Joi.string().trim().pattern(phonePattern).optional(),
-    city: Joi.string().trim().pattern(safeText).max(60).optional(),
-    idNumber: Joi.string().trim().pattern(idPattern).optional(),
-    birthDate: Joi.date().iso().optional(),
-    canCharge: Joi.boolean().optional(),
+    entityKey: Joi.string()
+      .trim()
+      .pattern(entityKeyPattern)
+      .required()
+      .messages({
+        "any.required": "entityKey is required to identify the entity.",
+        "string.pattern.base": "entityKey format is invalid.",
+      }),
+    updates: Joi.object({
+      name: Joi.string().trim().pattern(safeText).max(80).optional(),
+      email: Joi.string().email().lowercase().trim().optional().messages({
+        "string.email": "Please provide a valid email address.",
+      }),
+      phone: Joi.string().trim().pattern(phonePattern).allow("").optional().messages({
+        "string.pattern.base": "Phone must contain 6-20 digits, spaces, + or -.",
+      }),
+      city: Joi.string().trim().pattern(safeText).max(60).allow("").optional(),
+      idNumber: Joi.string().trim().pattern(idPattern).allow("").optional().messages({
+        "string.pattern.base": "ID must be 5-10 digits.",
+      }),
+      birthDate: Joi.date().iso().allow(null).optional().messages({
+        "date.format": "Birth date must be a valid ISO date (YYYY-MM-DD).",
+      }),
+      canCharge: Joi.boolean().optional(),
+      relation: Joi.string().trim().pattern(safeText).max(50).allow("").optional(),
+    }).required().unknown(false),
   }).unknown(false),
 });
 
@@ -486,10 +506,19 @@ const validateWaitlistEntity = celebrate({
 const validateProfile = celebrate({
   [Segments.BODY]: Joi.object({
     name: Joi.string().trim().pattern(safeText).max(80).optional(),
-    phone: Joi.string().trim().pattern(phonePattern).optional(),
-    city: Joi.string().trim().pattern(safeText).optional(),
-    idNumber: Joi.string().trim().pattern(idPattern).optional(),
-    birthDate: Joi.date().iso().optional(),
+    email: Joi.string().email().lowercase().trim().optional().messages({
+      "string.email": "Please provide a valid email address.",
+    }),
+    phone: Joi.string().trim().pattern(phonePattern).allow("").optional().messages({
+      "string.pattern.base": "Phone must contain 6-20 digits, spaces, + or -.",
+    }),
+    city: Joi.string().trim().pattern(safeText).max(60).allow("").optional(),
+    idNumber: Joi.string().trim().pattern(idPattern).allow("").optional().messages({
+      "string.pattern.base": "ID must be 5-10 digits.",
+    }),
+    birthDate: Joi.date().iso().allow(null).optional().messages({
+      "date.format": "Birth date must be a valid ISO date (YYYY-MM-DD).",
+    }),
     canCharge: Joi.boolean().optional(),
   }).unknown(false),
 });

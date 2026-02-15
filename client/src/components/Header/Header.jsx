@@ -1,17 +1,18 @@
 /**
- * Header.jsx — Unified Calendar Link
- * -----------------------------------
+ * Header.jsx — Collapsible Navigation
+ * ------------------------------------
+ * Scrolling down collapses the desktop nav into a slim bar with a hamburger.
+ * Tapping the hamburger re-opens the nav inline at any scroll position.
  * Mobile menu uses shadcn Sheet (right side for RTL).
- * Desktop layout uses motion.div for smooth layout transitions.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useProfiles } from "../../layouts/ProfileContext";
-import { CalendarDays, Menu } from "lucide-react";
-import { motion } from "framer-motion";
+import { CalendarDays, Menu, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,15 +28,33 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { logout, user } = useAuth();
   const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
+  const lastScrollY = useRef(0);
 
   useEffect(() => {
-    const onScroll = () => setIsScrolled(window.scrollY > 4);
-    window.addEventListener("scroll", onScroll);
+    const onScroll = () => {
+      const y = window.scrollY;
+      setIsScrolled(y > 4);
+
+      // Collapse when scrolling down past 60px
+      if (y > 60 && y > lastScrollY.current + 8) {
+        setCollapsed(true);
+        setNavOpen(false);
+      }
+      // Expand automatically when near top
+      if (y < 20) {
+        setCollapsed(false);
+        setNavOpen(false);
+      }
+      lastScrollY.current = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -56,6 +75,9 @@ export default function Header() {
 
   const currentUser =
     profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
+
+  // Desktop nav visible when not collapsed OR user manually opened it
+  const showDesktopNav = !collapsed || navOpen;
 
   const linkBase =
     "rtl inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 whitespace-nowrap justify-center w-full md:w-auto";
@@ -170,7 +192,7 @@ export default function Header() {
       } text-white`}
       dir="rtl"
     >
-      <nav className="mx-auto max-w-6xl px-4 sm:px-6 py-3">
+      <nav className={`mx-auto max-w-6xl px-4 sm:px-6 transition-all duration-300 ${collapsed && !navOpen ? "py-2" : "py-3"}`}>
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
             תפריט
@@ -180,6 +202,21 @@ export default function Header() {
             <span className="hidden sm:inline text-sm text-white/90 font-medium truncate max-w-[180px]">
               {currentUser.name}
             </span>
+
+            {/* Desktop collapse hamburger — only visible when collapsed on md+ */}
+            {collapsed && (
+              <button
+                onClick={() => setNavOpen((o) => !o)}
+                className="hidden md:flex p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
+                aria-label={navOpen ? "סגור תפריט" : "פתח תפריט"}
+              >
+                {navOpen ? (
+                  <X size={22} className="text-white" />
+                ) : (
+                  <Menu size={22} className="text-white" />
+                )}
+              </button>
+            )}
 
             {/* Mobile Menu - Sheet */}
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -290,15 +327,26 @@ export default function Header() {
           </div>
         </div>
 
-        {/* Desktop Navigation */}
-        <motion.div
-          layout
-          transition={{ duration: 0.2 }}
-          className="hidden md:grid md:grid-cols-[1fr_auto] gap-3 mt-3 md:mt-4 items-center"
-        >
-          {linkGroup}
-          {logoutButton}
-        </motion.div>
+        {/* Desktop Navigation — animated show/hide */}
+        <div className="hidden md:block">
+          <AnimatePresence initial={false}>
+            {showDesktopNav && (
+              <motion.div
+                key="desktop-nav"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+                style={{ overflow: "hidden" }}
+              >
+                <div className="grid grid-cols-[1fr_auto] gap-3 mt-3 md:mt-4 items-center">
+                  {linkGroup}
+                  {logoutButton}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </nav>
     </header>
   );

@@ -20,7 +20,7 @@ export default function AppShell() {
      */
     <div className="flex min-h-screen flex-col bg-gray-50" dir="ltr">
       {/* Scrollable header wrapper */}
-      <div className="sticky top-0 z-40 overflow-x-auto">
+      <div className="sticky top-0 z-40 overflow-visible">
         <Header />
       </div>
 

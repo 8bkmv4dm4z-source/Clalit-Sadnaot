@@ -413,7 +413,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
   // ---------- Skeleton ----------
   if (!workshop || !wid) {
     return (
-      <div className="relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white p-4">
+      <div className="relative rounded-2xl border border-indigo-100/80 shadow-[0_2px_16px_rgba(99,102,241,0.08)] overflow-hidden bg-gradient-to-br from-white via-indigo-50/50 to-blue-50/60 p-4">
         <Skeleton className="h-44 w-full mb-3" />
         <Skeleton className="h-4 w-2/3 mb-2" />
         <Skeleton className="h-3 w-1/2 mb-1" />
@@ -430,10 +430,12 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
           if (!isLoggedIn) navigate("/Register");
         }}
         className={`
-        relative rounded-2xl border border-indigo-100 shadow-sm overflow-hidden
-        bg-gradient-to-br from-indigo-50 via-blue-50/40 to-white
-        hover:shadow-indigo-200 hover:-translate-y-[2px] transition-all
-        cursor-pointer
+        relative rounded-2xl border border-indigo-100/80 overflow-hidden
+        bg-gradient-to-br from-white via-indigo-50/50 to-blue-50/60
+        shadow-[0_2px_16px_rgba(99,102,241,0.08)]
+        hover:shadow-[0_8px_30px_rgba(99,102,241,0.15)] hover:-translate-y-1
+        transition-all duration-300 cursor-pointer
+        backdrop-blur-sm
         ${isMobile ? "text-[13px]" : isTablet ? "text-[14px]" : "text-sm"}
         `}
       >
@@ -441,7 +443,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
         {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
           <div className="absolute top-3 left-3 z-10">
-            <div className="bg-indigo-600/95 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg">
+            <div className="bg-indigo-600/90 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg backdrop-blur-sm">
               <span className="inline-flex items-center gap-1">
                 <Coins size={14} />
                 {Number(price)} ₪
@@ -497,7 +499,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
             }`}
           >
             <h3
-              className={`font-bold text-indigo-800 truncate flex-1 ${
+              className={`font-semibold text-indigo-900/90 tracking-wide truncate flex-1 tracking-tight ${
                 isMobile ? "text-base leading-tight" : "text-sm sm:text-base"
               }`}
             >
@@ -537,9 +539,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
           <div className="flex flex-col gap-2 mt-1 text-sm">
             {/* Address */}
             <div
-              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
             >
-              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
                 <MapPin size={16} /> כתובת
               </span>
 
@@ -571,9 +573,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
             {/* Coach */}
             <div
-              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
             >
-              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
                 <Dumbbell size={16} /> מאמן
               </span>
               <span className={`text-gray-800 ${infoValueClamp}`}>
@@ -583,9 +585,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
             {/* Studio */}
             <div
-              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
             >
-              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
                 <Building2 size={16} /> סטודיו
               </span>
               <span className={`text-gray-800 ${infoValueClamp}`}>
@@ -595,9 +597,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
             {/* Days + Hour */}
             <div
-              className={`${infoRowLayout} bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2`}
+              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
             >
-              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
                 <Calendar size={16} /> ימים ושעה
               </span>
               <span
@@ -619,13 +621,13 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
                 e.stopPropagation();
                 setShowWaitlist((p) => !p);
               }}
-              className={`bg-white/70 backdrop-blur border border-indigo-100 rounded-xl px-3 py-2 hover:bg-indigo-50 transition text-right ${
+              className={`bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm hover:bg-indigo-50/80 transition text-right ${
                 isMobile
                   ? "flex flex-col gap-1.5 items-start"
                   : "flex items-center justify-between"
               }`}
             >
-              <span className="flex items-center gap-1.5 font-bold text-indigo-900">
+              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
                 {showWaitlist ? <Hourglass size={16} /> : <Users size={16} />}
                 {showWaitlist ? "רשימת המתנה" : "משתתפים"}
               </span>
