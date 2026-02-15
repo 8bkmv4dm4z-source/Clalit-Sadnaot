@@ -88,8 +88,12 @@ export default function Workshops() {
   useEffect(() => {
     if (isChecking && isLoggedIn) return;
     const scope = canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public";
-    if (typeof setAccessScope === "function") setAccessScope(scope);
-  }, [canAccessAdmin, isChecking, isLoggedIn, setAccessScope]);
+
+    if (scope !== accessScope) {
+      if (typeof setAccessScope === "function") setAccessScope(scope);
+      fetchWorkshops({ force: true, scope });
+    }
+  }, [canAccessAdmin, isChecking, isLoggedIn, setAccessScope, fetchWorkshops, accessScope]);
 
   // 🔽 Infinite scroll / swipe-to-load for mobile
   const loadMoreRef = useRef(null);

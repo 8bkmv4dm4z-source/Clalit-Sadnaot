@@ -13,6 +13,15 @@ export const AdminCapabilityProvider = ({ children }) => {
   const lastCheckedAtRef = useRef(0);
   const inFlightRef = useRef(false);
 
+  const [prevIsLoggedIn, setPrevIsLoggedIn] = useState(isLoggedIn);
+  if (isLoggedIn !== prevIsLoggedIn) {
+    setPrevIsLoggedIn(isLoggedIn);
+    if (isLoggedIn && !prevIsLoggedIn) {
+      setCanAccessAdmin(false);
+      setIsChecking(true);
+    }
+  }
+
   const probeAdminCapability = useCallback(
     async ({ force = false } = {}) => {
       if (authLoading) return false;
