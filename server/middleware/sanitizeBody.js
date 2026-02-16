@@ -7,6 +7,8 @@
  * - Prevents HTML/script injection and template literals.
  */
 
+const { logInputSanitized } = require("../services/SecurityEventLogger");
+
 function deepSanitize(obj) {
   if (Array.isArray(obj)) {
     return obj.map(deepSanitize);
@@ -26,9 +28,25 @@ function deepSanitize(obj) {
   }
 }
 
+function snapshotStrings(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return null;
+  }
+}
+
 module.exports = function sanitizeBody(req, _res, next) {
+  const beforeBody = req.body ? snapshotStrings(req.body) : null;
+
   if (req.body) req.body = deepSanitize(req.body);
   if (req.query) req.query = deepSanitize(req.query);
   if (req.params) req.params = deepSanitize(req.params);
+
+  if (beforeBody && beforeBody !== snapshotStrings(req.body)) {
+    logInputSanitized(req, { source: "body" });
+  }
+
   next();
 };

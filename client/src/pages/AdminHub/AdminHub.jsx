@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AdminHubProvider, useAdminHub } from "../../context/AdminHubContext";
 import { groupLogsByCategory } from "../../utils/adminHubClient";
+import SecurityInsightsPanel, { SeverityBadge } from "./SecurityInsightsPanel";
 
 const TAB_CONFIG = {
   registrations: {
@@ -14,6 +15,10 @@ const TAB_CONFIG = {
   notices: {
     label: "Notices",
     category: "NOTICES",
+  },
+  insights: {
+    label: "Insights",
+    category: null,
   },
 };
 
@@ -58,8 +63,9 @@ const LogsTable = ({ filteredLogs }) => {
             <div className="divide-y divide-gray-200">
               {items.map((item, idx) => (
                 <div key={`${item.eventType}-${idx}`} className="py-2 text-sm text-gray-800">
-                  <div className="flex flex-wrap gap-2 text-gray-700">
+                  <div className="flex flex-wrap items-center gap-2 text-gray-700">
                     <span className="font-medium">{item.eventType}</span>
+                    {item.severity && <SeverityBadge severity={item.severity} />}
                     <span className="text-gray-500">· {item.subjectType}</span>
                     <span className="text-gray-500">· {item.subjectKey}</span>
                   </div>
@@ -101,12 +107,8 @@ const AdminTabs = ({ activeTab, onSelectTab }) => (
 );
 
 const AdminHubContent = () => {
-  const { logs, refreshLogs } = useAdminHub();
+  const { logs } = useAdminHub();
   const [activeTab, setActiveTab] = useState("registrations");
-
-  useEffect(() => {
-    refreshLogs({ page: 1 });
-  }, [refreshLogs]);
 
   const filteredLogs = useMemo(() => {
     const category = TAB_CONFIG[activeTab]?.category;
@@ -118,6 +120,8 @@ const AdminHubContent = () => {
     setActiveTab(tabKey);
   };
 
+  const isInsightsTab = activeTab === "insights";
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -127,10 +131,12 @@ const AdminHubContent = () => {
             <h1 className="text-lg font-semibold text-gray-800">Choose what you want to review</h1>
           </div>
           <AdminTabs activeTab={activeTab} onSelectTab={handleSelectTab} />
-          <p className="text-sm text-gray-600">Logs are shown per server-provided category only.</p>
+          {!isInsightsTab && (
+            <p className="text-sm text-gray-600">Logs are shown per server-provided category only.</p>
+          )}
         </div>
       </div>
-      <LogsTable filteredLogs={filteredLogs} />
+      {isInsightsTab ? <SecurityInsightsPanel /> : <LogsTable filteredLogs={filteredLogs} />}
     </div>
   );
 };

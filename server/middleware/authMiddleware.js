@@ -2,6 +2,12 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { deriveAccessScope } = require("../utils/accessScope");
+const {
+  logAuthFailure,
+  logTokenExpired,
+  logTokenMalformed,
+  logRoleIntegrityFailure,
+} = require("../services/SecurityEventLogger");
 
 /**
  * 🔒 Middleware: Authenticate user via JWT
@@ -14,17 +20,20 @@ const authenticate = async (req, res, next) => {
     if (!token) {
       // SECURITY FIX: avoid echoing raw headers back into the logs
       console.warn("[AUTH] No token provided.");
+      logAuthFailure(req, { reason: "no_token" });
       return res.status(401).json({ message: "No token provided" });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded?.sub && !decoded?.id) {
       console.warn("[AUTH] Token missing subject or id");
+      logTokenMalformed(req, { reason: "missing_subject" });
       return res.status(401).json({ message: "Invalid or expired token" });
     }
     if (!decoded.exp) {
       // P7: Tokens must be time-bound; reject any token without an explicit exp.
       console.warn("[AUTH] Token missing exp");
+      logTokenMalformed(req, { reason: "missing_exp" });
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
@@ -54,6 +63,7 @@ const authenticate = async (req, res, next) => {
     }
     if (!user) {
       console.warn("[AUTH] User not found for provided token");
+      logAuthFailure(req, { reason: "user_not_found" });
       return res.status(401).json({ message: "Invalid or expired token" });
     }
 
@@ -67,6 +77,7 @@ const authenticate = async (req, res, next) => {
 
     if (!user.isRoleIntegrityValid()) {
       console.warn("[AUTH] Role integrity hash mismatch", { id: user._id, role: user.role });
+      logRoleIntegrityFailure(req, { subjectKey: user.entityKey, role: user.role });
       return res.status(403).json({ message: "Role integrity check failed" });
     }
 
@@ -100,6 +111,11 @@ const authenticate = async (req, res, next) => {
 
     // SECURITY FIX: sanitize error logging to avoid leaking token fragments
     console.error(`[AUTH] JWT ${kind}:`, err.message);
+    if (err.name === "TokenExpiredError") {
+      logTokenExpired(req);
+    } else {
+      logTokenMalformed(req, { reason: kind });
+    }
     return res.status(401).json({ message: "Unauthorized" });
   }
 };

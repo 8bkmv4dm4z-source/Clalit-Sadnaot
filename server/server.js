@@ -32,6 +32,7 @@ const { runAllHashAudits } = require("./audit/hashAudit");
 const { migrateLegacyAdmins } = require("./services/legacyAdminMigration");
 const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
 const { enforceResponseContract } = require("./contracts/responseGuards");
+const { logCsrfFailure, logResponseGuardViolation, logMongoSanitized } = require("./services/SecurityEventLogger");
 
 const app = express();
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS || 1);
@@ -209,6 +210,7 @@ app.use((req, res, next) => {
           isAdminScope: !!(req.user?.authorities?.admin),
         });
       } catch (err) {
+        logResponseGuardViolation(req, { context: `${req.method} ${req.originalUrl || req.url}` });
         return next(err);
       }
     }
@@ -239,7 +241,13 @@ const api = express.Router();
 
 api.use(hpp());
 api.use(sanitizeBody);
-api.use(mongoSanitize());
+api.use(
+  mongoSanitize({
+    onSanitize: ({ req, key }) => {
+      logMongoSanitized(req, { key });
+    },
+  })
+);
 api.use(compression());
 
 // Rate limits (API only)
@@ -323,6 +331,7 @@ api.use((req, res, next) => {
 api.use(celebrateErrors());
 api.use((err, req, res, next) => {
   if (err.code === "EBADCSRFTOKEN") {
+    logCsrfFailure(req);
     return res.status(403).json({ success: false, message: "Invalid or missing CSRF token" });
   }
   return next(err);

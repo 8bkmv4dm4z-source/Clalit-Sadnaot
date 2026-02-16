@@ -1,4 +1,5 @@
 const rateLimit = require("express-rate-limit");
+const { logRateLimit } = require("../services/SecurityEventLogger");
 
 const DEFAULTS = {
   windowMs: 15 * 60 * 1000,
@@ -23,7 +24,8 @@ const perUserRateLimit = (options = {}) =>
     legacyHeaders: false,
     keyGenerator: buildPerUserKey,
     skip: (req) => process.env.NODE_ENV === "loadtest",
-    handler: (_req, res) => {
+    handler: (req, res) => {
+      logRateLimit(req, { limiter: "perUser" });
       res.status(429).json({ message: "Too many requests. Please try again later." });
     },
   });

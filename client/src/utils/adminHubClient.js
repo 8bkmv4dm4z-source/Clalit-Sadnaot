@@ -44,6 +44,13 @@ export const fetchAdminHubAlerts = async ({ adminPassword }) => {
   return { alerts, stale, status: { alerts: alertsRes.status, stale: staleRes.status } };
 };
 
+export const fetchAdminHubStats = async ({ adminPassword }) => {
+  const headers = buildAdminHeaders(adminPassword);
+  const res = await apiFetch("/api/admin/hub/stats", { headers });
+  const body = await res.json();
+  return { ok: res.ok, status: res.status, body };
+};
+
 export const normalizeLogEntry = (entry) => {
   if (!entry) return entry;
   return { ...entry };

@@ -6,6 +6,12 @@ const AuditCategories = Object.freeze({
   HYGIENE: "HYGIENE",
 });
 
+const AuditSeverityLevels = Object.freeze({
+  INFO: "info",
+  WARN: "warn",
+  CRITICAL: "critical",
+});
+
 const AuditEventTypes = Object.freeze({
   USER_REGISTERED: "user.registered",
   WORKSHOP_REGISTRATION: "workshop.registration",
@@ -21,6 +27,19 @@ const AuditEventTypes = Object.freeze({
   ADMIN_USER_CREATE: "admin.user.create",
   ADMIN_USER_DELETE: "admin.user.delete",
   USER_STALE_DETECTED: "user.stale.detected",
+  // Security event types
+  SECURITY_AUTH_FAILURE: "security.auth.failure",
+  SECURITY_TOKEN_EXPIRED: "security.token.expired",
+  SECURITY_TOKEN_MALFORMED: "security.token.malformed",
+  SECURITY_ROLE_INTEGRITY: "security.role.integrity",
+  SECURITY_RATE_LIMIT: "security.rate.limit",
+  SECURITY_CSRF_FAILURE: "security.csrf.failure",
+  SECURITY_ADMIN_PASSWORD_FAILURE: "security.admin.password.failure",
+  SECURITY_INPUT_SANITIZED: "security.input.sanitized",
+  SECURITY_MONGO_SANITIZED: "security.mongo.sanitized",
+  SECURITY_INTEGRITY_MISMATCH: "security.integrity.mismatch",
+  SECURITY_RESPONSE_GUARD: "security.response.guard",
+  SECURITY_OTP_LOCKOUT: "security.otp.lockout",
 });
 
 const AuditEventRegistry = Object.freeze({
@@ -80,6 +99,69 @@ const AuditEventRegistry = Object.freeze({
     eventType: AuditEventTypes.SECURITY,
     category: AuditCategories.SECURITY,
   },
+  [AuditEventTypes.SECURITY_AUTH_FAILURE]: {
+    eventType: AuditEventTypes.SECURITY_AUTH_FAILURE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_TOKEN_EXPIRED]: {
+    eventType: AuditEventTypes.SECURITY_TOKEN_EXPIRED,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_TOKEN_MALFORMED]: {
+    eventType: AuditEventTypes.SECURITY_TOKEN_MALFORMED,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_ROLE_INTEGRITY]: {
+    eventType: AuditEventTypes.SECURITY_ROLE_INTEGRITY,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_RATE_LIMIT]: {
+    eventType: AuditEventTypes.SECURITY_RATE_LIMIT,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_CSRF_FAILURE]: {
+    eventType: AuditEventTypes.SECURITY_CSRF_FAILURE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_ADMIN_PASSWORD_FAILURE]: {
+    eventType: AuditEventTypes.SECURITY_ADMIN_PASSWORD_FAILURE,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_INPUT_SANITIZED]: {
+    eventType: AuditEventTypes.SECURITY_INPUT_SANITIZED,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_MONGO_SANITIZED]: {
+    eventType: AuditEventTypes.SECURITY_MONGO_SANITIZED,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_INTEGRITY_MISMATCH]: {
+    eventType: AuditEventTypes.SECURITY_INTEGRITY_MISMATCH,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_RESPONSE_GUARD]: {
+    eventType: AuditEventTypes.SECURITY_RESPONSE_GUARD,
+    category: AuditCategories.SECURITY,
+  },
+  [AuditEventTypes.SECURITY_OTP_LOCKOUT]: {
+    eventType: AuditEventTypes.SECURITY_OTP_LOCKOUT,
+    category: AuditCategories.SECURITY,
+  },
+});
+
+const AuditEventSeverityDefaults = Object.freeze({
+  [AuditEventTypes.SECURITY_AUTH_FAILURE]: AuditSeverityLevels.WARN,
+  [AuditEventTypes.SECURITY_TOKEN_EXPIRED]: AuditSeverityLevels.INFO,
+  [AuditEventTypes.SECURITY_TOKEN_MALFORMED]: AuditSeverityLevels.WARN,
+  [AuditEventTypes.SECURITY_ROLE_INTEGRITY]: AuditSeverityLevels.CRITICAL,
+  [AuditEventTypes.SECURITY_RATE_LIMIT]: AuditSeverityLevels.WARN,
+  [AuditEventTypes.SECURITY_CSRF_FAILURE]: AuditSeverityLevels.CRITICAL,
+  [AuditEventTypes.SECURITY_ADMIN_PASSWORD_FAILURE]: AuditSeverityLevels.CRITICAL,
+  [AuditEventTypes.SECURITY_INPUT_SANITIZED]: AuditSeverityLevels.INFO,
+  [AuditEventTypes.SECURITY_MONGO_SANITIZED]: AuditSeverityLevels.WARN,
+  [AuditEventTypes.SECURITY_INTEGRITY_MISMATCH]: AuditSeverityLevels.WARN,
+  [AuditEventTypes.SECURITY_RESPONSE_GUARD]: AuditSeverityLevels.CRITICAL,
+  [AuditEventTypes.SECURITY_OTP_LOCKOUT]: AuditSeverityLevels.WARN,
 });
 
 const allowedEventTypes = Object.freeze(Object.keys(AuditEventRegistry));
@@ -88,8 +170,10 @@ const getAuditEventDefinition = (eventType) => AuditEventRegistry[eventType] || 
 
 module.exports = {
   AuditCategories,
+  AuditSeverityLevels,
   AuditEventTypes,
   AuditEventRegistry,
+  AuditEventSeverityDefaults,
   allowedEventTypes,
   getAuditEventDefinition,
 };

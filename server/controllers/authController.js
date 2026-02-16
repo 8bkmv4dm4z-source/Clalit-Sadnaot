@@ -14,6 +14,7 @@ const User = require("../models/User");
 const RegistrationRequest = require("../models/RegistrationRequest");
 const emailService = require('../services/emailService');
 const { safeAuditLog } = require("../services/SafeAuditLog");
+const { logOtpLockout } = require("../services/SecurityEventLogger");
 const { hashId } = require("../utils/hashId");
 const { toOwnerUser } = require("../contracts/userContracts");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
@@ -814,13 +815,7 @@ exports.sendOtp = async (req, res) => {
 
     if (user.otpLockUntil && user.otpLockUntil > now) {
       if (subjectKey) {
-        await safeAuditLog({
-          eventType: AuditEventTypes.SECURITY,
-          subjectType: "user",
-          subjectKey,
-          actorKey: subjectKey,
-          metadata: { reason: "otp_lockout_active" },
-        });
+        logOtpLockout(req, { subjectKey, reason: "otp_lockout_active" });
       }
       return res.status(429).json({ message: "Too many OTP attempts. Try again later." });
     }
@@ -930,13 +925,7 @@ exports.verifyOtp = async (req, res) => {
         user.otpCode = null;
         user.otpExpires = null;
         if (subjectKey) {
-          await safeAuditLog({
-            eventType: AuditEventTypes.SECURITY,
-            subjectType: "user",
-            subjectKey,
-            actorKey: subjectKey,
-            metadata: { reason: "otp_lockout", attempts: user.otpAttempts },
-          });
+          logOtpLockout(req, { subjectKey, reason: "otp_lockout", attempts: user.otpAttempts });
         }
       }
       await user.save();

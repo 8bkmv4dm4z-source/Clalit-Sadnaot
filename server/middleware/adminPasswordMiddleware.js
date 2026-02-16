@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { logAdminPasswordFailure } = require("../services/SecurityEventLogger");
 
 /**
  * Enforce secondary admin password for hub endpoints.
@@ -26,6 +27,7 @@ const requireAdminHubPassword = (req, res, next) => {
     providedBuffer.length !== configuredBuffer.length ||
     !crypto.timingSafeEqual(providedBuffer, configuredBuffer)
   ) {
+    logAdminPasswordFailure(req);
     return res.status(401).json({ message: "Invalid admin password" });
   }
 

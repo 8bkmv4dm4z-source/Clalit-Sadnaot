@@ -5,6 +5,8 @@
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 const { runWorkshopAudit } = require("./workshopAuditService");
+const { logIntegrityMismatch } = require("./SecurityEventLogger");
+const { runSecurityInsightAggregation } = require("./SecurityInsightService");
 
 const SUSPICIOUS_NAME_REGEX = /[{}<>\[\]$]/;
 const LEADING_TRAILING_WHITESPACE = /^\s|\s$/;
@@ -137,6 +139,12 @@ async function queryIntegrityHashMismatches({ limit = 150, fix = false } = {}) {
     if (fix && touched) {
       await user.save({ validateBeforeSave: false });
     }
+
+    logIntegrityMismatch({
+      hasRoleIssue: !!roleIssue,
+      hasIdIssue: !!idIssue,
+      fixed: Boolean(fix && touched),
+    });
 
     results.push({
       id: user._id,
@@ -283,17 +291,26 @@ async function runUserIntegrityAudit({ reason = "manual", force = false, fix = f
 /* ============================================================
    SUITE + SCHEDULER
    ============================================================ */
+let lastSecurityInsight = null;
+
 async function runAuditSuite({ reason = "manual", force = false, fix = false } = {}) {
-  const [userAudit, workshopAudit] = await Promise.all([
+  const [userAudit, workshopAudit, securityInsight] = await Promise.all([
     runUserIntegrityAudit({ reason, force, fix }),
     runWorkshopIntegrityAudit({ reason, force, fix }),
+    runSecurityInsightAggregation().catch((err) => {
+      console.warn("[AUDIT] Security insight aggregation failed:", err?.message || err);
+      return null;
+    }),
   ]);
+
+  lastSecurityInsight = securityInsight;
 
   lastAuditSuite = {
     checkedAt: new Date().toISOString(),
     reason,
     userAudit,
     workshopAudit,
+    securityInsight,
   };
 
   return lastAuditSuite;
@@ -322,6 +339,7 @@ module.exports = {
   getAuditSnapshot: () => ({
     userAudit: lastUserAuditResult,
     workshopAudit: lastWorkshopAudit,
+    securityInsight: lastSecurityInsight,
     suite: lastAuditSuite,
     lastUserAuditError:
       lastUserAuditError?.message || String(lastUserAuditError || ""),

@@ -1,11 +1,13 @@
 const { queryLogs, sanitizeMetadata } = require("../services/AuditLogService");
-const { allowedEventTypes, getAuditEventDefinition } = require("../services/AuditEventRegistry");
+const { allowedEventTypes, AuditSeverityLevels, getAuditEventDefinition } = require("../services/AuditEventRegistry");
 const {
   getMaxedWorkshops,
   getStaleUsers: fetchStaleUsers,
 } = require("../services/AdminHubService");
+const { getLatestInsights } = require("../services/SecurityInsightService");
 
-const ALLOWED_SUBJECT_TYPES = ["user", "familyMember", "workshop"];
+const ALLOWED_SUBJECT_TYPES = ["user", "familyMember", "workshop", "system"];
+const VALID_SEVERITIES = new Set(Object.values(AuditSeverityLevels));
 
 const parsePositiveInt = (value, { min, max, fallback }) => {
   const num = Number(value);
@@ -31,13 +33,16 @@ const parseIsoDate = (value) => {
  */
 const getLogs = async (req, res) => {
   try {
-    const { eventType, subjectType, subjectKey, from, to, page, limit, sort } = req.query;
+    const { eventType, subjectType, subjectKey, severity, from, to, page, limit, sort } = req.query;
 
     if (eventType && !allowedEventTypes.includes(eventType)) {
       return res.status(400).json({ message: "Invalid eventType" });
     }
     if (subjectType && !ALLOWED_SUBJECT_TYPES.includes(subjectType)) {
       return res.status(400).json({ message: "Invalid subjectType" });
+    }
+    if (severity && !VALID_SEVERITIES.has(severity)) {
+      return res.status(400).json({ message: "Invalid severity" });
     }
 
     const parsedFrom = parseIsoDate(from);
@@ -55,6 +60,7 @@ const getLogs = async (req, res) => {
       eventType,
       subjectType,
       subjectKey,
+      severity,
       from: parsedFrom,
       to: parsedTo,
       page: safePage,
@@ -116,15 +122,25 @@ const getStaleUsers = async (_req, res) => {
   }
 };
 
-/**
- * Identity:
- *   - Placeholder handler assumes admin-only routing via entityKey authorities.
- * Storage:
- *   - No database access; no Mongo _id exposure.
- * Notes:
- *   - Stub remains until stats endpoint is implemented.
- */
-const getStats = (_req, res) => res.status(501).json({ message: "Not implemented" });
+const getStats = async (_req, res) => {
+  try {
+    const { hourly, daily, warnings } = await getLatestInsights();
+    return res.json({
+      hourly,
+      daily,
+      warnings,
+      hourlyPeriod: hourly
+        ? { start: hourly.periodStart, end: hourly.periodEnd }
+        : null,
+      dailyPeriod: daily
+        ? { start: daily.periodStart, end: daily.periodEnd }
+        : null,
+    });
+  } catch (err) {
+    console.error("[ADMIN HUB] Failed to fetch stats", err);
+    return res.status(500).json({ message: "Failed to fetch stats" });
+  }
+};
 
 module.exports = {
   getLogs,

@@ -10,7 +10,7 @@ const cloneDeep = (value) => {
   return value;
 };
 
-const { AuditCategories, getAuditEventDefinition } = require("./AuditEventRegistry");
+const { AuditCategories, AuditSeverityLevels, AuditEventSeverityDefaults, getAuditEventDefinition } = require("./AuditEventRegistry");
 const { hmacEntityKey } = require("../utils/hmacUtil");
 const DefaultAuditLogModel = require("../models/AdminAuditLog");
 
@@ -66,6 +66,8 @@ const normalizePagination = (page = 1, limit = 50) => {
   return { skip, limit: safeLimit };
 };
 
+const VALID_SEVERITIES = new Set(Object.values(AuditSeverityLevels));
+
 const publicView = (doc) => {
   if (!doc) return doc;
   const plain = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
@@ -83,15 +85,21 @@ const publicView = (doc) => {
   return cleaned;
 };
 
-const recordEvent = async ({ eventType, subjectType, subjectKey, actorKey, metadata }) => {
+const recordEvent = async ({ eventType, subjectType, subjectKey, actorKey, severity, metadata }) => {
   const def = getAuditEventDefinition(eventType);
   if (!def || !subjectType || !subjectKey) {
     throw new Error("eventType, subjectType, and subjectKey are required");
   }
 
+  const resolvedSeverity =
+    (severity && VALID_SEVERITIES.has(severity) ? severity : null) ||
+    AuditEventSeverityDefaults[eventType] ||
+    AuditSeverityLevels.INFO;
+
   const payload = {
     eventType: def.eventType,
     category: def.category,
+    severity: resolvedSeverity,
     subjectType,
     subjectKey,
     subjectKeyHash: hmacEntityKey(subjectKey),
@@ -108,6 +116,7 @@ const queryLogs = async ({
   eventType,
   subjectType,
   subjectKey,
+  severity,
   from,
   to,
   page = 1,
@@ -118,6 +127,7 @@ const queryLogs = async ({
   if (eventType) filters.eventType = eventType;
   if (subjectType) filters.subjectType = subjectType;
   if (subjectKey) filters.subjectKeyHash = hmacEntityKey(subjectKey);
+  if (severity && VALID_SEVERITIES.has(severity)) filters.severity = severity;
   if (from || to) {
     filters.createdAt = {};
     if (from) filters.createdAt.$gte = new Date(from);

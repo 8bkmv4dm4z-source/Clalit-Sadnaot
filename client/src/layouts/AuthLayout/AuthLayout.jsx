@@ -197,6 +197,17 @@ export const AuthProvider = ({ children }) => {
     [navigate]
   );
 
+  const normalizeResponseError = useCallback((res, payload, fallbackMessage) => {
+    return (
+      res?.normalizedError ||
+      normalizeError(null, {
+        status: res?.status,
+        payload,
+        fallbackMessage,
+      })
+    );
+  }, []);
+
   /* ============================================================
      🔁 Refresh Access Token
      ============================================================ */
@@ -297,19 +308,6 @@ export const AuthProvider = ({ children }) => {
   },
   [accessToken, refreshAccessToken]
   );
-
-  const normalizeResponseError = useCallback((res, payload, fallbackMessage) => {
-    return (
-      res?.normalizedError ||
-      normalizeError(null, {
-        status: res?.status,
-        payload,
-        fallbackMessage,
-      })
-    );
-  }, []);
-
-
 
   /* ============================================================
    👤 fetchMe — load current user (MINIMAL, SERVER-AUTHORITATIVE)

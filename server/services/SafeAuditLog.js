@@ -22,7 +22,12 @@ const safeAuditLog = async (payload = {}) => {
       return;
     }
 
-    await recordEvent({ ...payload, category: def.category });
+    const severity =
+      payload.severity ||
+      payload.metadata?.severity ||
+      undefined;
+
+    await recordEvent({ ...payload, category: def.category, severity });
   } catch (err) {
     console.warn("[AUDIT] skipped", err?.message || err);
   }

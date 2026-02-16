@@ -4,9 +4,13 @@ const { requireAdminHubPassword } = require("../middleware/adminPasswordMiddlewa
 const { perUserRateLimit } = require("../middleware/perUserRateLimit");
 const adminHubController = require("../controllers/adminHubController");
 
-const adminHubPasswordLimiter = perUserRateLimit({
+// Admin hub is triple-gated (JWT + admin authority + timing-safe password).
+// Limit raised from 5 to 40 to accommodate the 4-request initial load plus
+// normal browsing (tab switches, refreshes, pagination). Brute-force risk
+// is mitigated by the admin authority gate + timing-safe password comparison.
+const adminHubLimiter = perUserRateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
+  limit: 40,
 });
 
 const router = express.Router();
@@ -27,7 +31,7 @@ router.get(
   "/logs",
   authenticate,
   authorizeAdmin,
-  adminHubPasswordLimiter,
+  adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.getLogs
 );
@@ -37,7 +41,7 @@ router.get(
   "/alerts/maxed-workshops",
   authenticate,
   authorizeAdmin,
-  adminHubPasswordLimiter,
+  adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.getMaxedWorkshopAlerts
 );
@@ -47,17 +51,17 @@ router.get(
   "/stale-users",
   authenticate,
   authorizeAdmin,
-  adminHubPasswordLimiter,
+  adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.getStaleUsers
 );
 
-// GET /api/admin/hub/stats (placeholder)
+// GET /api/admin/hub/stats
 router.get(
   "/stats",
   authenticate,
   authorizeAdmin,
-  adminHubPasswordLimiter,
+  adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.getStats
 );
