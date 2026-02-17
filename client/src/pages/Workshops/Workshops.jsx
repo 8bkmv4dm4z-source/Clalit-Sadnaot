@@ -5,8 +5,6 @@
  * It leverages the WorkshopContext for all data fetching and state management,
  * ensuring a clean separation of concerns and maintainable code.
  */
-/* global IntersectionObserver */
-
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
@@ -14,18 +12,45 @@ import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../components/WorkshopCard";
 import WorkshopShowcaseCard from "../../components/WorkshopCard/WorkshopShowcaseCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
-import { AnimatePresence, motion } from "framer-motion";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import { AnimatedTestimonials } from "@/components/ui/animated-testimonials";
 import { getWorkshopImage } from "../../constants/workshopImages";
 import {
   AlertTriangle,
   CheckCircle2,
-  LayoutGrid,
   Loader2,
   Search,
-  Sparkles,
 } from "lucide-react";
+
+const WORKSHOP_STYLE_KEY = "workshopsPreferredPageStyle";
+const WORKSHOP_STYLE_ACTIVE_KEY = "workshopsActivePageStyle";
+const WORKSHOP_STYLE_PREF_EVENT = "workshop-style-preference-change";
+const WORKSHOP_STYLE_ACTIVE_EVENT = "workshop-style-active-change";
+const normalizeWorkshopStyle = (value) =>
+  value === "classic" || value === "showcase" ? value : null;
+const scopeStyleKey = (scope) => `${WORKSHOP_STYLE_KEY}:${scope || "public"}`;
+const readScopedStyle = (scope) => {
+  try {
+    return normalizeWorkshopStyle(localStorage.getItem(scopeStyleKey(scope)));
+  } catch {
+    return null;
+  }
+};
+const resolvePreferredStyle = (scope = null) => {
+  try {
+    if (typeof window === "undefined") return "showcase";
+    const scoped =
+      scope != null
+        ? normalizeWorkshopStyle(localStorage.getItem(scopeStyleKey(scope)))
+        : null;
+    if (scoped) return scoped;
+    const preferred = normalizeWorkshopStyle(localStorage.getItem(WORKSHOP_STYLE_KEY));
+    if (preferred) return preferred;
+    return normalizeWorkshopStyle(localStorage.getItem(WORKSHOP_STYLE_ACTIVE_KEY)) || "showcase";
+  } catch {
+    return "showcase";
+  }
+};
 
 export default function Workshops() {
   const navigate = useNavigate();
@@ -38,10 +63,9 @@ export default function Workshops() {
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
   const [viewport, setViewport] = useState("desktop");
-  const [pageStyle, setPageStyle] = useState("showcase");
-  const [showcaseShuffleSeed, setShowcaseShuffleSeed] = useState(0);
-  const [isPreparingShowcase, setIsPreparingShowcase] = useState(false);
+  const [pageStyle, setPageStyle] = useState(resolvePreferredStyle);
   const showcasePrefetchScopeRef = useRef(null);
+  const previousScopeRef = useRef(null);
 
   // 🔹 Context state
   const {
@@ -62,6 +86,8 @@ export default function Workshops() {
     accessScope,
     setAccessScope,
   } = useWorkshops();
+  const currentScope =
+    accessScope || (canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public");
   const errorMessage = typeof error === "string" ? error : error?.message;
   const canRenderShowcase =
     viewMode === "all" && !loading && !loadingMore && !pagination?.hasMore;
@@ -78,6 +104,78 @@ export default function Workshops() {
     loadCities();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const scopedStyle = readScopedStyle(currentScope);
+    if (scopedStyle) {
+      setPageStyle(scopedStyle);
+      previousScopeRef.current = currentScope;
+      return;
+    }
+
+    const previousScope = previousScopeRef.current;
+    if (previousScope && previousScope !== currentScope) {
+      try {
+        localStorage.setItem(scopeStyleKey(currentScope), pageStyle);
+      } catch {
+        /* ignore scope preference persistence failures */
+      }
+      previousScopeRef.current = currentScope;
+      return;
+    }
+
+    setPageStyle(resolvePreferredStyle(currentScope));
+    previousScopeRef.current = currentScope;
+  }, [currentScope, pageStyle]);
+
+  useEffect(() => {
+    const syncPreference = (event) => {
+      const next = normalizeWorkshopStyle(event?.detail?.style);
+      const resolved = next || resolvePreferredStyle(currentScope);
+      setPageStyle(resolved);
+      try {
+        localStorage.setItem(scopeStyleKey(currentScope), resolved);
+      } catch {
+        /* ignore scope preference persistence failures */
+      }
+    };
+    const syncStoragePreference = (event) => {
+      if (
+        event.key !== WORKSHOP_STYLE_KEY &&
+        event.key !== scopeStyleKey(currentScope)
+      ) {
+        return;
+      }
+      setPageStyle(resolvePreferredStyle(currentScope));
+    };
+    window.addEventListener(WORKSHOP_STYLE_PREF_EVENT, syncPreference);
+    window.addEventListener("storage", syncStoragePreference);
+    return () => {
+      window.removeEventListener(WORKSHOP_STYLE_PREF_EVENT, syncPreference);
+      window.removeEventListener("storage", syncStoragePreference);
+    };
+  }, [currentScope]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(scopeStyleKey(currentScope), pageStyle);
+    } catch {
+      /* ignore scope preference persistence failures */
+    }
+  }, [pageStyle, currentScope]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSHOP_STYLE_ACTIVE_KEY, pageStyle);
+      window.dispatchEvent(
+        new CustomEvent(WORKSHOP_STYLE_ACTIVE_EVENT, {
+          detail: { activeStyle: pageStyle, at: Date.now() },
+        })
+      );
+    } catch {
+      /* ignore preference persistence failures */
+    }
+  }, [pageStyle]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -153,20 +251,10 @@ export default function Workshops() {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (viewMode !== "all") {
-      setIsPreparingShowcase(false);
-      return;
-    }
-    if (pageStyle !== "showcase") {
-      setIsPreparingShowcase(false);
-      return;
-    }
+    if (viewMode !== "all") return;
+    if (pageStyle !== "showcase") return;
     if (loading || loadingMore) return;
-    if (!pagination?.hasMore) {
-      setIsPreparingShowcase(false);
-      return;
-    }
-    setIsPreparingShowcase(true);
+    if (!pagination?.hasMore) return;
     loadMoreWorkshops();
   }, [viewMode, pageStyle, pagination?.hasMore, loading, loadingMore, loadMoreWorkshops]);
 
@@ -179,12 +267,6 @@ export default function Workshops() {
     showcasePrefetchScopeRef.current = scopeKey;
     fetchWorkshops({ force: true, limit: 10, skip: 0, scope: scopeKey });
   }, [viewMode, effectivePageStyle, accessScope, fetchWorkshops]);
-
-  useEffect(() => {
-    if (viewMode !== "all") return;
-    if (effectivePageStyle !== "showcase") return;
-    setShowcaseShuffleSeed(Date.now());
-  }, [viewMode, effectivePageStyle, accessScope]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -315,6 +397,21 @@ export default function Workshops() {
     if (found) setSelectedWorkshop(found);
   };
 
+  const handleShowcaseOpen = (workshop) => {
+    if (!isLoggedIn) {
+      navigate("/register", {
+        state: {
+          from: "/workshops",
+          workshopId: workshop?._id,
+          workshopTitle: workshop?.title || "",
+        },
+      });
+      return;
+    }
+    setPageStyle("classic");
+    if (workshop?.title) setSearchQuery(workshop.title);
+  };
+
   const handleModalClose = async () => {
     setSelectedWorkshop(null);
     await fetchWorkshops({ force: true, scope: accessScope });
@@ -347,19 +444,8 @@ export default function Workshops() {
         description: w.description,
       }));
 
-    if (cards.length < 2) return cards;
-
-    // Shuffle display order so each completed workshops load feels fresh.
-    const arr = [...cards];
-    // Keep a stable card order between renders to prevent scroll jumps while paginating.
-    let seed = showcaseShuffleSeed || 1;
-    for (let i = arr.length - 1; i > 0; i -= 1) {
-      seed = (seed * 1664525 + 1013904223) % 4294967296;
-      const j = seed % (i + 1);
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }, [filteredWorkshops, showcaseShuffleSeed]);
+    return cards;
+  }, [filteredWorkshops]);
   const testimonialSlides = useMemo(
     () =>
       showcaseCards.slice(0, 10).map((w) => ({
@@ -390,47 +476,14 @@ export default function Workshops() {
 
       {/* 🔍 Smart Search Bar */}
       {viewMode === "all" && (
-        <motion.div
-          layout
-          initial={{ opacity: 0, y: -10, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
+        <div
           className="mx-auto mb-8 flex max-w-6xl flex-col items-stretch gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between md:p-5"
         >
-          <div className="inline-flex items-center rounded-xl border border-slate-300 bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => setPageStyle("classic")}
-              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                pageStyle === "classic"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              <LayoutGrid size={14} />
-              תצוגה קלאסית
-            </button>
-            <button
-              type="button"
-              onClick={() => setPageStyle("showcase")}
-              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                effectivePageStyle === "showcase"
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              <Sparkles size={14} />
-              {isPreparingShowcase && !canRenderShowcase
-                ? "מכין תצוגת Showcase..."
-                : "תצוגת Showcase"}
-            </button>
-          </div>
-
           <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
             <select
               value={searchBy}
               onChange={(e) => setSearchBy(e.target.value)}
-              className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-slate-500 focus:bg-white focus:outline-none"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-slate-500 focus:bg-white focus:outline-none sm:w-auto"
             >
               <option value="all">חפש בכל</option>
               <option value="title">שם</option>
@@ -468,7 +521,7 @@ export default function Workshops() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {/* 📣 Feedback */}
@@ -542,45 +595,30 @@ export default function Workshops() {
             </div>
           )}
           {effectivePageStyle === "classic" ? (
-            <motion.div layout className={`${gridClass} mt-10`}>
-              <AnimatePresence mode="popLayout">
-                {filteredWorkshops.map((w) => (
-                  <motion.div
-                    key={w._id}
-                    layout
-                    initial={{ opacity: 0, y: 14, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -12, scale: 0.98 }}
-                    transition={{ duration: 0.25, ease: "easeOut" }}
-                    className="h-full"
-                  >
-                    <WorkshopCard
-                      _id={w._id}
-                      isLoggedIn={isLoggedIn}
-                      searchQuery={searchQuery}
-                      onManageParticipants={() => handleManageParticipants(w._id)}
-                      onEditWorkshop={() => handleEditWorkshop(w._id)}
-                      onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
-                    />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          ) : (
-            <motion.div
-              layout
-              className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto"
-            >
-              <AnimatePresence mode="popLayout">
-                {showcaseCards.map((workshop) => (
-                  <WorkshopShowcaseCard
-                    key={workshop._id}
-                    workshop={workshop}
-                    onOpen={() => setPageStyle("classic")}
+            <div className={`${gridClass} mt-10`}>
+              {filteredWorkshops.map((w) => (
+                <div key={w._id} className="h-full">
+                  <WorkshopCard
+                    _id={w._id}
+                    isLoggedIn={isLoggedIn}
+                    searchQuery={searchQuery}
+                    onManageParticipants={() => handleManageParticipants(w._id)}
+                    onEditWorkshop={() => handleEditWorkshop(w._id)}
+                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
                   />
-                ))}
-              </AnimatePresence>
-            </motion.div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+              {showcaseCards.map((workshop) => (
+                <WorkshopShowcaseCard
+                  key={workshop._id}
+                  workshop={workshop}
+                  onOpen={() => handleShowcaseOpen(workshop)}
+                />
+              ))}
+            </div>
           )}
           <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 mt-8">
             {loadingMore && (

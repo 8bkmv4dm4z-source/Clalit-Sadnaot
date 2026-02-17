@@ -42,9 +42,10 @@ export default function WorkshopShowcaseCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.28, ease: "easeOut" }}
-      className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+      onClick={() => onOpen(_id)}
+      className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
     >
-      <div className="relative h-56 overflow-hidden">
+      <div className="relative h-48 overflow-hidden sm:h-56">
         <img
           src={imageUrl}
           alt={title || "Workshop"}
@@ -54,7 +55,7 @@ export default function WorkshopShowcaseCard({
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
       </div>
 
-      <div className="space-y-4 p-5">
+      <div className="space-y-4 p-4 sm:p-5">
         <div className="space-y-1">
           <h3 className="line-clamp-1 text-lg font-semibold text-slate-900">{title}</h3>
           <p className="line-clamp-2 text-sm text-slate-600">{description || "ללא תיאור נוסף"}</p>
@@ -73,11 +74,16 @@ export default function WorkshopShowcaseCard({
           />
         </div>
 
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-800">{coach || "מאמן לא צוין"}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="line-clamp-1 text-sm font-medium text-slate-800">
+            {coach || "מאמן לא צוין"}
+          </p>
           <button
-            onClick={() => onOpen(_id)}
-            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(_id);
+            }}
+            className="w-full rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-700 sm:w-auto"
           >
             עבור לכרטיס המלא
           </button>

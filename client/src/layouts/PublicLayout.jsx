@@ -5,13 +5,24 @@
  * Supports mobile toggle (overlay)
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import Home from "../pages/Home";
 
 export default function PublicLayout() {
   const [isOpen, setIsOpen] = useState(false);
   const toggleSidebar = (force) => setIsOpen(force === false ? false : (p) => !p);
+
+  useEffect(() => {
+    const collapseOnMobile = () => {
+      if ((window.innerWidth || 0) < 640) {
+        setIsOpen(false);
+      }
+    };
+    collapseOnMobile();
+    window.addEventListener("resize", collapseOnMobile);
+    return () => window.removeEventListener("resize", collapseOnMobile);
+  }, []);
 
   return (
     <div

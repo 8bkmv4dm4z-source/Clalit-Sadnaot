@@ -40,7 +40,6 @@ import React, {
 import { useProfiles } from "../layouts/ProfileContext";
 import { useAuth } from "../layouts/AuthLayout";
 import { normalizeEntity } from "../utils/normalizeEntity";
-import { useAdminCapabilityStatus } from "../context/AdminCapabilityContext";
 import { normalizeError } from "../utils/normalizeError";
 import { apiFetch } from "../utils/apiFetch";
 import { deriveWorkshopsByEntity } from "../utils/workshopDerivation";
@@ -119,7 +118,6 @@ const normalizeUiError = (err, fallback) =>
 export const WorkshopProvider = ({ children }) => {
   const { user, isLoggedIn, loading: authLoading, logoutInProgress, logout } =
     useAuth();
-  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const { fetchProfiles } = useProfiles();
 
   const [workshops, setWorkshops] = useState([]);
@@ -131,7 +129,11 @@ export const WorkshopProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [hasError, setHasError] = useState(false);
 
-  const [viewMode, setViewMode] = useState("all"); // "all" | "mine"
+  const [viewMode, setViewModeState] = useState("all"); // "all" | "mine"
+  const setViewMode = useCallback((nextMode) => {
+    const resolved = nextMode === "mine" ? "mine" : "all";
+    setViewModeState((prev) => (prev === resolved ? prev : resolved));
+  }, []);
   const [selectedWorkshop, setSelectedWorkshop] = useState(null);
   const [pagination, setPagination] = useState({
     limit: 10,
@@ -1130,4 +1132,5 @@ export const WorkshopProvider = ({ children }) => {
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useWorkshops = () => useContext(WorkshopContext);
