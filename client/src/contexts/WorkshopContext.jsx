@@ -125,6 +125,7 @@ export const WorkshopProvider = ({ children }) => {
   const [registeredWorkshopIds, setRegisteredWorkshopIds] = useState([]);
 
   const [loading, setLoading] = useState(false);
+  const [registeredLoading, setRegisteredLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [hasError, setHasError] = useState(false);
@@ -475,13 +476,13 @@ export const WorkshopProvider = ({ children }) => {
         logoutInProgress,
         isLoggedIn,
       });
-      setLoading(false);
+      setRegisteredLoading(false);
       return;
     }
     log("📡 Fetching registered workshops (ids)...");
     dbgCtx("fetchRegisteredWorkshops:start");
     try {
-      setLoading(true);
+      setRegisteredLoading(true);
       const res = await apiFetch(`/api/workshops/registered`);
       
       if (!res.ok) {
@@ -547,7 +548,7 @@ export const WorkshopProvider = ({ children }) => {
         await logout(true);
       }
     } finally {
-      setLoading(false);
+      setRegisteredLoading(false);
     }
   }, [authLoading, canFetchWorkshops, isLoggedIn, logoutInProgress, setWorkshopError, logout]);
 
@@ -598,20 +599,10 @@ export const WorkshopProvider = ({ children }) => {
     }
   }, [buildLocalWorkshopMaps, serverMapsLoaded, familyMembersSignature, workshopsSignature]);
 
-  // Filter displayedWorkshops when viewMode === "mine"
+  // Keep displayedWorkshops stable; view-based filtering is handled by page selectors.
   useEffect(() => {
-    if (viewMode === "mine") {
-      setDisplayedWorkshops(
-        (workshops || []).filter(
-          (w) =>
-            userWorkshopMap[w._id] ||
-            (familyWorkshopMap[w._id]?.length ?? 0) > 0
-        )
-      );
-    } else {
-      setDisplayedWorkshops(workshops || []);
-    }
-  }, [viewMode, workshops, userWorkshopMap, familyWorkshopMap]);
+    setDisplayedWorkshops(workshops || []);
+  }, [workshops]);
 
   /* ============================================================
      🔧 Mutations (server-source-of-truth + refetch)
@@ -1095,6 +1086,7 @@ export const WorkshopProvider = ({ children }) => {
         mapsReady,
 
         loading,
+        registeredLoading,
         loadingMore,
         error,
         hasError,

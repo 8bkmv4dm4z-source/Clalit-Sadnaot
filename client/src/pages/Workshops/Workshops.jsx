@@ -5,7 +5,7 @@
  * It leverages the WorkshopContext for all data fetching and state management,
  * ensuring a clean separation of concerns and maintainable code.
  */
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
@@ -29,28 +29,6 @@ const WORKSHOP_STYLE_ACTIVE_EVENT = "workshop-style-active-change";
 const normalizeWorkshopStyle = (value) =>
   value === "classic" || value === "showcase" ? value : null;
 const scopeStyleKey = (scope) => `${WORKSHOP_STYLE_KEY}:${scope || "public"}`;
-const readScopedStyle = (scope) => {
-  try {
-    return normalizeWorkshopStyle(localStorage.getItem(scopeStyleKey(scope)));
-  } catch {
-    return null;
-  }
-};
-const resolvePreferredStyle = (scope = null) => {
-  try {
-    if (typeof window === "undefined") return "showcase";
-    const scoped =
-      scope != null
-        ? normalizeWorkshopStyle(localStorage.getItem(scopeStyleKey(scope)))
-        : null;
-    if (scoped) return scoped;
-    const preferred = normalizeWorkshopStyle(localStorage.getItem(WORKSHOP_STYLE_KEY));
-    if (preferred) return preferred;
-    return normalizeWorkshopStyle(localStorage.getItem(WORKSHOP_STYLE_ACTIVE_KEY)) || "showcase";
-  } catch {
-    return "showcase";
-  }
-};
 
 export default function Workshops() {
   const navigate = useNavigate();
@@ -63,9 +41,10 @@ export default function Workshops() {
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
   const [viewport, setViewport] = useState("desktop");
-  const [pageStyle, setPageStyle] = useState(resolvePreferredStyle);
-  const showcasePrefetchScopeRef = useRef(null);
+  const [pageStyle, setPageStyle] = useState("classic");
   const previousScopeRef = useRef(null);
+  const previousViewModeRef = useRef("all");
+  const lastForcedFetchRef = useRef({ key: "", at: 0 });
 
   // 🔹 Context state
   const {
@@ -85,13 +64,23 @@ export default function Workshops() {
     pagination,
     accessScope,
     setAccessScope,
+    userWorkshopMap,
+    familyWorkshopMap,
   } = useWorkshops();
   const currentScope =
     accessScope || (canAccessAdmin ? "admin" : isLoggedIn ? "user" : "public");
   const errorMessage = typeof error === "string" ? error : error?.message;
-  const canRenderShowcase =
-    viewMode === "all" && !loading && !loadingMore && !pagination?.hasMore;
-  const effectivePageStyle = canRenderShowcase ? pageStyle : "classic";
+  const effectivePageStyle = pageStyle;
+  const runForcedWorkshopsFetch = useCallback(
+    (key, args) => {
+      const now = Date.now();
+      const last = lastForcedFetchRef.current;
+      if (last.key === key && now - last.at < 1200) return;
+      lastForcedFetchRef.current = { key, at: now };
+      fetchWorkshops(args);
+    },
+    [fetchWorkshops]
+  );
 
   /* ============================================================
      🧩 Initial Data Fetch
@@ -106,32 +95,14 @@ export default function Workshops() {
   }, []);
 
   useEffect(() => {
-    const scopedStyle = readScopedStyle(currentScope);
-    if (scopedStyle) {
-      setPageStyle(scopedStyle);
-      previousScopeRef.current = currentScope;
-      return;
-    }
-
-    const previousScope = previousScopeRef.current;
-    if (previousScope && previousScope !== currentScope) {
-      try {
-        localStorage.setItem(scopeStyleKey(currentScope), pageStyle);
-      } catch {
-        /* ignore scope preference persistence failures */
-      }
-      previousScopeRef.current = currentScope;
-      return;
-    }
-
-    setPageStyle(resolvePreferredStyle(currentScope));
     previousScopeRef.current = currentScope;
-  }, [currentScope, pageStyle]);
+  }, [currentScope]);
 
   useEffect(() => {
     const syncPreference = (event) => {
       const next = normalizeWorkshopStyle(event?.detail?.style);
-      const resolved = next || resolvePreferredStyle(currentScope);
+      if (!next) return;
+      const resolved = next;
       setPageStyle(resolved);
       try {
         localStorage.setItem(scopeStyleKey(currentScope), resolved);
@@ -139,20 +110,9 @@ export default function Workshops() {
         /* ignore scope preference persistence failures */
       }
     };
-    const syncStoragePreference = (event) => {
-      if (
-        event.key !== WORKSHOP_STYLE_KEY &&
-        event.key !== scopeStyleKey(currentScope)
-      ) {
-        return;
-      }
-      setPageStyle(resolvePreferredStyle(currentScope));
-    };
     window.addEventListener(WORKSHOP_STYLE_PREF_EVENT, syncPreference);
-    window.addEventListener("storage", syncStoragePreference);
     return () => {
       window.removeEventListener(WORKSHOP_STYLE_PREF_EVENT, syncPreference);
-      window.removeEventListener("storage", syncStoragePreference);
     };
   }, [currentScope]);
 
@@ -207,9 +167,9 @@ export default function Workshops() {
 
     if (scope !== accessScope) {
       if (typeof setAccessScope === "function") setAccessScope(scope);
-      fetchWorkshops({ force: true, scope });
+      runForcedWorkshopsFetch(`scope-sync:${scope}`, { force: true, scope });
     }
-  }, [canAccessAdmin, isChecking, isLoggedIn, setAccessScope, fetchWorkshops, accessScope]);
+  }, [canAccessAdmin, isChecking, isLoggedIn, setAccessScope, accessScope, runForcedWorkshopsFetch]);
 
   // 🔽 Infinite scroll / swipe-to-load for mobile
   const loadMoreRef = useRef(null);
@@ -251,22 +211,27 @@ export default function Workshops() {
   }, [searchQuery]);
 
   useEffect(() => {
+    const switchedFromMineToAll =
+      previousViewModeRef.current === "mine" && viewMode === "all";
     if (viewMode !== "all") return;
     if (pageStyle !== "showcase") return;
     if (loading || loadingMore) return;
     if (!pagination?.hasMore) return;
+    if (switchedFromMineToAll && (displayedWorkshops?.length || 0) > 0) return;
     loadMoreWorkshops();
-  }, [viewMode, pageStyle, pagination?.hasMore, loading, loadingMore, loadMoreWorkshops]);
+  }, [
+    viewMode,
+    pageStyle,
+    pagination?.hasMore,
+    loading,
+    loadingMore,
+    loadMoreWorkshops,
+    displayedWorkshops,
+  ]);
 
   useEffect(() => {
-    if (viewMode !== "all") return;
-    if (effectivePageStyle !== "showcase") return;
-    const scopeKey = accessScope || "public";
-    if (showcasePrefetchScopeRef.current === scopeKey) return;
-
-    showcasePrefetchScopeRef.current = scopeKey;
-    fetchWorkshops({ force: true, limit: 10, skip: 0, scope: scopeKey });
-  }, [viewMode, effectivePageStyle, accessScope, fetchWorkshops]);
+    previousViewModeRef.current = viewMode;
+  }, [viewMode]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -342,11 +307,10 @@ export default function Workshops() {
   ============================================================ */
   const workshopsByEntity = useMemo(() => {
     if (!user) return {};
-
-    const related = filteredWorkshops.filter(
+    const registered = (displayedWorkshops || []).filter(
       (w) =>
-        w.isUserRegistered ||
-        (Array.isArray(w.userFamilyRegistrations) && w.userFamilyRegistrations.length > 0)
+        !!userWorkshopMap[w._id] ||
+        ((familyWorkshopMap[w._id] || []).length > 0)
     );
 
     const map = {};
@@ -355,15 +319,14 @@ export default function Workshops() {
     map[user._id] = {
       name: user.fullName || user.name || "אני",
       relation: "",
-      workshops: related.filter((w) => w.isUserRegistered),
+      workshops: registered.filter((w) => !!userWorkshopMap[w._id]),
     };
 
     // Family members
     (user.familyMembers || []).forEach((member) => {
-      const memberWorkshops = related.filter((w) =>
-        (w.userFamilyRegistrations || []).some(
-          (r) => String(r) === String(member._id)
-        )
+      const memberKey = String(member?.entityKey || member?._id || "");
+      const memberWorkshops = registered.filter((w) =>
+        (familyWorkshopMap[w._id] || []).some((r) => String(r) === memberKey)
       );
       if (memberWorkshops.length) {
         map[member._id] = {
@@ -375,7 +338,7 @@ export default function Workshops() {
     });
 
     return map;
-  }, [user, filteredWorkshops]);
+  }, [user, displayedWorkshops, userWorkshopMap, familyWorkshopMap]);
 
   /* ============================================================
      ⚙️ Handlers
