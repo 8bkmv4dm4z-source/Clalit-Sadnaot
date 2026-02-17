@@ -199,13 +199,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   const isMobile = viewport === "mobile";
   const isTablet = viewport === "tablet";
-  const infoRowLayout = isMobile
-    ? "flex flex-col gap-1 items-start text-[13px]"
-    : "flex items-center justify-between";
-  const infoValueClamp = isMobile
-    ? "w-full leading-snug"
-    : "truncate max-w-[65%]";
-  const cardPadding = isMobile ? "p-3" : "p-3 sm:p-4";
+  const shortDescription = description?.trim()
+    ? description.trim()
+    : "סדנה פעילה עם הדרכה מקצועית וקבוצה דינמית.";
 
 
   // -------- Normalize waitlist --------
@@ -433,12 +429,9 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
           if (!isLoggedIn) navigate("/Register");
         }}
         className={`
-        relative rounded-2xl border border-indigo-100/80 overflow-hidden
-        bg-gradient-to-br from-white via-indigo-50/50 to-blue-50/60
-        shadow-[0_2px_16px_rgba(99,102,241,0.08)]
-        hover:shadow-[0_8px_30px_rgba(99,102,241,0.15)] hover:-translate-y-1
+        group relative overflow-hidden rounded-3xl border border-slate-200
+        bg-white shadow-sm hover:-translate-y-1 hover:shadow-xl
         transition-all duration-300 cursor-pointer
-        backdrop-blur-sm
         ${isMobile ? "text-[13px]" : isTablet ? "text-[14px]" : "text-sm"}
         `}
       >
@@ -446,7 +439,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
         {/* Price */}
         {price !== undefined && price !== null && price !== "" && (
           <div className="absolute top-3 left-3 z-10">
-            <div className="bg-indigo-600/90 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg backdrop-blur-sm">
+            <div className="rounded-full bg-slate-900/90 px-3 py-1 text-xs font-semibold text-white shadow-lg backdrop-blur-sm">
               <span className="inline-flex items-center gap-1">
                 <Coins size={14} />
                 {Number(price)} ₪
@@ -467,7 +460,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
         {/* Image */}
         <div
           className={`relative w-full overflow-hidden ${
-            isMobile ? "h-36" : "h-40 sm:h-44"
+            isMobile ? "h-48" : "h-52 sm:h-56"
           }`}
         >
           {/* 3. Use imageUrl here. The helper ensures a valid URL, so we can render it directly. */}
@@ -475,7 +468,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
             <img
               src={imageUrl}
               alt={title}
-              className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
               loading="lazy"
             />
           ) : (
@@ -491,10 +484,11 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
               לא זמינה
             </div>
           )}
+          <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/55 to-transparent" />
         </div>
 
         {/* CONTENT */}
-        <div className={`${cardPadding} flex flex-col gap-2.5 sm:gap-3 text-right`}>
+        <div className="space-y-4 p-5 text-right">
           {/* Title + Admin */}
           <div
             className={`flex gap-2 ${
@@ -502,8 +496,8 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
             }`}
           >
             <h3
-              className={`font-semibold text-indigo-900/90 tracking-wide truncate flex-1 tracking-tight ${
-                isMobile ? "text-base leading-tight" : "text-sm sm:text-base"
+              className={`flex-1 truncate font-semibold tracking-tight text-slate-900 ${
+                isMobile ? "text-lg leading-tight" : "text-lg"
               }`}
             >
               {highlight(title, searchQuery)}
@@ -531,90 +525,62 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
             )}
           </div>
 
+          <p className="line-clamp-2 text-sm leading-6 text-slate-600">
+            {highlight(shortDescription, searchQuery)}
+          </p>
+
           {/* Type */}
           {type && (
-            <Badge variant="secondary" className="text-[10px] sm:text-[11px] text-indigo-700 bg-indigo-100 rounded-full w-max ml-auto shadow-sm hover:bg-indigo-100">
+            <Badge
+              variant="secondary"
+              className="ml-auto w-max rounded-full border border-slate-300 bg-slate-100 px-2.5 text-[11px] text-slate-700"
+            >
               {highlight(type, searchQuery)}
             </Badge>
           )}
 
-          {/* INFO ROWS */}
-          <div className="flex flex-col gap-2 mt-1 text-sm">
-            {/* Address */}
-            <div
-              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
-            >
-              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
-                <MapPin size={16} /> כתובת
-              </span>
-
-              <span
-                className={`flex items-center text-gray-800 ${infoValueClamp} gap-2 text-right`}
-              >
+          {/* INFO PILLS */}
+          <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
+            <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5">
+              <MapPin size={14} className="text-slate-500" />
+              <span className="line-clamp-1">
                 {highlight(
-                  city && address
-                    ? `${city}, ${address}`
-                    : city || address || "—",
+                  city && address ? `${city}, ${address}` : city || address || "ללא כתובת",
                   searchQuery
                 )}
-
-                {(city || address) && (
-                  <a
-                    href={`https://www.google.com/maps?q=${encodeURIComponent(
-                      `${address || ""}, ${city || ""}`
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="פתח במפות"
-                    className="text-indigo-500 hover:text-indigo-700 shrink-0"
-                  >
-                    🌍
-                  </a>
-                )}
               </span>
+              {(city || address) && (
+                <a
+                  href={`https://www.google.com/maps?q=${encodeURIComponent(
+                    `${address || ""}, ${city || ""}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="פתח במפות"
+                  className="shrink-0 text-slate-500 hover:text-slate-800"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  🌍
+                </a>
+              )}
             </div>
 
-            {/* Coach */}
-            <div
-              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
-            >
-              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
-                <Dumbbell size={16} /> מאמן
-              </span>
-              <span className={`text-gray-800 ${infoValueClamp}`}>
-                {highlight(coach || "—", searchQuery)}
-              </span>
+            <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5">
+              <Dumbbell size={14} className="text-slate-500" />
+              <span className="line-clamp-1">{highlight(coach || "מאמן לא צוין", searchQuery)}</span>
             </div>
 
-            {/* Studio */}
-            <div
-              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
-            >
-              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
-                <Building2 size={16} /> סטודיו
-              </span>
-              <span className={`text-gray-800 ${infoValueClamp}`}>
-                {highlight(studio || "—", searchQuery)}
-              </span>
+            <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5">
+              <Building2 size={14} className="text-slate-500" />
+              <span className="line-clamp-1">{highlight(studio || "סטודיו לא צוין", searchQuery)}</span>
             </div>
 
-            {/* Days + Hour */}
-            <div
-              className={`${infoRowLayout} bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm`}
-            >
-              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
-                <Calendar size={16} /> ימים ושעה
-              </span>
-              <span
-                className={`text-gray-800 inline-flex items-center gap-1 ${infoValueClamp}`}
-              >
-                <span className="flex items-center gap-1">
-                  {highlight(daysStr, searchQuery)}
-                  <span className="text-gray-400">|</span>
-                </span>
-                <Clock size={14} className="text-gray-500 shrink-0" />
-                <span className="truncate">{highlight(hour || "—", searchQuery)}</span>
-              </span>
+            <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5">
+              <Calendar size={14} className="text-slate-500" />
+              <span className="line-clamp-1">{highlight(daysStr, searchQuery)}</span>
+              <span className="text-slate-400">|</span>
+              <Clock size={13} className="text-slate-500" />
+              <span className="line-clamp-1">{highlight(hour || "שעה לא זמינה", searchQuery)}</span>
             </div>
 
             {/* Participants / Waitlist toggle */}
@@ -624,31 +590,23 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
                 e.stopPropagation();
                 setShowWaitlist((p) => !p);
               }}
-              className={`bg-white/60 backdrop-blur-sm border border-indigo-100/60 rounded-xl px-3 py-2 shadow-sm hover:bg-indigo-50/80 transition text-right ${
-                isMobile
-                  ? "flex flex-col gap-1.5 items-start"
-                  : "flex items-center justify-between"
-              }`}
+              className="col-span-2 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-right transition hover:bg-slate-100"
             >
-              <span className="flex items-center gap-1.5 font-semibold text-indigo-900/90 tracking-wide">
+              <span className="flex items-center gap-1.5 font-semibold tracking-wide text-slate-800">
                 {showWaitlist ? <Hourglass size={16} /> : <Users size={16} />}
                 {showWaitlist ? "רשימת המתנה" : "משתתפים"}
               </span>
 
-              <span
-                className={`inline-flex items-center gap-2 font-semibold text-gray-800 ${
-                  isMobile ? "self-end" : ""
-                }`}
-              >
+              <span className="inline-flex items-center gap-2 font-semibold text-slate-700">
                 {showWaitlist ? (
                   <>
-                    <Hourglass size={16} className="text-amber-600" />
+                    <Hourglass size={16} className="text-amber-500" />
                     {`${waitlistTotal}/${waitingListMax || "∞"}`}
                     <ChevronUp size={16} />
                   </>
                 ) : (
                   <>
-                    <Users size={16} className="text-indigo-700" />
+                    <Users size={16} className="text-slate-700" />
                     {`${participantsCount}/${maxParticipants || "∞"}`}
                     <ChevronDown size={16} />
                   </>
@@ -667,7 +625,7 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
                       e.stopPropagation();
                       setShowDescriptionModal(true);
                     }}
-                    className="w-full text-indigo-700 hover:text-indigo-900 text-sm font-semibold inline-flex items-center justify-center gap-1"
+                    className="inline-flex w-full items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
                   >
                     <Info size={16} /> קרא עוד על הסדנה
                   </button>

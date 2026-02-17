@@ -12,9 +12,20 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import WorkshopCard from "../../components/WorkshopCard";
+import WorkshopShowcaseCard from "../../components/WorkshopCard/WorkshopShowcaseCard";
 import WorkshopParticipantsModal from "../../components/WorkshopParticipantsModal";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { AnimatedTestimonials } from "@/components/ui/animated-testimonials";
+import { getWorkshopImage } from "../../constants/workshopImages";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  LayoutGrid,
+  Loader2,
+  Search,
+  Sparkles,
+} from "lucide-react";
 
 export default function Workshops() {
   const navigate = useNavigate();
@@ -27,6 +38,7 @@ export default function Workshops() {
   const [feedback, setFeedback] = useState(null);
   const [cities, setCities] = useState([]);
   const [viewport, setViewport] = useState("desktop");
+  const [pageStyle, setPageStyle] = useState("showcase");
 
   // 🔹 Context state
   const {
@@ -276,6 +288,39 @@ export default function Workshops() {
     viewMode === "mine"
       ? "צפו בהרשמות שלכם ושל בני המשפחה לפי שם"
       : "חיפוש חכם לפי שם, עיר, יום או מאמן";
+  const showcaseCards = useMemo(
+    () =>
+      filteredWorkshops.map((w) => ({
+        _id: w._id,
+        title: w.title,
+        coach: w.coach,
+        city: w.city,
+        hour: w.hour,
+        days: w.days,
+        participantsCount:
+          typeof w.participantsCount === "number"
+            ? w.participantsCount
+            : Array.isArray(w.participants)
+              ? w.participants.length
+              : 0,
+        maxParticipants: Number(w.maxParticipants) || 0,
+        imageUrl: getWorkshopImage(w.image),
+        description: w.description,
+      })),
+    [filteredWorkshops]
+  );
+  const testimonialSlides = useMemo(
+    () =>
+      showcaseCards.slice(0, 5).map((w) => ({
+        quote:
+          w.description?.trim() ||
+          "סדנה מבוקשת עם יחס אישי, הדרכה מקצועית וקבוצות בגודל שמתאים לתרגול איכותי.",
+        name: w.title || "סדנה",
+        designation: `${w.coach || "מאמן צוות"} • ${w.city || "מיקום יעודכן"}`,
+        src: w.imageUrl,
+      })),
+    [showcaseCards]
+  );
 
   return (
     <div
@@ -283,13 +328,19 @@ export default function Workshops() {
       className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-gray-50 p-4 md:p-8 transition-all"
     >
       {/* 🏷 Header */}
-      <div className="max-w-6xl mx-auto text-center mb-8">
-        <h2 className="text-4xl font-extrabold bg-gradient-to-r from-indigo-700 via-blue-700 to-sky-500 bg-clip-text text-transparent mb-2">
-          {titleText}
-        </h2>
-<h3 className="text-lg md:text-xl font-semibold text-gray-700 mt-2">
-  {subtitleText}
-</h3>
+      <div className="mx-auto mb-8 max-w-6xl">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+            <Sparkles size={14} />
+            Experience Mode
+          </div>
+          <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
+            {titleText}
+          </h2>
+          <h3 className="mt-2 text-base font-medium text-slate-600 md:text-lg">
+            {subtitleText}
+          </h3>
+        </div>
       </div>
 
       {/* 🔍 Smart Search Bar */}
@@ -299,77 +350,115 @@ export default function Workshops() {
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
-          className="max-w-6xl mx-auto bg-white/90 backdrop-blur-md border border-indigo-100 shadow-lg rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row justify-center items-center gap-4 mb-8"
+          className="mx-auto mb-8 flex max-w-6xl flex-col items-stretch gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between md:p-5"
         >
-          <select
-            value={searchBy}
-            onChange={(e) => setSearchBy(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-indigo-200 bg-gray-50 text-sm focus:ring-2 focus:ring-indigo-400"
-          >
-            <option value="all">חפש בכל</option>
-            <option value="title">שם</option>
-            <option value="type">סוג</option>
-            <option value="city">עיר</option>
-            <option value="coach">מאמן</option>
-            <option value="days">ימים</option>
-            <option value="hour">שעה</option>
-            <option value="sessionsCount">מספר מפגשים</option>
-            <option value="price">מחיר</option>
-          </select>
+          <div className="inline-flex items-center rounded-xl border border-slate-300 bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setPageStyle("classic")}
+              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                pageStyle === "classic"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              <LayoutGrid size={14} />
+              תצוגה קלאסית
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageStyle("showcase")}
+              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                pageStyle === "showcase"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              <Sparkles size={14} />
+              תצוגת Showcase
+            </button>
+          </div>
 
-          <div className="relative w-full sm:w-72">
-            <input
-              type="text"
-              placeholder={
-                searchBy === "days"
-                  ? "לדוגמה: יום ה / ימים א,ה"
-                  : "חפש לפי " +
-                    ({
-                      all: "כל השדות",
-                      title: "שם",
-                      city: "עיר",
-                      coach: "מאמן",
-                      type: "סוג",
-                      hour: "שעה",
-                      price: "מחיר",
-                      sessionsCount: "מספר מפגשים",
-                    }[searchBy] || "מילה")
-              }
-              value={searchQuery}
-              onChange={handleSearch}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-indigo-200 bg-gray-50 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 transition"
-            />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 text-lg">
-              🔍
-            </span>
+          <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+            <select
+              value={searchBy}
+              onChange={(e) => setSearchBy(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-slate-500 focus:bg-white focus:outline-none"
+            >
+              <option value="all">חפש בכל</option>
+              <option value="title">שם</option>
+              <option value="type">סוג</option>
+              <option value="city">עיר</option>
+              <option value="coach">מאמן</option>
+              <option value="days">ימים</option>
+              <option value="hour">שעה</option>
+              <option value="sessionsCount">מספר מפגשים</option>
+              <option value="price">מחיר</option>
+            </select>
+
+            <div className="relative w-full sm:min-w-80">
+              <input
+                type="text"
+                placeholder={
+                  searchBy === "days"
+                    ? "לדוגמה: יום ה / ימים א,ה"
+                    : "חפש לפי " +
+                      ({
+                        all: "כל השדות",
+                        title: "שם",
+                        city: "עיר",
+                        coach: "מאמן",
+                        type: "סוג",
+                        hour: "שעה",
+                        price: "מחיר",
+                        sessionsCount: "מספר מפגשים",
+                      }[searchBy] || "מילה")
+                }
+                value={searchQuery}
+                onChange={handleSearch}
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pl-10 pr-4 text-sm font-medium text-slate-900 placeholder:font-normal placeholder:text-slate-400 shadow-sm transition focus:border-slate-500 focus:bg-white focus:outline-none"
+              />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            </div>
           </div>
         </motion.div>
       )}
 
       {/* 📣 Feedback */}
       {feedback && (
-        <div className="max-w-6xl mx-auto text-center mt-2">
-          <p
-            className={`inline-block px-4 py-2 rounded-xl text-sm font-medium shadow-sm ${
+        <div className="mx-auto mt-2 max-w-6xl">
+          <div
+            className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium shadow-sm ${
               feedback.startsWith("✅")
-                ? "bg-green-100 text-green-700"
-                : "bg-red-100 text-red-700"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-rose-200 bg-rose-50 text-rose-700"
             }`}
           >
-            {feedback}
-          </p>
+            {feedback.startsWith("✅") ? (
+              <CheckCircle2 size={16} />
+            ) : (
+              <AlertTriangle size={16} />
+            )}
+            <span>{feedback}</span>
+          </div>
         </div>
       )}
 
       {/* 🧩 Workshops Grid */}
       {loading ? (
-        <p className="text-center text-gray-500 mt-10 animate-pulse">
-          ⏳ טוען סדנאות...
-        </p>
+        <div className="mx-auto mt-10 max-w-md rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <p className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+            <Loader2 size={16} className="animate-spin" />
+            טוען סדנאות...
+          </p>
+        </div>
       ) : errorMessage ? (
-        <p className="text-center text-red-500 font-medium mt-10">
-          ❌ {errorMessage}
-        </p>
+        <div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+          <p className="inline-flex items-center gap-2 text-sm font-semibold text-rose-700">
+            <AlertTriangle size={16} />
+            {errorMessage}
+          </p>
+        </div>
       ) : viewMode === "mine" ? (
         Object.keys(workshopsByEntity).length > 0 ? (
           Object.entries(workshopsByEntity).map(([entityId, info]) => (
@@ -394,50 +483,77 @@ export default function Workshops() {
             </div>
           ))
         ) : (
-          <p className="text-center text-gray-600 mt-10">
-            לא נמצאו סדנאות רשומות.
-          </p>
+          <div className="mx-auto mt-10 max-w-md rounded-2xl border border-slate-200 bg-white px-5 py-4 text-center shadow-sm">
+            <p className="text-sm font-medium text-slate-600">לא נמצאו סדנאות רשומות.</p>
+          </div>
         )
       ) : (
         <>
-          <motion.div layout className={`${gridClass} mt-10`}>
-            <AnimatePresence mode="popLayout">
-              {filteredWorkshops.map((w) => (
-                <motion.div
-                  key={w._id}
-                  layout
-                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -12, scale: 0.98 }}
-                  transition={{ duration: 0.25, ease: "easeOut" }}
-                  className="h-full"
-                >
-                  <WorkshopCard
-                    _id={w._id}
-                    isLoggedIn={isLoggedIn}
-                    searchQuery={searchQuery}
-                    onManageParticipants={() => handleManageParticipants(w._id)}
-                    onEditWorkshop={() => handleEditWorkshop(w._id)}
-                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+          {pageStyle === "showcase" && testimonialSlides.length > 0 && (
+            <div className="max-w-6xl mx-auto rounded-3xl border border-indigo-100 bg-white/70 backdrop-blur-sm mb-8">
+              <AnimatedTestimonials testimonials={testimonialSlides} autoplay />
+            </div>
+          )}
+          {pageStyle === "classic" ? (
+            <motion.div layout className={`${gridClass} mt-10`}>
+              <AnimatePresence mode="popLayout">
+                {filteredWorkshops.map((w) => (
+                  <motion.div
+                    key={w._id}
+                    layout
+                    initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -12, scale: 0.98 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="h-full"
+                  >
+                    <WorkshopCard
+                      _id={w._id}
+                      isLoggedIn={isLoggedIn}
+                      searchQuery={searchQuery}
+                      onManageParticipants={() => handleManageParticipants(w._id)}
+                      onEditWorkshop={() => handleEditWorkshop(w._id)}
+                      onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+                    />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          ) : (
+            <motion.div
+              layout
+              className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto"
+            >
+              <AnimatePresence mode="popLayout">
+                {showcaseCards.map((workshop) => (
+                  <WorkshopShowcaseCard
+                    key={workshop._id}
+                    workshop={workshop}
+                    onOpen={() => setPageStyle("classic")}
                   />
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          )}
           <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 mt-8">
             {loadingMore && (
-              <p className="text-sm text-gray-500">⏳ טוען עוד סדנאות...</p>
+              <p className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm">
+                <Loader2 size={15} className="animate-spin" />
+                טוען עוד סדנאות...
+              </p>
             )}
             {!loading && !loadingMore && pagination?.hasMore && (
               <button
                 onClick={loadMoreWorkshops}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white shadow hover:bg-indigo-700 transition"
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700"
               >
                 טען עוד סדנאות
               </button>
             )}
             {!loading && !loadingMore && !pagination?.hasMore && (
-              <p className="text-sm text-gray-500">הצגת כל הסדנאות הזמינות</p>
+              <p className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-500 shadow-sm">
+                הצגת כל הסדנאות הזמינות
+              </p>
             )}
             <div ref={loadMoreRef} className="h-1 w-full" />
           </div>
