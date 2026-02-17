@@ -114,14 +114,16 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
     return map;
   }, [events, monthDays, gridStart, gridEnd]);
 
-  // dot counts for the mini grid (no dots for past days)
-  const dayCounts = useMemo(() => {
-    const todayKey = dayKey(new Date());
-    const m = new Map(monthDays.map(d => [dayKey(d), 0]));
+  // day summary for the mini grid (count + member/event colors)
+  const dayMeta = useMemo(() => {
+    const m = new Map(monthDays.map(d => [dayKey(d), { count: 0, colors: [] }]));
     (events || []).forEach(ev => {
       const k = dayKey(toDate(ev.start));
-      if (k < todayKey) return; // suppress past dots
-      if (m.has(k)) m.set(k, (m.get(k) || 0) + 1);
+      if (!m.has(k)) return;
+      const prev = m.get(k) || { count: 0, colors: [] };
+      const color = ev?.color || "#4f46e5";
+      const colors = prev.colors.includes(color) ? prev.colors : [...prev.colors, color];
+      m.set(k, { count: prev.count + 1, colors });
     });
     return m;
   }, [events, monthDays]);
@@ -156,10 +158,23 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
   const scrollToDay = (d) => {
     dlog("mini-grid click →", d.toDateString());
     const k = dayKey(d);
-    const el = sectionRefs.current[k];
-    if (el && listRef.current) {
-      listRef.current.scrollTo({ top: el.offsetTop - 12, behavior: "smooth" });
+    const container = listRef.current;
+    if (!container) {
+      setAnchor(d);
+      return;
     }
+
+    // Collapse first to stabilize section offsets, then jump precisely.
+    if (!collapsed) setCollapsed(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = sectionRefs.current[k];
+        if (el) {
+          const targetTop = Math.max(0, el.offsetTop - 2);
+          container.scrollTo({ top: targetTop, behavior: "smooth" });
+        }
+      });
+    });
     setAnchor(d);
   };
 
@@ -218,6 +233,10 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
       ticking = true;
       requestAnimationFrame(() => {
         ticking = false;
+        // Auto-collapse mini month while reading agenda; reopen near top.
+        if (!collapsed && el.scrollTop > 48) setCollapsed(true);
+        else if (collapsed && el.scrollTop < 8) setCollapsed(false);
+
         if (isProgrammaticPaging.current) return; // ignore our own synthetic scrolls
         if (nearTop()) jumpAndLock(-1);
         else if (nearBottom()) jumpAndLock(+1);
@@ -230,28 +249,27 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
       if (rafId) cancelAnimationFrame(rafId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, monthKey]);
+  }, [collapsed, current, monthKey]);
 
   const dir = rtl ? "rtl" : "ltr";
 
   return (
     <div
       dir={dir}
-      className="rounded-3xl border border-indigo-200/50 shadow-[0_10px_30px_rgba(31,41,55,.08)] overflow-hidden
-                 bg-gradient-to-b from-indigo-50/60 via-white to-white backdrop-blur-sm"
+      className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
     >
       {/* top bar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-indigo-50/70 to-white border-b border-indigo-100/70">
-        <div className="text-sm font-semibold text-indigo-900 flex items-center gap-1.5">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-white/70 border border-indigo-200">
-            <CalendarDays size={14} className="text-indigo-600" />
+      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/70 px-3 py-2">
+        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-slate-300 bg-white">
+            <CalendarDays size={14} className="text-slate-700" />
           </span>
           <span className="tracking-tight">{monthLabel}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setCollapsed(v => !v)}
-            className="px-2 py-1 rounded-xl border border-indigo-200 bg-white/80 text-indigo-700 text-xs shadow-sm hover:bg-white"
+            className="rounded-xl border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm hover:bg-slate-50"
             title={collapsed ? "הרחב לוח חודש" : "הקטן לוח חודש"}
             aria-label="Toggle month mini grid"
           >
@@ -259,21 +277,21 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
           </button>
           <button
             onClick={onPrev}
-            className="px-2 py-1 rounded-xl border border-indigo-200 bg-white/80 text-indigo-700 text-xs shadow-sm hover:bg-white"
+            className="rounded-xl border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm hover:bg-slate-50"
             aria-label="חודש קודם"
           >
             חודש קודם <ChevronRight size={14} className="inline-block" />
           </button>
           <button
             onClick={onToday}
-            className="px-2 py-1 rounded-xl border border-indigo-200 bg-white/80 text-indigo-700 text-xs shadow-sm hover:bg-white"
+            className="rounded-xl border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm hover:bg-slate-50"
             aria-label="קפיצה להיום"
           >
             היום
           </button>
           <button
             onClick={onNext}
-            className="px-2 py-1 rounded-xl border border-indigo-200 bg-white/80 text-indigo-700 text-xs shadow-sm hover:bg-white"
+            className="rounded-xl border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm hover:bg-slate-50"
             aria-label="חודש הבא"
           >
             <ChevronLeft size={14} className="inline-block" /> חודש הבא
@@ -290,9 +308,12 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
           <div className="grid grid-cols-7 gap-y-1">
             {monthDays.map((d,idx)=>{
               const inMonth = d.getMonth() === current.getMonth();
-              const count = dayCounts.get(dayKey(d)) || 0;
+              const meta = dayMeta.get(dayKey(d)) || { count: 0, colors: [] };
+              const count = meta.count;
               const active = isSameDay(d, current);
               const isToday = isSameDay(d, new Date());
+              const hasEvents = count > 0;
+              const markerBg = getMarkerBackground(meta.colors);
               return (
                 <button
                   key={idx}
@@ -300,6 +321,7 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
                   className={cls(
                     "mx-1 h-10 rounded-2xl flex flex-col items-center justify-center transition-all",
                     "ring-1 ring-inset hover:ring-indigo-200/80",
+                    hasEvents && !active && "bg-indigo-50/70 ring-indigo-200",
                     active
                       ? "bg-gradient-to-b from-indigo-100 to-indigo-50 text-indigo-900 ring-indigo-300 shadow-sm"
                       : inMonth
@@ -315,8 +337,14 @@ const current = useMemo(() => anchorDate ?? fallbackDate, [anchorDate, fallbackD
                     {d.getDate()}
                   </span>
                   <span
-                    className="mt-0.5 h-1.5 w-1.5 rounded-full"
-                    style={{ background: count ? "#4f46e5" : "transparent", boxShadow: count ? "0 0 8px rgba(79,70,229,.35)" : "none" }}
+                    className={cls(
+                      "mt-0.5 rounded-full transition-all",
+                      hasEvents ? "h-1.5 w-3" : "h-1.5 w-1.5 bg-transparent"
+                    )}
+                    style={{
+                      background: hasEvents ? markerBg : "transparent",
+                      boxShadow: hasEvents ? "0 0 8px rgba(79,70,229,.35)" : "none",
+                    }}
                   />
                 </button>
               );
@@ -426,4 +454,20 @@ const gradient = `linear-gradient(135deg, ${base} 0%, ${base}CC 100%)`;
       </div>
     </div>
   );
+}
+
+function getMarkerBackground(colors = []) {
+  const unique = Array.from(new Set((colors || []).filter(Boolean)));
+  if (!unique.length) return "#4f46e5";
+  if (unique.length === 1) return unique[0];
+
+  const capped = unique.slice(0, 3);
+  const stops = capped
+    .map((c, i) => {
+      const start = Math.round((i * 100) / capped.length);
+      const end = Math.round(((i + 1) * 100) / capped.length);
+      return `${c} ${start}% ${end}%`;
+    })
+    .join(", ");
+  return `linear-gradient(90deg, ${stops})`;
 }

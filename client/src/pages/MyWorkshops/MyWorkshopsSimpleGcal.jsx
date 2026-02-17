@@ -20,14 +20,15 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, CalendarDays, Globe } from "lucide-react";
+import { CalendarDays, Sparkles } from "lucide-react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
-import CalendarGStyle from "../../components/calendar/CalendarGStyle";
+import { FullScreenWorkshopCalendar } from "../../components/calendar/FullScreenWorkshopCalendar";
 import MobileiOSCalendar from "../../components/calendar/MobileiOSCalendar";
 import { flattenUserEntities } from "../../utils/entityTypes";
 import { useNavigate } from "react-router-dom";
 import { deriveWorkshopsByEntity } from "../../utils/workshopDerivation";
+import useIsMobile from "../../hooks/useIsMobile";
 
 const sid = (x) => String(x ?? "");
 const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
@@ -35,36 +36,6 @@ const toHhmm = (h) => {
   const hh = Math.floor(h);
   const mm = Math.round((h - hh) * 60);
   return `${pad2(hh)}:${pad2(mm)}`;
-};
-
-function parseHourToFloatFlexible(w) {
-  const raw =
-    w?.hour ??
-    w?.startTime ??
-    w?.time ??
-    (typeof w?.startDate === "string" && w.startDate.includes("T")
-      ? w.startDate.split("T")[1]?.slice(0, 5)
-      : null);
-
-  if (raw == null) return null;
-  if (typeof raw === "number") return raw;
-
-  const s = String(raw).trim();
-  let m = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (m) return Number(m[1]) + Number(m[2]) / 60;
-  m = s.match(/^(\d{1,2})\.(\d{2})$/);
-  if (m) return Number(m[1]) + Number(m[2]) / 60;
-  m = s.match(/^(\d{1,2})$/);
-  if (m) return Number(m[1]);
-  return null;
-}
-
-const startOfWeekSunday = (d) => {
-  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diff = date.getDay();
-  date.setDate(date.getDate() - diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
 };
 const addDays = (base, days) => {
   const d = new Date(base);
@@ -94,6 +65,28 @@ const startOfWeek = (date, weekStartsOn = 0) => {
   d.setHours(0, 0, 0, 0);
   return d;
 };
+
+function parseHourToFloatFlexible(w) {
+  const raw =
+    w?.hour ??
+    w?.startTime ??
+    w?.time ??
+    (typeof w?.startDate === "string" && w.startDate.includes("T")
+      ? w.startDate.split("T")[1]?.slice(0, 5)
+      : null);
+
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw;
+
+  const s = String(raw).trim();
+  let m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) return Number(m[1]) + Number(m[2]) / 60;
+  m = s.match(/^(\d{1,2})\.(\d{2})$/);
+  if (m) return Number(m[1]) + Number(m[2]) / 60;
+  m = s.match(/^(\d{1,2})$/);
+  if (m) return Number(m[1]);
+  return null;
+}
 
 function normalizeDays(w) {
   const raw = Array.isArray(w?.days) ? w.days : [];
@@ -168,6 +161,8 @@ export default function MyWorkshopsSimpleGcal() {
 /* ============================== SCREEN ============================== */
 function MyWorkshopsScreen() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile(768);
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
 
   const { user } = useAuth();
   const { displayedWorkshops, userWorkshopMap, familyWorkshopMap } =
@@ -185,47 +180,12 @@ function MyWorkshopsScreen() {
     [user]
   );
 
-  const [view, setView] = useState("week");
-  const [anchorDate, setAnchorDate] = useState(() =>
-    startOfWeekSunday(new Date())
-  );
-  const [isMobile, setIsMobile] = useState(() =>
-    window.matchMedia("(max-width: 767px)").matches
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const handle = () => setIsMobile(mq.matches);
-    mq.addEventListener("change", handle);
-    return () => mq.removeEventListener("change", handle);
-  }, []);
-
-  useEffect(() => {
-    if (isMobile && view !== "month") setView("month");
-  }, [isMobile, view]);
-
-  const goPrev = () =>
-    setAnchorDate(
-      isMobile || view === "month"
-        ? addMonths(anchorDate, -1)
-        : addDays(anchorDate, -7)
-    );
-
-  const goNext = () =>
-    setAnchorDate(
-      isMobile || view === "month"
-        ? addMonths(anchorDate, 1)
-        : addDays(anchorDate, 7)
-    );
-
-  const goToday = () => setAnchorDate(startOfWeekSunday(new Date()));
-
   const showEntityCalendar = (entityKey) => {
     if (!entityKey) return;
-    navigate(`/myworkshops?entity=${entityKey}`, { replace: true });
+    navigate(`/workshops-calendar?entity=${entityKey}`, { replace: true });
   };
 
-  const showAllEntities = () => navigate("/myworkshops", { replace: true });
+  const showAllEntities = () => navigate("/workshops-calendar", { replace: true });
 
   /* ---------------- workshopsByEntity ---------------- */
   const workshopsByEntity = useMemo(
@@ -285,33 +245,25 @@ function MyWorkshopsScreen() {
     return m;
   }, [filteredWorkshopsByEntity]);
 
-  /* ---------------- visible range ---------------- */
   const { visibleStart, visibleEnd } = useMemo(() => {
-    if (isMobile || view === "month") {
-      const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
-      const last = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
-      const start = startOfWeek(first, 0);
-      const end = endOfDay(addDays(startOfWeek(last, 0), 6));
-      return { visibleStart: start, visibleEnd: end };
-    }
+    const first = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+    const last = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
+    const start = startOfWeek(first, 0);
+    const end = endOfDay(addDays(startOfWeek(last, 0), 6));
+    return { visibleStart: start, visibleEnd: end };
+  }, [anchorDate]);
 
-    const start = startOfWeek(anchorDate, 0);
-    return { visibleStart: start, visibleEnd: endOfDay(addDays(start, 6)) };
-  }, [anchorDate, isMobile, view]);
-
-  /* ---------------- events ---------------- */
-  const events = useMemo(() => {
+  const mobileEvents = useMemo(() => {
     const out = [];
-
     for (const [entityId, info] of Object.entries(filteredWorkshopsByEntity)) {
       const colorHex = legendColorMap[entityId];
       const entityName = info.name;
+      const isFamily = Boolean(info?.relation);
 
-      for (const w of info.workshops) {
+      for (const w of info.workshops || []) {
         const hourFloat = parseHourToFloatFlexible(w);
         const dayIndices = normalizeDays(w);
-        const hasRecurrence =
-          Array.isArray(dayIndices) && dayIndices.length > 0;
+        const hasRecurrence = Array.isArray(dayIndices) && dayIndices.length > 0;
 
         const startBoundary =
           w?.startDate && !Number.isNaN(new Date(w.startDate))
@@ -322,18 +274,9 @@ function MyWorkshopsScreen() {
             ? endOfDay(new Date(w.endDate))
             : null;
 
-        const locationLine = [w.studio, w.address, w.city]
-          .filter(Boolean)
-          .join(" · ");
-
-        const mapsQuery = [w.studio, w.address, w.city]
-          .filter(Boolean)
-          .join(", ");
-
+        const mapsQuery = [w.studio, w.address, w.city].filter(Boolean).join(", ");
         const mapsUrl = mapsQuery
-          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-              mapsQuery
-            )}`
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
           : null;
 
         const defaultMinutes =
@@ -341,12 +284,7 @@ function MyWorkshopsScreen() {
 
         if (hasRecurrence && hourFloat != null) {
           const hhmm = toHhmm(hourFloat);
-
-          for (
-            let d = new Date(visibleStart);
-            d <= visibleEnd;
-            d = addDays(d, 1)
-          ) {
+          for (let d = new Date(visibleStart); d <= visibleEnd; d = addDays(d, 1)) {
             const dow = d.getDay();
             if (!dayIndices.includes(dow)) continue;
 
@@ -357,7 +295,6 @@ function MyWorkshopsScreen() {
             const [hh, mm] = hhmm.split(":").map(Number);
             const start = new Date(d);
             start.setHours(hh, mm || 0, 0, 0);
-
             const end = new Date(start);
             end.setMinutes(end.getMinutes() + defaultMinutes);
 
@@ -366,84 +303,62 @@ function MyWorkshopsScreen() {
               title: w.title,
               start,
               end,
-              location: locationLine,
               color: colorHex,
               mapsUrl,
               entityName,
-              meta: { workshopId: w._id, entityId },
+              meta: {
+                workshopId: w._id,
+                entityId,
+                mine: !isFamily,
+                fam: isFamily,
+                relation: info?.relation || "",
+              },
             });
           }
-        } else {
-          let start = w.startDate ? new Date(w.startDate) : null;
-          let end = w.endDate ? new Date(w.endDate) : null;
+          continue;
+        }
 
-          if ((!start || isNaN(start)) && w.date && hourFloat != null) {
-            start = new Date(`${w.date}T${toHhmm(hourFloat)}:00`);
-          } else if (
-            start &&
-            hourFloat != null &&
-            typeof w.startDate === "string" &&
-            !w.startDate.includes("T")
-          ) {
-            start = new Date(`${w.startDate}T${toHhmm(hourFloat)}:00`);
-          }
+        let start = w.startDate ? new Date(w.startDate) : null;
+        let end = w.endDate ? new Date(w.endDate) : null;
 
-          if (start && !end) {
-            end = new Date(start);
-            end.setMinutes(end.getMinutes() + defaultMinutes);
-          }
+        if ((!start || isNaN(start)) && w.date && hourFloat != null) {
+          start = new Date(`${w.date}T${toHhmm(hourFloat)}:00`);
+        } else if (
+          start &&
+          hourFloat != null &&
+          typeof w.startDate === "string" &&
+          !w.startDate.includes("T")
+        ) {
+          start = new Date(`${w.startDate}T${toHhmm(hourFloat)}:00`);
+        }
 
-          if (start && end && end >= visibleStart && start <= visibleEnd) {
-            out.push({
-              id: `${sid(w._id)}:${entityId}`,
-              title: w.title,
-              start,
-              end,
-              location: locationLine,
-              color: colorHex,
-              mapsUrl,
-              entityName,
-              meta: { workshopId: w._id, entityId },
-            });
-          }
+        if (start && !end) {
+          end = new Date(start);
+          end.setMinutes(end.getMinutes() + defaultMinutes);
+        }
+
+        if (start && end && end >= visibleStart && start <= visibleEnd) {
+          out.push({
+            id: `${sid(w._id)}:${entityId}`,
+            title: w.title,
+            start,
+            end,
+            color: colorHex,
+            mapsUrl,
+            entityName,
+            meta: {
+              workshopId: w._id,
+              entityId,
+              mine: !isFamily,
+              fam: isFamily,
+              relation: info?.relation || "",
+            },
+          });
         }
       }
     }
-
-    const seen = new Set();
-    const deduped = [];
-
-    for (const ev of out) {
-      const d = new Date(ev.start);
-      const day = d.toISOString().slice(0, 10);
-      const key = `${ev.meta.workshopId}|${day}|${ev.meta.entityId}|${d.getTime()}`;
-
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(ev);
-      }
-    }
-
-    return deduped;
+    return out;
   }, [filteredWorkshopsByEntity, legendColorMap, visibleStart, visibleEnd]);
-
-  /* ---------------- label ---------------- */
-  const rangeLabel = useMemo(() => {
-    const month = isMobile || view === "month";
-    if (month) {
-      return `${anchorDate.toLocaleDateString("he-IL", {
-        month: "long",
-      })} ${anchorDate.getFullYear()}`;
-    }
-    const end = addDays(anchorDate, 6);
-    return `${anchorDate.toLocaleDateString("he-IL", {
-      day: "2-digit",
-      month: "2-digit",
-    })} — ${end.toLocaleDateString("he-IL", {
-      day: "2-digit",
-      month: "2-digit",
-    })}`;
-  }, [anchorDate, view, isMobile]);
 
   const bg =
     "linear-gradient(180deg, rgba(241,245,255,0.6), rgba(255,255,255,0.75))";
@@ -460,101 +375,36 @@ function MyWorkshopsScreen() {
       }}
     >
       {/* HEADER */}
-      <div className="w-full pb-3">
-        <div className="max-w-[1800px] mx-auto">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            {/* View Switch */}
-            <div
-              className={`flex items-center gap-2 text-sm ${
-                isMobile ? "invisible" : ""
-              }`}
-            >
-              <button
-                onClick={() => setView("week")}
-                className={`px-2 py-1 rounded-lg border ${
-                  view === "week"
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white text-indigo-700 border-indigo-200"
-                } text-xs`}
-              >
-                תצוגת שבוע
-              </button>
-
-              <button
-                onClick={() => setView("month")}
-                className={`px-2 py-1 rounded-lg border ${
-                  view === "month"
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white text-indigo-700 border-indigo-200"
-                } text-xs`}
-              >
-                תצוגת חודש
-              </button>
+      <div className="w-full pb-5">
+        <div className="mx-auto max-w-[1800px]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              <Sparkles size={14} />
+              Family Calendar
             </div>
+            <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
+              <CalendarDays size={24} className="text-slate-700" />
+              לוח אימונים משפחתי
+            </h1>
 
-            {/* TITLE */}
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-indigo-700/90 flex items-center gap-1.5">
-                <CalendarDays size={22} className="text-indigo-600" />
-                לוח אימונים משפחתי
-              </h1>
-              <p className="text-gray-600 mt-0.5 text-xs md:text-sm">
-                תצוגת שבוע/חודש למחשב ותצוגה חודשית מותאמת לנייד.
-              </p>
-
-              {selectedEntityKey && selectedEntityName && (
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] md:text-xs">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                    <span>מציג רק את לוח האימונים של</span>
-                    <span className="font-semibold">
-                      {selectedEntityName}
-                    </span>
-                  </span>
-                  <button
-                    onClick={showAllEntities}
-                    className="
-                      px-2 py-1 rounded-lg text-xs font-medium
-                      bg-indigo-50 text-indigo-700
-                      border border-indigo-200
-                      hover:bg-indigo-100
-                      transition
-                    "
-                  >
-                    הצג את כל המשפחה
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* NAV */}
-            <div className="flex items-center gap-2 text-sm">
-              <button
-                onClick={goPrev}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
-              >
-                <ChevronRight size={14} />
-                {isMobile || view === "month" ? "חודש קודם" : "שבוע קודם"}
-              </button>
-
-              <button
-                onClick={goToday}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
-              >
-                היום
-              </button>
-
-              <button
-                onClick={goNext}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 shadow-sm transition text-xs"
-              >
-                {isMobile || view === "month" ? "חודש הבא" : "שבוע הבא"}
-                <ChevronLeft size={14} />
-              </button>
-            </div>
+            {selectedEntityKey && selectedEntityName && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-slate-700">
+                  <span>מציג רק את לוח האימונים של</span>
+                  <span className="font-semibold">{selectedEntityName}</span>
+                </span>
+                <button
+                  onClick={showAllEntities}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  הצג את כל המשפחה
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ENTITY CARDS */}
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Object.entries(filteredWorkshopsByEntity).map(
               ([entityId, info]) => {
                 const color = legendColorMap[entityId];
@@ -628,84 +478,26 @@ function MyWorkshopsScreen() {
             )}
           </div>
 
-          <div className="mt-1 text-[12px] text-gray-500">{rangeLabel}</div>
         </div>
       </div>
 
       {/* CALENDAR AREA */}
       <div className="w-full" style={{ minHeight: "70vh", paddingBottom: 8 }}>
         <div className="max-w-[1800px] mx-auto">
-          {/* MOBILE */}
-          <div className="block md:hidden">
+          {isMobile ? (
             <MobileiOSCalendar
-              events={events}
+              events={mobileEvents}
               anchorDate={anchorDate}
               onAnchorChange={setAnchorDate}
               rtl
               startCollapsed={false}
             />
-          </div>
-
-          {/* DESKTOP */}
-          <div className="hidden md:block">
-            <CalendarGStyle
-              events={events}
-              view={view}
-              onViewChange={setView}
-              rtl
-              weekStartsOn={0}
-              anchorDate={anchorDate}
-              onAnchorChange={setAnchorDate}
-              onDrillDown={(d) => setAnchorDate(d)}
-              showNowLine={false}
-              minHour={7}
-              maxHour={22}
-              weekdaysOnly
-              eventRenderer={(ev) => {
-                const color = ev.color;
-                const s = new Date(ev.start);
-                const start = `${String(s.getHours()).padStart(
-                  2,
-                  "0"
-                )}:${String(s.getMinutes()).padStart(2, "0")}`;
-                
-                return (
-                  <div
-                    className="rounded-xl shadow-sm p-2 flex items-center justify-between select-none text-white"
-                    style={{
-                      background: color,
-                       backgroundImage: "none",
-                      border: `1px solid ${color}`,
-                    }}
-                    title={`${ev.title} • ${start}`}
-                  >
-                    <div className="min-w-0">
-                      <div className="font-semibold text-[13px] leading-snug truncate">
-                        {ev.title}
-                      </div>
-                      <div className="text-[11.5px] opacity-90 tabular-nums">
-                        {start}
-                      </div>
-                    </div>
-
-                    {ev.mapsUrl && (
-                      <a
-                        href={ev.mapsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md bg-white/15 hover:bg-white/25"
-                        title="פתח במפות"
-                      >
-                        <Globe size={14} />
-                      </a>
-                    )}
-                  </div>
-                );
-              }}
-              showHeader={false}
-              showViewSwitch={false}
+          ) : (
+            <FullScreenWorkshopCalendar
+              workshopsByEntity={filteredWorkshopsByEntity}
+              legendColorMap={legendColorMap}
             />
-          </div>
+          )}
         </div>
       </div>
     </div>
