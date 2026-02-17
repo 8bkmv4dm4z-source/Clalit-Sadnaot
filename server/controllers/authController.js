@@ -427,6 +427,74 @@ async function sendEmail({ to, subject, text, html }) {
   return false;
 }
 
+async function sendRegistrationConfirmationEmail({ to, name }) {
+  if (!to) return false;
+
+  const recipientName = String(name || "").trim();
+  const greeting = recipientName ? `שלום ${recipientName},` : "שלום,";
+
+  const result = await emailService.sendEmail({
+    to,
+    subject: "ההרשמה הושלמה בהצלחה - סדנאות כללית",
+    text:
+      `${greeting}\n\n` +
+      "ההרשמה שלך למערכת הושלמה בהצלחה.\n" +
+      "כעת ניתן להתחבר ולהתחיל להשתמש בחשבון.\n\n" +
+      "אם לא ביצעת הרשמה זו, מומלץ לעדכן סיסמה ולפנות לתמיכה.",
+    html: `
+      <div dir="rtl" style="font-family:sans-serif; color:#1f2937;">
+        <h2 style="color:#0f766e;">ההרשמה הושלמה בהצלחה</h2>
+        <p>${greeting}</p>
+        <p>החשבון שלך נוצר בהצלחה וכעת ניתן להתחבר למערכת.</p>
+        <p style="margin-top:16px;">אם לא ביצעת הרשמה זו, מומלץ לעדכן סיסמה ולפנות לתמיכה.</p>
+      </div>
+    `,
+  });
+
+  if (!result?.success) {
+    console.warn("⚠️ Registration confirmation email dispatch failed:", result?.error || "unknown error");
+    return false;
+  }
+
+  return true;
+}
+
+async function sendOtpEmailMessage({
+  to,
+  otp,
+  ttlMinutes,
+  subject,
+  heading,
+  greetingName = "",
+  bodyLeadText = "יש להזין את הקוד הבא:",
+}) {
+  const greeting = greetingName ? `<p>שלום ${greetingName},</p>` : "";
+
+  const result = await emailService.sendEmail({
+    to,
+    subject,
+    text: `קוד האימות שלך הוא ${otp}. הקוד בתוקף ל-${ttlMinutes} דקות.`,
+    html: `
+      <div dir="rtl" style="font-family:sans-serif; color:#1f2937;">
+        <h2 style="color:#4F46E5;">${heading}</h2>
+        ${greeting}
+        <p>${bodyLeadText}</p>
+        <p style="font-size:24px; font-weight:bold; color:#111827;">${otp}</p>
+        <p>הקוד בתוקף ל-${ttlMinutes} דקות.</p>
+        <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;" />
+        <small style="color:#6b7280;">אם לא ביקשת קוד זה, ניתן להתעלם מהודעה זו.</small>
+      </div>
+    `,
+  });
+
+  if (!result?.success) {
+    console.error("❌ Email Service Failed:", result?.error || "unknown error");
+    return false;
+  }
+
+  return true;
+}
+
 /* ============================================================
    🛠 Export Helpers (Fixed)
    ============================================================ */
@@ -505,6 +573,11 @@ exports.registerUser = async (req, res) => {
       subjectKey: user.entityKey,
       actorKey: user.entityKey,
       metadata: { source: "self_signup" },
+    });
+
+    await sendRegistrationConfirmationEmail({
+      to: user.email,
+      name: user.name,
     });
 
     safeAuthLog("registerUser succeeded");
@@ -602,25 +675,17 @@ exports.requestRegistration = async (req, res) => {
 
     await request.save();
 
-    const emailResult = await emailService.sendEmail({
+    const emailSent = await sendOtpEmailMessage({
       to: payload.email,
+      otp,
+      ttlMinutes: 10,
       subject: "קוד אימות הרשמה - סדנאות כללית",
-      text: `קוד האימות שלך הוא ${otp}. הקוד בתוקף ל-10 דקות.`,
-      html: `
-        <div dir="rtl" style="font-family:sans-serif; color: #1f2937;">
-          <h2 style="color:#4F46E5;">אימות הרשמה</h2>
-          <p>שלום ${payload.name || ""},</p>
-          <p>להשלמת ההרשמה למערכת יש להזין את הקוד הבא:</p>
-          <p style="font-size:24px; font-weight:bold; color:#111827;">${otp}</p>
-          <p>הקוד בתוקף ל-10 דקות.</p>
-          <hr style="border:none; border-top:1px solid #e5e7eb; margin:20px 0;" />
-          <small style="color:#6b7280;">אם לא ביקשת הרשמה, ניתן להתעלם מהודעה זו.</small>
-        </div>
-      `,
+      heading: "אימות הרשמה",
+      greetingName: payload.name || "",
+      bodyLeadText: "להשלמת ההרשמה למערכת יש להזין את הקוד הבא:",
     });
 
-    if (!emailResult.success) {
-      console.error("❌ Email Service Failed:", emailResult.error);
+    if (!emailSent) {
       return res.status(500).json({ message: "Failed to send OTP email." });
     }
 
@@ -723,6 +788,11 @@ exports.verifyRegistrationOtp = async (req, res) => {
     request.otpAttempts = 0;
     request.userId = user._id;
     await request.save();
+
+    await sendRegistrationConfirmationEmail({
+      to: user.email,
+      name: user.name,
+    });
 
     return res.status(201).json({
       success: true,
@@ -836,24 +906,16 @@ exports.sendOtp = async (req, res) => {
     await user.save();
 
     // 🔥 USE THE SHARED SERVICE HERE
-    const result = await emailService.sendEmail({
+    const emailSent = await sendOtpEmailMessage({
       to: email,
+      otp,
+      ttlMinutes: 5,
       subject: "קוד אימות - סדנאות כללית",
-      text: `קוד האימות שלך הוא ${otp}. הקוד בתוקף ל-5 דקות.`,
-      html: `
-        <div dir="rtl" style="font-family:sans-serif; color: #333;">
-           <h2>קוד אימות</h2>
-           <p>קוד האימות שלך הוא: <strong style="font-size: 24px; color: #4F46E5;">${otp}</strong></p>
-           <p>הקוד בתוקף ל-5 דקות.</p>
-           <hr style="border:none; border-top:1px solid #eee; margin: 20px 0;">
-           <small style="color: #666;">אם לא ביקשת קוד זה, אנא התעלם מהודעה זו.</small>
-        </div>
-      `,
+      heading: "קוד אימות",
+      bodyLeadText: "קוד האימות שלך הוא:",
     });
 
-    // Check success based on the service response structure
-    if (!result.success) {
-      console.error("❌ Email Service Failed:", result.error);
+    if (!emailSent) {
       return res.status(500).json({ message: "Failed to send OTP email." });
     }
 
@@ -898,6 +960,9 @@ exports.verifyOtp = async (req, res) => {
     }
 
     const now = Date.now();
+    const subjectKey =
+      user.entityKey || (user._id ? hashId("user", String(user._id)) : null);
+
     if (user.otpLockUntil && user.otpLockUntil > now) {
       return res.status(429).json({ message: "Too many OTP attempts. Try again later." });
     }

@@ -434,7 +434,8 @@ export const AuthProvider = ({ children }) => {
       publishEvent({
         type: "info",
         title: "קוד אימות נשלח",
-        message: "שלחנו אליך קוד אימות להשלמת ההרשמה.",
+        message:
+          "אם ההרשמה זכאית, התחלנו את תהליך האימות. בדקו את האימייל להמשך ההנחיות.",
         ttl: 6000,
       });
       return { success: true, data };

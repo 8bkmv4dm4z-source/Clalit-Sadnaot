@@ -271,7 +271,9 @@ export default function Register() {
     setLoading(false);
 
     if (result.success) {
-      setSubmitSuccess("📨 ההרשמה התקבלה! שלחנו אליך קוד אימות להמשך.");
+      setSubmitSuccess(
+        "אם ההרשמה זכאית, התחלנו את תהליך האימות. בדקו את האימייל להמשך ההנחיות."
+      );
       setPhase("otp");
       setPendingEmail(trimmedEmail);
       setOtpCode("");
