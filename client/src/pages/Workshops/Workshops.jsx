@@ -40,6 +40,7 @@ export default function Workshops() {
   const [viewport, setViewport] = useState("desktop");
   const [pageStyle, setPageStyle] = useState("showcase");
   const [showcaseShuffleSeed, setShowcaseShuffleSeed] = useState(0);
+  const [isPreparingShowcase, setIsPreparingShowcase] = useState(false);
   const showcasePrefetchScopeRef = useRef(null);
 
   // 🔹 Context state
@@ -62,6 +63,9 @@ export default function Workshops() {
     setAccessScope,
   } = useWorkshops();
   const errorMessage = typeof error === "string" ? error : error?.message;
+  const canRenderShowcase =
+    viewMode === "all" && !loading && !loadingMore && !pagination?.hasMore;
+  const effectivePageStyle = canRenderShowcase ? pageStyle : "classic";
 
   /* ============================================================
      🧩 Initial Data Fetch
@@ -149,29 +153,38 @@ export default function Workshops() {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (viewMode !== "all") return;
-    if (pageStyle !== "showcase") return;
-    if (!pagination?.hasMore) return;
+    if (viewMode !== "all") {
+      setIsPreparingShowcase(false);
+      return;
+    }
+    if (pageStyle !== "showcase") {
+      setIsPreparingShowcase(false);
+      return;
+    }
     if (loading || loadingMore) return;
+    if (!pagination?.hasMore) {
+      setIsPreparingShowcase(false);
+      return;
+    }
+    setIsPreparingShowcase(true);
     loadMoreWorkshops();
   }, [viewMode, pageStyle, pagination?.hasMore, loading, loadingMore, loadMoreWorkshops]);
 
   useEffect(() => {
     if (viewMode !== "all") return;
-    if (pageStyle !== "showcase") return;
+    if (effectivePageStyle !== "showcase") return;
     const scopeKey = accessScope || "public";
     if (showcasePrefetchScopeRef.current === scopeKey) return;
 
     showcasePrefetchScopeRef.current = scopeKey;
-    fetchWorkshops({ force: true, limit: 500, skip: 0, scope: scopeKey });
-  }, [viewMode, pageStyle, accessScope, fetchWorkshops]);
+    fetchWorkshops({ force: true, limit: 10, skip: 0, scope: scopeKey });
+  }, [viewMode, effectivePageStyle, accessScope, fetchWorkshops]);
 
   useEffect(() => {
     if (viewMode !== "all") return;
-    if (pageStyle !== "showcase") return;
-    if (loading || loadingMore) return;
+    if (effectivePageStyle !== "showcase") return;
     setShowcaseShuffleSeed(Date.now());
-  }, [viewMode, pageStyle, loading, loadingMore, pagination?.skip, accessScope]);
+  }, [viewMode, effectivePageStyle, accessScope]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -310,10 +323,11 @@ export default function Workshops() {
   /* ============================================================
      🖼️ UI
   ============================================================ */
-  const headerMessage =
+  const headerTitle = "ברוכים הבאים לסדנאות";
+  const headerSubtitle =
     accessScope === "public"
-      ? "ברוכים הבאים לסדנאות כאן תוכלו לחפש כל סדנה שזמינה להרשמה"
-      : "רשמו אתכם או את בני משפחתכם לסדנאות";
+      ? "כאן תוכלו לחפש כל סדנה זמינה."
+      : "ניהול סדנאות עבורכם ועבור בני המשפחה.";
   const showcaseCards = useMemo(() => {
     const cards = filteredWorkshops.map((w) => ({
         _id: w._id,
@@ -337,7 +351,8 @@ export default function Workshops() {
 
     // Shuffle display order so each completed workshops load feels fresh.
     const arr = [...cards];
-    let seed = showcaseShuffleSeed || Date.now();
+    // Keep a stable card order between renders to prevent scroll jumps while paginating.
+    let seed = showcaseShuffleSeed || 1;
     for (let i = arr.length - 1; i > 0; i -= 1) {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
       const j = seed % (i + 1);
@@ -347,7 +362,7 @@ export default function Workshops() {
   }, [filteredWorkshops, showcaseShuffleSeed]);
   const testimonialSlides = useMemo(
     () =>
-      showcaseCards.slice(0, 5).map((w) => ({
+      showcaseCards.slice(0, 10).map((w) => ({
         quote:
           w.description?.trim() ||
           "סדנה מבוקשת עם יחס אישי, הדרכה מקצועית וקבוצות בגודל שמתאים לתרגול איכותי.",
@@ -366,9 +381,10 @@ export default function Workshops() {
       {/* 🏷 Header */}
       <div className="mx-auto mb-8 max-w-6xl">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-          <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-            {headerMessage}
+          <h2 className="text-3xl font-black tracking-tight text-transparent bg-gradient-to-l from-sky-600 via-blue-700 to-slate-900 bg-clip-text md:text-5xl">
+            {headerTitle}
           </h2>
+          <p className="mt-3 text-base text-slate-600 md:text-lg">{headerSubtitle}</p>
         </div>
       </div>
 
@@ -398,13 +414,15 @@ export default function Workshops() {
               type="button"
               onClick={() => setPageStyle("showcase")}
               className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                pageStyle === "showcase"
+                effectivePageStyle === "showcase"
                   ? "bg-slate-900 text-white"
                   : "text-slate-700 hover:bg-slate-200"
               }`}
             >
               <Sparkles size={14} />
-              תצוגת Showcase
+              {isPreparingShowcase && !canRenderShowcase
+                ? "מכין תצוגת Showcase..."
+                : "תצוגת Showcase"}
             </button>
           </div>
 
@@ -518,12 +536,12 @@ export default function Workshops() {
         )
       ) : (
         <>
-          {pageStyle === "showcase" && testimonialSlides.length > 0 && (
+          {effectivePageStyle === "showcase" && testimonialSlides.length > 0 && (
             <div className="max-w-6xl mx-auto rounded-3xl border border-indigo-100 bg-white/70 backdrop-blur-sm mb-8">
               <AnimatedTestimonials testimonials={testimonialSlides} autoplay />
             </div>
           )}
-          {pageStyle === "classic" ? (
+          {effectivePageStyle === "classic" ? (
             <motion.div layout className={`${gridClass} mt-10`}>
               <AnimatePresence mode="popLayout">
                 {filteredWorkshops.map((w) => (
@@ -571,7 +589,7 @@ export default function Workshops() {
                 טוען עוד סדנאות...
               </p>
             )}
-            {pageStyle === "classic" && !loading && !loadingMore && pagination?.hasMore && (
+            {effectivePageStyle === "classic" && !loading && !loadingMore && pagination?.hasMore && (
               <button
                 onClick={loadMoreWorkshops}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700"

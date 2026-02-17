@@ -201,6 +201,30 @@ const selectWorkshopView = (workshop, { scope, principal }, options = {}) => {
   return toPublicWorkshop(workshop);
 };
 
+const resolveRequestedScope = (rawScope = "") => {
+  const scope = String(rawScope || "").trim().toLowerCase();
+  if (scope === "public" || scope === "user" || scope === "admin") return scope;
+  return "";
+};
+
+const applyScopeDownshift = (access, requestedScope = "") => {
+  const requested = resolveRequestedScope(requestedScope);
+  if (!requested) return access;
+  if (requested === "public") return { scope: "public", principal: null };
+  if (requested === "user") {
+    if (access?.scope === "admin" || access?.scope === "user") {
+      return { scope: "user", principal: access.principal || null };
+    }
+    return { scope: "public", principal: null };
+  }
+  if (requested === "admin") {
+    if (access?.scope === "admin") return access;
+    if (access?.scope === "user") return { scope: "user", principal: access.principal || null };
+    return { scope: "public", principal: null };
+  }
+  return access;
+};
+
 exports.toPublicWorkshop = toPublicWorkshop;
 exports.toUserWorkshop = toUserWorkshop;
 exports.toAdminWorkshop = toAdminWorkshop;
@@ -500,7 +524,10 @@ const clampSkip = (value = 0) => {
 exports.getAllWorkshops = async (req, res) => {
   try {
     await attachUserIfPresent(req);
-    const access = resolveAccessScope(req);
+    const access = applyScopeDownshift(
+      resolveAccessScope(req),
+      req.query.scope
+    );
     const limit = clampLimit(req.query.limit, 10, 100);
     const skip = clampSkip(req.query.skip);
 

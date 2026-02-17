@@ -422,7 +422,13 @@ export const WorkshopProvider = ({ children }) => {
           totalFromMeta ??
           (append ? (updatedList?.length || 0) : normalizedList.length);
         const nextSkip = nextSkipFromMeta ?? skip + normalizedList.length;
-        const hasMore = hasMoreFromMeta !== undefined ? hasMoreFromMeta : nextSkip < total;
+        const madeForwardProgress = nextSkip > skip || normalizedList.length > 0;
+        let hasMore =
+          hasMoreFromMeta !== undefined ? hasMoreFromMeta : nextSkip < total;
+        // Defensive stop to prevent infinite load-more loops on malformed pagination metadata.
+        if (append && (!normalizedList.length || !madeForwardProgress)) {
+          hasMore = false;
+        }
 
         setPagination({
           limit,
