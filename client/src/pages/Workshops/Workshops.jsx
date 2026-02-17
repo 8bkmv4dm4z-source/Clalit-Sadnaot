@@ -39,6 +39,8 @@ export default function Workshops() {
   const [cities, setCities] = useState([]);
   const [viewport, setViewport] = useState("desktop");
   const [pageStyle, setPageStyle] = useState("showcase");
+  const [showcaseShuffleSeed, setShowcaseShuffleSeed] = useState(0);
+  const showcasePrefetchScopeRef = useRef(null);
 
   // 🔹 Context state
   const {
@@ -145,6 +147,31 @@ export default function Workshops() {
     loadMoreWorkshops();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (viewMode !== "all") return;
+    if (pageStyle !== "showcase") return;
+    if (!pagination?.hasMore) return;
+    if (loading || loadingMore) return;
+    loadMoreWorkshops();
+  }, [viewMode, pageStyle, pagination?.hasMore, loading, loadingMore, loadMoreWorkshops]);
+
+  useEffect(() => {
+    if (viewMode !== "all") return;
+    if (pageStyle !== "showcase") return;
+    const scopeKey = accessScope || "public";
+    if (showcasePrefetchScopeRef.current === scopeKey) return;
+
+    showcasePrefetchScopeRef.current = scopeKey;
+    fetchWorkshops({ force: true, limit: 500, skip: 0, scope: scopeKey });
+  }, [viewMode, pageStyle, accessScope, fetchWorkshops]);
+
+  useEffect(() => {
+    if (viewMode !== "all") return;
+    if (pageStyle !== "showcase") return;
+    if (loading || loadingMore) return;
+    setShowcaseShuffleSeed(Date.now());
+  }, [viewMode, pageStyle, loading, loadingMore, pagination?.skip, accessScope]);
 
   /* ============================================================
      🔍 Smart Filter Logic (Hebrew-aware)
@@ -283,14 +310,12 @@ export default function Workshops() {
   /* ============================================================
      🖼️ UI
   ============================================================ */
-  const titleText = viewMode === "mine" ? "הסדנאות שלי" : "כל הסדנאות";
-  const subtitleText =
-    viewMode === "mine"
-      ? "צפו בהרשמות שלכם ושל בני המשפחה לפי שם"
-      : "חיפוש חכם לפי שם, עיר, יום או מאמן";
-  const showcaseCards = useMemo(
-    () =>
-      filteredWorkshops.map((w) => ({
+  const headerMessage =
+    accessScope === "public"
+      ? "ברוכים הבאים לסדנאות כאן תוכלו לחפש כל סדנה שזמינה להרשמה"
+      : "רשמו אתכם או את בני משפחתכם לסדנאות";
+  const showcaseCards = useMemo(() => {
+    const cards = filteredWorkshops.map((w) => ({
         _id: w._id,
         title: w.title,
         coach: w.coach,
@@ -306,9 +331,20 @@ export default function Workshops() {
         maxParticipants: Number(w.maxParticipants) || 0,
         imageUrl: getWorkshopImage(w.image),
         description: w.description,
-      })),
-    [filteredWorkshops]
-  );
+      }));
+
+    if (cards.length < 2) return cards;
+
+    // Shuffle display order so each completed workshops load feels fresh.
+    const arr = [...cards];
+    let seed = showcaseShuffleSeed || Date.now();
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      const j = seed % (i + 1);
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }, [filteredWorkshops, showcaseShuffleSeed]);
   const testimonialSlides = useMemo(
     () =>
       showcaseCards.slice(0, 5).map((w) => ({
@@ -330,16 +366,9 @@ export default function Workshops() {
       {/* 🏷 Header */}
       <div className="mx-auto mb-8 max-w-6xl">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-            <Sparkles size={14} />
-            Experience Mode
-          </div>
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">
-            {titleText}
+            {headerMessage}
           </h2>
-          <h3 className="mt-2 text-base font-medium text-slate-600 md:text-lg">
-            {subtitleText}
-          </h3>
         </div>
       </div>
 
@@ -542,7 +571,7 @@ export default function Workshops() {
                 טוען עוד סדנאות...
               </p>
             )}
-            {!loading && !loadingMore && pagination?.hasMore && (
+            {pageStyle === "classic" && !loading && !loadingMore && pagination?.hasMore && (
               <button
                 onClick={loadMoreWorkshops}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-slate-700"

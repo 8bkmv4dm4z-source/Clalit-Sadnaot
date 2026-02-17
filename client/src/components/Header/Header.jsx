@@ -5,6 +5,7 @@ import {
   CalendarDays,
   LayoutGrid,
   LogOut,
+  Sparkles,
   Settings,
   Shield,
   User,
@@ -82,8 +83,8 @@ export default function Header() {
 
   return (
     <header
-      className={`border-b border-slate-200 bg-white/85 backdrop-blur transition-all duration-300 ${
-        compact ? "shadow-sm" : ""
+      className={`border-b border-indigo-200/60 bg-gradient-to-r from-indigo-50/95 via-sky-50/95 to-cyan-50/95 backdrop-blur transition-all duration-300 ${
+        compact ? "shadow-sm" : "shadow-[0_4px_20px_rgba(99,102,241,.10)]"
       }`}
     >
       <nav
@@ -92,6 +93,10 @@ export default function Header() {
         }`}
       >
         <div className="min-w-0">
+          <div className="mb-1 inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+            <Sparkles size={11} />
+            Navigation
+          </div>
           <h1 className={`font-bold tracking-tight text-slate-900 transition-all duration-300 ${compact ? "text-base" : "text-lg"}`}>תפריט</h1>
           <p
             className={`truncate text-xs text-slate-500 transition-all duration-300 ${
@@ -109,7 +114,7 @@ export default function Header() {
         <Button
           variant="outline"
           onClick={handleLogout}
-          className={`w-full border-slate-300 text-slate-700 hover:bg-slate-100 md:w-auto transition-all duration-300 ${
+          className={`w-full border-indigo-300 bg-white/80 text-indigo-700 hover:bg-indigo-100 md:w-auto transition-all duration-300 ${
             compact ? "h-8 px-3 text-xs" : "h-9 px-4 text-sm"
           }`}
         >
