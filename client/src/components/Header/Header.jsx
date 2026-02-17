@@ -1,352 +1,121 @@
-/**
- * Header.jsx — Collapsible Navigation
- * ------------------------------------
- * Scrolling down collapses the desktop nav into a slim bar with a hamburger.
- * Tapping the hamburger re-opens the nav inline at any scroll position.
- * Mobile menu uses shadcn Sheet (right side for RTL).
- */
-
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  CalendarClock,
+  CalendarDays,
+  LayoutGrid,
+  LogOut,
+  Settings,
+  Shield,
+  User,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useProfiles } from "../../layouts/ProfileContext";
-import { CalendarDays, Menu, X } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { Separator } from "@/components/ui/separator";
+import { NavBar } from "@/components/ui/tubelight-navbar";
 
 export default function Header() {
-  const location = useLocation();
   const navigate = useNavigate();
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const lastY = useRef(0);
   const { logout, user } = useAuth();
-  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
   const { viewMode, setViewMode } = useWorkshops();
   const { profiles } = useProfiles();
-  const lastScrollY = useRef(0);
+  const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
-  useEffect(() => {
-    const onScroll = () => {
-      const y = window.scrollY;
-      setIsScrolled(y > 4);
+  const currentUser =
+    profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
 
-      // Collapse when scrolling down past 60px
-      if (y > 60 && y > lastScrollY.current + 8) {
-        setCollapsed(true);
-        setNavOpen(false);
-      }
-      // Expand automatically when near top
-      if (y < 20) {
-        setCollapsed(false);
-        setNavOpen(false);
-      }
-      lastScrollY.current = y;
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  const navItems = useMemo(() => {
+    const base = [
+      {
+        name: "כל הסדנאות",
+        url: "/workshops",
+        icon: LayoutGrid,
+        onClick: () => setViewMode("all"),
+        active: (pathname) => pathname === "/workshops" && viewMode === "all",
+      },
+      { name: "יומן הסדנאות", url: "/workshops-calendar", icon: CalendarClock },
+      { name: "הסדנאות שלי", url: "/myworkshops", icon: CalendarDays },
+      { name: "הפרופיל שלי", url: "/profile", icon: User },
+    ];
 
-  // Close mobile menu on navigation
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
-  const navIsActive = useCallback(
-    (to) => location.pathname === to,
-    [location.pathname]
-  );
+    if (canAccessAdmin && !isChecking) {
+      base.push(
+        {
+          name: "סדנה חדשה",
+          url: "/editworkshop",
+          icon: Settings,
+          onClick: () => localStorage.removeItem("editingWorkshopId"),
+        },
+        { name: "Admin Hub", url: "/admin/hub", icon: Shield },
+        { name: "ניהול משתמשים", url: "/profiles", icon: Users }
+      );
+    }
+    return base;
+  }, [canAccessAdmin, isChecking, setViewMode, viewMode]);
 
   const handleLogout = async () => {
     await logout();
     navigate("/workshops");
   };
 
-  const currentUser =
-    profiles.find((p) => p._id === user?._id) || user || { name: "משתמש" };
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY || 0;
+      if (y < 16) {
+        setCompact(false);
+      } else if (y > lastY.current + 8) {
+        setCompact(true);
+      } else if (y < lastY.current - 8) {
+        setCompact(false);
+      }
+      lastY.current = y;
+    };
 
-  // Desktop nav visible when not collapsed OR user manually opened it
-  const showDesktopNav = !collapsed || navOpen;
-
-  const linkBase =
-    "rtl inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 whitespace-nowrap justify-center w-full md:w-auto";
-  const linkActive = "bg-white/90 text-blue-800 shadow-sm";
-  const linkIdle = "text-white/90 hover:bg-white/20 hover:text-white";
-  const sheetLinkBase =
-    "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 whitespace-nowrap w-full";
-  const sheetLinkActive = "bg-indigo-100 text-indigo-800";
-  const sheetLinkIdle = "text-gray-700 hover:bg-gray-100";
-
-  const linkGroup = useMemo(
-    () => (
-      <div className="flex flex-col md:flex-row md:items-center gap-2 sm:gap-3 flex-wrap md:justify-center">
-        <button
-          onClick={() => {
-            setViewMode("all");
-            if (!location.pathname.startsWith("/workshops"))
-              navigate("/workshops");
-          }}
-          className={`${linkBase} ${
-            navIsActive("/workshops") && viewMode === "all"
-              ? linkActive
-              : linkIdle
-          }`}
-        >
-          <span>כל הסדנאות</span>
-        </button>
-
-        <NavLink
-          to="/myworkshops"
-          className={`${linkBase} ${
-            navIsActive("/myworkshops") ? linkActive : linkIdle
-          }`}
-        >
-          <CalendarDays size={16} />
-          <span>הסדנאות שלי</span>
-        </NavLink>
-
-        <NavLink
-          to="/profile"
-          className={`${linkBase} ${
-            navIsActive("/profile") ? linkActive : linkIdle
-          }`}
-        >
-          <span>הפרופיל שלי</span>
-        </NavLink>
-
-        {canAccessAdmin && !isChecking && (
-          <>
-            <NavLink
-              to="/profiles"
-              className={`${linkBase} ${
-                navIsActive("/profiles") ? linkActive : linkIdle
-              }`}
-            >
-              <span>ניהול משתמשים</span>
-            </NavLink>
-
-            <NavLink
-              to="/admin/hub"
-              className={`${linkBase} ${
-                navIsActive("/admin/hub") ? linkActive : linkIdle
-              }`}
-            >
-              <span>Admin Hub</span>
-            </NavLink>
-
-            <NavLink
-              to="/editworkshop"
-              onClick={() => localStorage.removeItem("editingWorkshopId")}
-              className={`${linkBase} ${
-                navIsActive("/editworkshop") ? linkActive : linkIdle
-              }`}
-            >
-              <span>➕ צור סדנה חדשה</span>
-            </NavLink>
-          </>
-        )}
-      </div>
-    ),
-    [
-      canAccessAdmin,
-      isChecking,
-      linkActive,
-      linkBase,
-      linkIdle,
-      location.pathname,
-      navigate,
-      navIsActive,
-      setViewMode,
-      viewMode,
-    ]
-  );
-
-  const logoutButton = (
-    <div className="flex gap-2 justify-end md:justify-start">
-      <button
-        onClick={handleLogout}
-        className="btn btn-outline px-4 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white whitespace-nowrap w-full md:w-auto"
-      >
-        <span>התנתקות</span>
-      </button>
-    </div>
-  );
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
     <header
-      className={`transition-all duration-300 ${
-        isScrolled
-          ? "backdrop-blur bg-gradient-to-r from-blue-500/90 via-blue-600/90 to-blue-500/90 shadow-md"
-          : "bg-gradient-to-r from-blue-500 via-blue-600 to-blue-500"
-      } text-white`}
-      dir="rtl"
+      className={`border-b border-slate-200 bg-white/85 backdrop-blur transition-all duration-300 ${
+        compact ? "shadow-sm" : ""
+      }`}
     >
-      <nav className={`mx-auto max-w-6xl px-4 sm:px-6 transition-all duration-300 ${collapsed && !navOpen ? "py-2" : "py-3"}`}>
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-sm transition-transform flex-shrink-0">
-            תפריט
-          </h1>
-
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-sm text-white/90 font-medium truncate max-w-[180px]">
-              {currentUser.name}
-            </span>
-
-            {/* Desktop collapse hamburger — only visible when collapsed on md+ */}
-            {collapsed && (
-              <button
-                onClick={() => setNavOpen((o) => !o)}
-                className="hidden md:flex p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
-                aria-label={navOpen ? "סגור תפריט" : "פתח תפריט"}
-              >
-                {navOpen ? (
-                  <X size={22} className="text-white" />
-                ) : (
-                  <Menu size={22} className="text-white" />
-                )}
-              </button>
-            )}
-
-            {/* Mobile Menu - Sheet */}
-            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-              <SheetTrigger asChild>
-                <button
-                  className="md:hidden p-2 rounded-lg bg-white/15 border border-white/20 hover:bg-white/25 transition focus:outline-none focus:ring-2 focus:ring-white/40"
-                  aria-label="פתח/סגור תפריט"
-                >
-                  <Menu size={24} className="text-white" />
-                </button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-72 bg-white" dir="rtl">
-                <SheetHeader>
-                  <SheetTitle className="text-lg font-bold text-indigo-800">
-                    {currentUser.name}
-                  </SheetTitle>
-                </SheetHeader>
-                <div className="flex flex-col gap-2 mt-4">
-                  <button
-                    onClick={() => {
-                      setViewMode("all");
-                      if (!location.pathname.startsWith("/workshops"))
-                        navigate("/workshops");
-                      setMenuOpen(false);
-                    }}
-                    className={`${sheetLinkBase} ${
-                      navIsActive("/workshops") && viewMode === "all"
-                        ? sheetLinkActive
-                        : sheetLinkIdle
-                    }`}
-                  >
-                    כל הסדנאות
-                  </button>
-
-                  <NavLink
-                    to="/myworkshops"
-                    className={`${sheetLinkBase} ${
-                      navIsActive("/myworkshops") ? sheetLinkActive : sheetLinkIdle
-                    }`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <CalendarDays size={16} />
-                    הסדנאות שלי
-                  </NavLink>
-
-                  <NavLink
-                    to="/profile"
-                    className={`${sheetLinkBase} ${
-                      navIsActive("/profile") ? sheetLinkActive : sheetLinkIdle
-                    }`}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    הפרופיל שלי
-                  </NavLink>
-
-                  {canAccessAdmin && !isChecking && (
-                    <>
-                      <Separator className="my-2" />
-                      <NavLink
-                        to="/profiles"
-                        className={`${sheetLinkBase} ${
-                          navIsActive("/profiles") ? sheetLinkActive : sheetLinkIdle
-                        }`}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        ניהול משתמשים
-                      </NavLink>
-
-                      <NavLink
-                        to="/admin/hub"
-                        className={`${sheetLinkBase} ${
-                          navIsActive("/admin/hub") ? sheetLinkActive : sheetLinkIdle
-                        }`}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        Admin Hub
-                      </NavLink>
-
-                      <NavLink
-                        to="/editworkshop"
-                        onClick={() => {
-                          localStorage.removeItem("editingWorkshopId");
-                          setMenuOpen(false);
-                        }}
-                        className={`${sheetLinkBase} ${
-                          navIsActive("/editworkshop") ? sheetLinkActive : sheetLinkIdle
-                        }`}
-                      >
-                        ➕ צור סדנה חדשה
-                      </NavLink>
-                    </>
-                  )}
-
-                  <Separator className="my-2" />
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      handleLogout();
-                      setMenuOpen(false);
-                    }}
-                    className="w-full"
-                  >
-                    התנתקות
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
+      <nav
+        className={`mx-auto flex max-w-6xl flex-col px-4 sm:px-6 md:flex-row md:items-center md:justify-between transition-all duration-300 ${
+          compact ? "gap-2 py-1.5" : "gap-2.5 py-2.5"
+        }`}
+      >
+        <div className="min-w-0">
+          <h1 className={`font-bold tracking-tight text-slate-900 transition-all duration-300 ${compact ? "text-base" : "text-lg"}`}>תפריט</h1>
+          <p
+            className={`truncate text-xs text-slate-500 transition-all duration-300 ${
+              compact ? "max-h-0 opacity-0" : "max-h-5 opacity-100"
+            }`}
+          >
+            {currentUser.name}
+          </p>
         </div>
 
-        {/* Desktop Navigation — animated show/hide */}
-        <div className="hidden md:block">
-          <AnimatePresence initial={false}>
-            {showDesktopNav && (
-              <motion.div
-                key="desktop-nav"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: "easeInOut" }}
-                style={{ overflow: "hidden" }}
-              >
-                <div className="grid grid-cols-[1fr_auto] gap-3 mt-3 md:mt-4 items-center">
-                  {linkGroup}
-                  {logoutButton}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="flex w-full justify-center md:w-auto md:justify-start">
+          <NavBar items={navItems} className="max-w-full overflow-x-auto" />
         </div>
+
+        <Button
+          variant="outline"
+          onClick={handleLogout}
+          className={`w-full border-slate-300 text-slate-700 hover:bg-slate-100 md:w-auto transition-all duration-300 ${
+            compact ? "h-8 px-3 text-xs" : "h-9 px-4 text-sm"
+          }`}
+        >
+          <LogOut size={16} />
+          התנתקות
+        </Button>
       </nav>
     </header>
   );

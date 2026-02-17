@@ -48,6 +48,7 @@ import EditWorkshop from "../../pages/EditWorkshop";
 import AllProfiles from "../../pages/AllProfiles";
 import EditProfile from "../../pages/EditProfile";
 import MyWorkshopsSimpleGcal from '../../pages/MyWorkshops/MyWorkshopsSimpleGcal';
+import MyWorkshopsCards from "../../pages/MyWorkshops/MyWorkshopsCards";
 import ForgotPassword from "../../pages/ForgotPassword";
 import ResetPassword from "../../pages/ResetPassword";
 import AdminHub from "../../pages/AdminHub/AdminHub";
@@ -79,8 +80,9 @@ export default function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route element={<AppShell />}>
           <Route path="/workshops" element={<Workshops />} />
-           <Route path="/myworkshops" element={<MyWorkshopsSimpleGcal />} />
-<Route path="/myworkshops/*" element={<MyWorkshopsSimpleGcal />} />
+          <Route path="/workshops-calendar" element={<MyWorkshopsSimpleGcal />} />
+          <Route path="/workshops-calendar/*" element={<MyWorkshopsSimpleGcal />} />
+          <Route path="/myworkshops" element={<MyWorkshopsCards />} />
 
           <Route path="/profile" element={<Profile />} />
           {canAccessAdmin && (

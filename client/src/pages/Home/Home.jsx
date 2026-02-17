@@ -8,21 +8,19 @@ export default function Home({ isOpen = true, toggleSidebar }) {
       {/* 🔘 Toggle Button (mobile only) */}
       <button
         onClick={toggleSidebar}
-        className="fixed top-4 right-4 z-50 bg-blue-600 text-white p-2 rounded-lg shadow-md sm:hidden"
+        className="fixed right-4 top-4 z-50 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 shadow-sm sm:hidden"
       >
         {isOpen ? <X size={22} /> : <Menu size={22} />}
       </button>
 
       <aside
         dir="rtl"
-        className={`fixed top-0 right-0 h-screen w-64 bg-gradient-to-b from-blue-500 via-blue-450 via-blue-400 via-blue-450 to-blue-500 text-white flex flex-col shadow-lg transform transition-transform duration-300 ease-in-out z-40
+        className={`fixed top-0 right-0 z-40 flex h-screen w-64 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-sm transition-transform duration-300 ease-in-out
           ${isOpen ? "translate-x-0" : "translate-x-full"}
           sm:translate-x-0`}
       >
-        <div className="px-6 py-8 border-b border-blue-500 text-center text-white">
-<h2 className="text-2xl font-bold tracking-wide bg-gradient-to-b from-blue-900 via-blue-850 via-blue-800 via-blue-700 to-blue-650 bg-clip-text text-transparent">
-   סדנאות
-</h2>
+        <div className="border-b border-slate-200 px-6 py-8 text-center">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">סדנאות</h2>
         </div>
 
         <nav className="flex-1 px-4 py-6">
@@ -33,10 +31,10 @@ export default function Home({ isOpen = true, toggleSidebar }) {
                   to={to}
                   onClick={() => toggleSidebar(false)}
                   className={({ isActive }) =>
-                    `block rounded-lg px-4 py-2 text-white font-medium transition-all duration-200 ${
+                    `block rounded-lg px-4 py-2 font-medium transition-all duration-200 ${
                       isActive
-                        ? "bg-blue-800 text-blue-700 font-semibold shadow-2xl ring-2"
-                        : "hover:bg-blue-300 hover:text-blue-900"
+                        ? "border border-slate-300 bg-slate-100 font-semibold text-slate-900"
+                        : "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                     }`
                   }
                 >
@@ -47,7 +45,7 @@ export default function Home({ isOpen = true, toggleSidebar }) {
           </ul>
         </nav>
 
-        <footer className="px-6 py-4 border-t border-blue-500 text-sm text-blue-100 text-center">
+        <footer className="border-t border-slate-200 px-6 py-4 text-center text-sm text-slate-500">
           © {new Date().getFullYear()} סדנאות
         </footer>
       </aside>
