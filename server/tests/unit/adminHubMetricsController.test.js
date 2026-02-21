@@ -7,6 +7,9 @@ const auditLogServicePath = require.resolve("../../services/AuditLogService");
 const auditRegistryPath = require.resolve("../../services/AuditEventRegistry");
 const adminHubServicePath = require.resolve("../../services/AdminHubService");
 const securityInsightPath = require.resolve("../../services/SecurityInsightService");
+const riskAssessmentPath = require.resolve("../../models/RiskAssessment");
+const riskCalibrationPath = require.resolve("../../services/risk/RiskCalibrationService");
+const riskReviewerPath = require.resolve("../../services/risk/RiskReviewerService");
 
 const loadController = ({ renderPrometheusMetrics }) => {
   delete require.cache[controllerPath];
@@ -15,6 +18,9 @@ const loadController = ({ renderPrometheusMetrics }) => {
   delete require.cache[auditRegistryPath];
   delete require.cache[adminHubServicePath];
   delete require.cache[securityInsightPath];
+  delete require.cache[riskAssessmentPath];
+  delete require.cache[riskCalibrationPath];
+  delete require.cache[riskReviewerPath];
 
   require.cache[observabilityPath] = {
     id: observabilityPath,
@@ -56,6 +62,41 @@ const loadController = ({ renderPrometheusMetrics }) => {
     loaded: true,
     exports: {
       getLatestInsights: async () => ({ hourly: null, daily: null, warnings: [] }),
+    },
+  };
+  require.cache[riskAssessmentPath] = {
+    id: riskAssessmentPath,
+    filename: riskAssessmentPath,
+    loaded: true,
+    exports: {
+      find: () => ({
+        sort() {
+          return this;
+        },
+        skip() {
+          return this;
+        },
+        limit() {
+          return this;
+        },
+        lean: async () => [],
+      }),
+    },
+  };
+  require.cache[riskCalibrationPath] = {
+    id: riskCalibrationPath,
+    filename: riskCalibrationPath,
+    loaded: true,
+    exports: {
+      recordRiskFeedback: async () => ({ feedbackId: "f1", profileVersion: 1, organizationId: "global" }),
+    },
+  };
+  require.cache[riskReviewerPath] = {
+    id: riskReviewerPath,
+    filename: riskReviewerPath,
+    loaded: true,
+    exports: {
+      retryRiskAssessment: async () => ({}),
     },
   };
 

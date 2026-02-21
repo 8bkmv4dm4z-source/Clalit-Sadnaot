@@ -76,4 +76,44 @@ router.get(
   adminHubController.getMetrics
 );
 
+// GET /api/admin/hub/risk-assessments
+router.get(
+  "/risk-assessments",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getRiskAssessments
+);
+
+// GET /api/admin/hub/risk-assessments/failures
+router.get(
+  "/risk-assessments/failures",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getRiskAssessmentFailures
+);
+
+// POST /api/admin/hub/risk-assessments/:assessmentId/feedback
+router.post(
+  "/risk-assessments/:assessmentId/feedback",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.submitRiskFeedback
+);
+
+// POST /api/admin/hub/risk-assessments/:assessmentId/retry
+router.post(
+  "/risk-assessments/:assessmentId/retry",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.retryAssessment
+);
+
 module.exports = router;

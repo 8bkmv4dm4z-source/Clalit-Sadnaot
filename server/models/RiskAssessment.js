@@ -74,13 +74,20 @@ const RiskAssessmentSchema = new mongoose.Schema(
     processing: {
       status: {
         type: String,
-        enum: ["pending", "processing", "completed", "failed"],
+        enum: ["pending", "processing", "completed", "failed", "dead_letter"],
         default: "pending",
       },
       attempts: { type: Number, default: 0 },
+      maxAttempts: { type: Number, default: 3 },
       lastError: { type: String, default: "" },
       lastAttemptAt: { type: Date },
       processedAt: { type: Date },
+      leaseOwner: { type: String, default: "" },
+      leaseAcquiredAt: { type: Date },
+      leaseExpiresAt: { type: Date },
+      nextRetryAt: { type: Date },
+      deadLetteredAt: { type: Date },
+      deadLetterReason: { type: String, default: "" },
     },
   },
   { timestamps: true }
@@ -95,4 +102,3 @@ RiskAssessmentSchema.index({ organizationId: 1, createdAt: -1 });
 module.exports =
   mongoose.models.RiskAssessment ||
   mongoose.model("RiskAssessment", RiskAssessmentSchema, "riskAssessments");
-

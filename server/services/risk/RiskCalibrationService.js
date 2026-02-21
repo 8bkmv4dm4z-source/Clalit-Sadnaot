@@ -11,6 +11,7 @@ const FEEDBACK_TO_DELTA = Object.freeze({
   accepted_action: 1,
   rejected_action: -1,
 });
+const VALID_FEEDBACK_TYPES = new Set(Object.keys(FEEDBACK_TO_DELTA));
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -115,22 +116,29 @@ const recordRiskFeedback = async ({
   assessmentId,
   feedbackType,
   actorKey,
-  organizationId = "global",
+  organizationId,
   notes = "",
   actionId = "",
 }) => {
   if (!assessmentId || !feedbackType) {
     throw new Error("assessmentId and feedbackType are required");
   }
+  if (!VALID_FEEDBACK_TYPES.has(String(feedbackType))) {
+    throw new Error("invalid feedbackType");
+  }
 
   const assessment = await RiskAssessment.findById(assessmentId).lean();
   if (!assessment) throw new Error("Risk assessment not found");
+  const assessmentOrganizationId = String(assessment.organizationId || "global");
+  if (organizationId !== undefined && organizationId !== null && String(organizationId) !== assessmentOrganizationId) {
+    throw new Error("organizationId mismatch");
+  }
 
   const actorKeyHash = actorKey ? hmacEntityKey(actorKey) : "";
 
   const feedback = await RiskFeedback.create({
     assessmentId,
-    organizationId,
+    organizationId: assessmentOrganizationId,
     feedbackType,
     actionId: String(actionId || "").slice(0, 80),
     actorKeyHash,
@@ -146,7 +154,7 @@ const recordRiskFeedback = async ({
   return {
     feedbackId: String(feedback._id),
     profileVersion: profile?.version || 1,
-    organizationId: profile?.organizationId || organizationId,
+    organizationId: profile?.organizationId || assessmentOrganizationId,
   };
 };
 
@@ -155,4 +163,3 @@ module.exports = {
   getOrCreateCalibrationProfile,
   recordRiskFeedback,
 };
-

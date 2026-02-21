@@ -13,6 +13,7 @@ const cloneDeep = (value) => {
 const { AuditCategories, AuditSeverityLevels, AuditEventSeverityDefaults, getAuditEventDefinition } = require("./AuditEventRegistry");
 const { hmacEntityKey } = require("../utils/hmacUtil");
 const DefaultAuditLogModel = require("../models/AdminAuditLog");
+const { scheduleAuditLogRiskProcessing } = require("./risk/RiskReviewerService");
 
 let AuditLogModel = DefaultAuditLogModel;
 
@@ -91,8 +92,11 @@ const recordEvent = async ({ eventType, subjectType, subjectKey, actorKey, sever
     throw new Error("eventType, subjectType, and subjectKey are required");
   }
 
+  const normalizedSeverity = String(severity || "")
+    .trim()
+    .toLowerCase();
   const resolvedSeverity =
-    (severity && VALID_SEVERITIES.has(severity) ? severity : null) ||
+    (normalizedSeverity && VALID_SEVERITIES.has(normalizedSeverity) ? normalizedSeverity : null) ||
     AuditEventSeverityDefaults[eventType] ||
     AuditSeverityLevels.INFO;
 
@@ -109,6 +113,7 @@ const recordEvent = async ({ eventType, subjectType, subjectKey, actorKey, sever
   };
 
   const saved = await AuditLogModel.create(payload);
+  scheduleAuditLogRiskProcessing(saved);
   return publicView(saved);
 };
 

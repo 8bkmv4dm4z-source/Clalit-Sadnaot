@@ -51,6 +51,62 @@ export const fetchAdminHubStats = async ({ adminPassword }) => {
   return { ok: res.ok, status: res.status, body };
 };
 
+export const fetchRiskAssessments = async ({ adminPassword, filters = {} }) => {
+  const headers = buildAdminHeaders(adminPassword);
+  const params = new URLSearchParams();
+  const entries = {
+    status: filters.status,
+    eventType: filters.eventType,
+    category: filters.category,
+    page: filters.page || 1,
+    limit: filters.limit || 20,
+  };
+  Object.entries(entries).forEach(([key, value]) => {
+    if (value) params.append(key, value);
+  });
+  const res = await apiFetch(`/api/admin/hub/risk-assessments?${params.toString()}`, { headers });
+  const body = await res.json();
+  return { ok: res.ok, status: res.status, body };
+};
+
+export const submitRiskFeedback = async ({ adminPassword, assessmentId, payload }) => {
+  const headers = buildAdminHeaders(adminPassword);
+  const res = await apiFetch(`/api/admin/hub/risk-assessments/${assessmentId}/feedback`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json();
+  return { ok: res.ok, status: res.status, body };
+};
+
+export const fetchRiskFailures = async ({ adminPassword, filters = {} }) => {
+  const headers = buildAdminHeaders(adminPassword);
+  const params = new URLSearchParams();
+  const entries = {
+    eventType: filters.eventType,
+    category: filters.category,
+    page: filters.page || 1,
+    limit: filters.limit || 20,
+  };
+  Object.entries(entries).forEach(([key, value]) => {
+    if (value) params.append(key, value);
+  });
+  const res = await apiFetch(`/api/admin/hub/risk-assessments/failures?${params.toString()}`, { headers });
+  const body = await res.json();
+  return { ok: res.ok, status: res.status, body };
+};
+
+export const retryRiskAssessment = async ({ adminPassword, assessmentId }) => {
+  const headers = buildAdminHeaders(adminPassword);
+  const res = await apiFetch(`/api/admin/hub/risk-assessments/${assessmentId}/retry`, {
+    method: "POST",
+    headers,
+  });
+  const body = await res.json();
+  return { ok: res.ok, status: res.status, body };
+};
+
 export const normalizeLogEntry = (entry) => {
   if (!entry) return entry;
   return { ...entry };

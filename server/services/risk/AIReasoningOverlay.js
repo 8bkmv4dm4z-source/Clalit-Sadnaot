@@ -89,6 +89,7 @@ const buildAIReasoningOverlay = ({ deterministic, category }) => {
 
   const confidenceGateBlocked = confidence < confidenceFloor;
   const divergenceExceeded = divergenceScore > divergenceThreshold;
+  const blockAllSuggestions = confidenceGateBlocked || divergenceExceeded;
 
   return {
     enabled: true,
@@ -96,8 +97,19 @@ const buildAIReasoningOverlay = ({ deterministic, category }) => {
     confidence,
     advisoryScore,
     divergenceScore,
-    suggestedActions: confidenceGateBlocked ? [] : allowed,
-    blockedActions: blocked,
+    suggestedActions: blockAllSuggestions ? [] : allowed,
+    blockedActions: blockAllSuggestions
+      ? [
+          ...blocked,
+          ...allowed.map((item) => ({
+            ...item,
+            blocked: true,
+            blockedReason: confidenceGateBlocked
+              ? "confidence_below_threshold"
+              : "divergence_exceeded",
+          })),
+        ]
+      : blocked,
     guardrails: {
       confidenceGateBlocked,
       divergenceExceeded,
@@ -109,4 +121,3 @@ const buildAIReasoningOverlay = ({ deterministic, category }) => {
 module.exports = {
   buildAIReasoningOverlay,
 };
-
