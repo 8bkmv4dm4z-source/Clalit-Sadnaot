@@ -66,4 +66,14 @@ router.get(
   adminHubController.getStats
 );
 
+// GET /api/admin/hub/metrics
+router.get(
+  "/metrics",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getMetrics
+);
+
 module.exports = router;

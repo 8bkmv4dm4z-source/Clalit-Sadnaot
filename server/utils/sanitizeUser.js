@@ -146,7 +146,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
 
   const requesterHasAdminAuthority = !!requester?.authorities?.admin;
   const requesterIsAdmin = requesterHasAdminAuthority;
-  const buildScopedPayload = (allowedUserFields, allowedFamilyFields, { stripRole = false } = {}) => {
+  const buildScopedPayload = (allowedUserFields, allowedFamilyFields) => {
     const safeUser = withEntityFlags(
       pickAllowed(clean, allowedUserFields),
       { isFamily: false }
@@ -189,7 +189,7 @@ function sanitizeUserForResponse(user, requester, { includeFull = false, scope =
 
   // 🔐 Scoped minimal payload for /profile and /users/me
   if (scope === "profile") {
-    return buildScopedPayload(PROFILE_USER_FIELDS, PROFILE_FAMILY_FIELDS, { stripRole: true });
+    return buildScopedPayload(PROFILE_USER_FIELDS, PROFILE_FAMILY_FIELDS);
   }
 
   // 🛡️ Identity-only payload for /getMe — safe, entityKey-first, no privileged fields

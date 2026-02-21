@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 const IdempotencyKey = require("../models/IdempotencyKey");
 
 const DEFAULT_TTL_HOURS = 24;
@@ -9,7 +9,7 @@ const resolveTtlMs = () => {
   return raw * 60 * 60 * 1000;
 };
 
-const hashKey = (key) => crypto.createHash("sha256").update(key).digest("hex");
+const hashKey = (key) => nodeCrypto.createHash("sha256").update(key).digest("hex");
 
 const resolveActorKey = (req) => req.user?.entityKey || "anonymous";
 

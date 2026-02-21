@@ -61,7 +61,7 @@ const passwordResetEmailLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   keyGenerator: (req) => (req.body?.email || "").toLowerCase().trim() || req.ip,
-  skip: (req) => process.env.NODE_ENV === "loadtest",
+  skip: () => process.env.NODE_ENV === "loadtest",
   handler: (req, res) =>
     res.status(429).json({
       message: "Too many password reset requests. Try again later.",
@@ -107,7 +107,7 @@ const otpLimiter = rateLimit({
   message: { message: "Too many OTP requests. Try again later." },
   standardHeaders: true,        // return RateLimit-* headers
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === "loadtest", // disable only in loadtest
+  skip: () => process.env.NODE_ENV === "loadtest", // disable only in loadtest
   handler: (req, res) => {
     auditSecurityEvent("otp_ip_rate_limited", req);
     console.warn("[LIMITER] OTP limit hit", req.ip);
@@ -122,7 +122,7 @@ const registrationLimiter = rateLimit({
   max: 3, // three registrations per IP per hour
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === "loadtest",
+  skip: () => process.env.NODE_ENV === "loadtest",
   handler: (req, res) => {
     auditSecurityEvent("registration_ip_rate_limited", req);
     console.warn("[LIMITER] registration IP cap reached", req.ip);

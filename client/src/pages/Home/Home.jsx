@@ -1,9 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutGrid, LogIn, Menu, Sparkles, UserPlus, X } from "lucide-react";
+import { LayoutGrid, Menu, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getPublicNavItems } from "../../components/nav/navigationConfig";
+import useIsMobile from "../../hooks/useIsMobile";
 
-export default function Home({ isOpen = true, toggleSidebar }) {
+const PUBLIC_SIDEBAR_ID = "public-sidebar-navigation";
+
+export default function Home({ isOpen = true, toggleSidebar = () => {} }) {
+  const isMobile = useIsMobile(640);
+  const isSidebarHidden = isMobile && !isOpen;
   const WORKSHOP_STYLE_KEY = "workshopsPreferredPageStyle";
   const WORKSHOP_STYLE_ACTIVE_KEY = "workshopsActivePageStyle";
   const WORKSHOP_STYLE_PREF_EVENT = "workshop-style-preference-change";
@@ -23,11 +29,11 @@ export default function Home({ isOpen = true, toggleSidebar }) {
   const [currentWorkshopStyle, setCurrentWorkshopStyle] = useState(
     readCurrentStyle
   );
-  const items = [
-    { to: "/workshops", label: "כל הסדנאות", icon: LayoutGrid },
-    { to: "/login", label: "התחברות", icon: LogIn },
-    { to: "/register", label: "הרשמה", icon: UserPlus },
-  ];
+  const items = getPublicNavItems().map((item) => ({
+    to: item.path,
+    label: item.label,
+    icon: item.icon,
+  }));
   const toggleWorkshopStyle = () => {
     const next = currentWorkshopStyle === "showcase" ? "classic" : "showcase";
     setCurrentWorkshopStyle(next);
@@ -56,13 +62,18 @@ export default function Home({ isOpen = true, toggleSidebar }) {
       {/* 🔘 Toggle Button (mobile only) */}
       <button
         onClick={toggleSidebar}
+        aria-expanded={isOpen}
+        aria-controls={PUBLIC_SIDEBAR_ID}
+        aria-label={isOpen ? "סגור תפריט צדדי" : "פתח תפריט צדדי"}
         className="fixed right-4 top-4 z-50 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 shadow-sm sm:hidden"
       >
         {isOpen ? <X size={22} /> : <Menu size={22} />}
       </button>
 
       <aside
+        id={PUBLIC_SIDEBAR_ID}
         dir="rtl"
+        aria-hidden={isSidebarHidden}
         className={`fixed top-0 right-0 z-40 flex h-screen w-[88vw] max-w-[320px] flex-col border-l border-indigo-200/60 bg-gradient-to-b from-indigo-50/95 via-sky-50/95 to-white text-slate-800 shadow-[0_8px_28px_rgba(99,102,241,.10)] backdrop-blur transition-transform duration-300 ease-in-out
           ${isOpen ? "translate-x-0" : "translate-x-full"}
           sm:w-72 sm:max-w-none sm:translate-x-0`}
@@ -85,6 +96,7 @@ export default function Home({ isOpen = true, toggleSidebar }) {
                 <NavLink
                   to={item.to}
                   onClick={() => toggleSidebar(false)}
+                  tabIndex={isSidebarHidden ? -1 : 0}
                   className={({ isActive }) =>
                     cn(
                       "relative flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-all duration-200",

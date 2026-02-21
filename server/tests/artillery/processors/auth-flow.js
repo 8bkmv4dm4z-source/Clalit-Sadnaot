@@ -42,6 +42,10 @@ function ensureEmail(context, events, done) {
 function foldLoginTokens(context, events, done) {
   const v = context.vars;
   v.token = v.token || v.token_alt || v.token_data || null;
+  if (!v.token && v.set_cookie_login) {
+    const fromCookie = tokenFromSetCookieStr(v.set_cookie_login);
+    if (fromCookie) v.token = fromCookie;
+  }
   v.needRegister = !v.token;
   v.needRetry    = !v.token;
   if (!v.token) console.log(`🔐 No token yet for ${v.email}`);

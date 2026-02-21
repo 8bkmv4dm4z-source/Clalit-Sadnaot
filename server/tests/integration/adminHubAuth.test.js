@@ -15,6 +15,7 @@ const { sanitizeMetadata: realSanitizeMetadata } = require(auditServicePath);
 const adminHubServicePath = require.resolve("../../services/AdminHubService");
 const adminHubRouterPath = require.resolve("../../routes/adminHub");
 const adminHubControllerPath = require.resolve("../../controllers/adminHubController");
+const observabilityService = require("../../services/ObservabilityMetricsService");
 
 const createUserStub = (role = "admin", overrides = {}) => ({
   _id: "user-id",
@@ -519,5 +520,49 @@ test("returns maxed workshop alerts without exposing _id", async () => {
     participantsCount: 30,
     maxParticipants: 30,
   });
+  await stopServer(server);
+});
+
+test("metrics endpoint exports Prometheus text for authorized admins", async () => {
+  observabilityService.__resetForTests();
+  observabilityService.recordApiRequest({
+    method: "GET",
+    route: "/api/admin/hub/logs",
+    statusCode: 200,
+    durationMs: 42,
+    headers: {},
+    userAgent: "integration-test",
+  });
+
+  installUserStub("admin");
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+  const token = createToken();
+
+  const response = await fetchStatus(server, "/api/admin/hub/metrics", {
+    headers: { Authorization: `Bearer ${token}`, "x-admin-password": "strong-secret" },
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") || "", /^text\/plain/);
+  assert.match(response.text, /ws3_api_requests_total/);
+  await stopServer(server);
+});
+
+test("metrics endpoint requires admin password", async () => {
+  installUserStub("admin");
+  installAuditServiceStub(async () => []);
+  installAdminHubServiceStub();
+  const app = buildApp();
+  const server = await startServer(app);
+  const token = createToken();
+
+  const response = await fetchStatus(server, "/api/admin/hub/metrics", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 401);
   await stopServer(server);
 });

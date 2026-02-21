@@ -87,3 +87,32 @@ test("runDailyAuditJobs combines both job outputs", async () => {
     staleUsers: [{ subjectKey: "user-1", recorded: true }],
   });
 });
+
+test("auditStaleUsers uses 7-day dedup window by default when AUDIT_RETENTION_DAYS is unset", async () => {
+  const prior = process.env.AUDIT_RETENTION_DAYS;
+  delete process.env.AUDIT_RETENTION_DAYS;
+  const queries = [];
+
+  try {
+    await auditStaleUsers({
+      detectStaleUsers: async () => [
+        { subjectKey: "user-1", lastUpdatedAt: new Date("2023-01-01T00:00:00Z"), staleDays: 30 },
+      ],
+      queryLogs: async (query) => {
+        queries.push(query);
+        return [];
+      },
+      recordEvent: async () => {},
+      now: () => fixedNow,
+    });
+
+    assert.equal(queries.length, 1);
+    assert.equal(fixedNow - queries[0].from.getTime(), 7 * 24 * 60 * 60 * 1000);
+  } finally {
+    if (prior === undefined) {
+      delete process.env.AUDIT_RETENTION_DAYS;
+    } else {
+      process.env.AUDIT_RETENTION_DAYS = prior;
+    }
+  }
+});

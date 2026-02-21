@@ -24,4 +24,5 @@
 // index.jsx
 // קובץ זה מייצא את ProfileProvider ואת hook השימוש בהקשר פרופיל כדי לאפשר
 // ייבוא פשוט: import { ProfileProvider, useProfiles } from '.../layouts/ProfileContext'
-export * from './ProfileContext';
+// eslint-disable-next-line react-refresh/only-export-components
+export { ProfileProvider, useProfiles } from "./ProfileContext";

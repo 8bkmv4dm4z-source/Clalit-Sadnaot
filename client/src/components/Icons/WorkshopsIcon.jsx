@@ -32,9 +32,9 @@ function WorkshopsIcon({ size = 24, color = "currentColor" }) {
 return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      fill="currentColor"
+      width={size}
+      height={size}
+      fill={color}
       viewBox="0 0 24 24"
     >
       <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z" />

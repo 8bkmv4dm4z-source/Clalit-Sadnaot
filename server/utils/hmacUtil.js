@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 
 /**
  * Retrieve the audit HMAC secret or throw if missing.
@@ -24,7 +24,7 @@ const hmacEntityKey = (entityKey) => {
     throw new Error("entityKey must be a non-empty string");
   }
   const secret = getAuditHmacSecret();
-  return crypto.createHmac("sha256", secret).update(entityKey).digest("hex");
+  return nodeCrypto.createHmac("sha256", secret).update(entityKey).digest("hex");
 };
 
 module.exports = { getAuditHmacSecret, hmacEntityKey };

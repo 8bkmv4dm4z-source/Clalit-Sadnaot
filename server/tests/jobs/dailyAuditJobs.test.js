@@ -55,7 +55,7 @@ test("records workshop.maxed once per workshop within 24h dedup window", async (
   assert.equal(created[0].subjectKey, "wk-1");
   assert.equal(created[0].actorKey, null);
   assert.equal(created[0].category, AuditCategories.CAPACITY);
-  assert.deepEqual(created[0].metadata, { participantsCount: 30, maxParticipants: 30 });
+  assert.deepEqual(created[0].metadata, { participantsCount: 30, maxParticipants: 30, waitlistCount: 0 });
   const [firstQuery] = services.auditLogService.queries;
   assert.equal(firstQuery.from instanceof Date, true);
   assert.equal(fixedNow - firstQuery.from.getTime(), 24 * 60 * 60 * 1000);
@@ -63,7 +63,9 @@ test("records workshop.maxed once per workshop within 24h dedup window", async (
 
 test("records user.stale.detected once per entityKey within 7d dedup window", async () => {
   const priorStale = process.env.STALE_USER_DAYS;
+  const priorAuditRetention = process.env.AUDIT_RETENTION_DAYS;
   process.env.STALE_USER_DAYS = "45";
+  process.env.AUDIT_RETENTION_DAYS = "7";
   const created = [];
   const services = {
     staleUserDetector: {
@@ -104,12 +106,16 @@ test("records user.stale.detected once per entityKey within 7d dedup window", as
   assert.equal(payload.subjectKey, "user-1");
   assert.equal(payload.actorKey, null);
   assert.equal(payload.category, AuditCategories.HYGIENE);
-  assert.deepEqual(payload.metadata, { staleDays: 45 });
+  assert.deepEqual(payload.metadata, {
+    lastUpdatedAt: new Date("2023-10-01T00:00:00Z"),
+    staleDays: 45,
+  });
   const [firstQuery] = services.auditLogService.queries;
   assert.equal(firstQuery.from instanceof Date, true);
   assert.equal(fixedNow - firstQuery.from.getTime(), 7 * 24 * 60 * 60 * 1000);
 
   process.env.STALE_USER_DAYS = priorStale;
+  process.env.AUDIT_RETENTION_DAYS = priorAuditRetention;
 });
 
 test("runDailyAuditJobs combines workshop and stale user results", async () => {

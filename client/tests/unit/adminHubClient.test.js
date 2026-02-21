@@ -57,7 +57,7 @@ test("groupLogsByCategory groups by server-provided categories only", () => {
 });
 
 test("helpers do not persist admin password in storage", () => {
-  global.localStorage = {
+  globalThis.localStorage = {
     data: {},
     getItem(key) {
       return this.data[key] || null;
@@ -70,5 +70,5 @@ test("helpers do not persist admin password in storage", () => {
     },
   };
   buildAdminHeaders("temp-secret");
-  assert.equal(global.localStorage.getItem("adminPassword"), null);
+  assert.equal(globalThis.localStorage.getItem("adminPassword"), null);
 });

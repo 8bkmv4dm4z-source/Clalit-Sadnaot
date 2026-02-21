@@ -1,8 +1,10 @@
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 
 const isProd = process.env.NODE_ENV === "production";
 const SECRET_COOKIE = "csrf-secret";
 const TOKEN_COOKIE = "XSRF-TOKEN";
+const COOKIE_SAME_SITE = process.env.CSRF_COOKIE_SAMESITE || process.env.REFRESH_COOKIE_SAMESITE || "Strict";
+const COOKIE_SECURE = process.env.CSRF_COOKIE_SECURE === "true" || isProd;
 
 const safeEqual = (a, b) => {
   if (!a || !b) return false;
@@ -10,7 +12,7 @@ const safeEqual = (a, b) => {
   const bBuf = Buffer.from(String(b));
   if (aBuf.length !== bBuf.length) return false;
   try {
-    return crypto.timingSafeEqual(aBuf, bBuf);
+    return nodeCrypto.timingSafeEqual(aBuf, bBuf);
   } catch {
     return false;
   }
@@ -18,16 +20,16 @@ const safeEqual = (a, b) => {
 
 // CSRF is scoped per-route (refresh/logout/reset) to avoid impacting non-cookie APIs.
 const deriveToken = (secret) =>
-  crypto.createHmac("sha256", String(secret)).update("csrf-token").digest("hex");
+  nodeCrypto.createHmac("sha256", String(secret)).update("csrf-token").digest("hex");
 
 const ensureSecret = (req, res) => {
   let secret = req.cookies?.[SECRET_COOKIE];
   if (!secret) {
-    secret = crypto.randomBytes(32).toString("hex");
+    secret = nodeCrypto.randomBytes(32).toString("hex");
     res.cookie(SECRET_COOKIE, secret, {
       httpOnly: true,
-      sameSite: "strict",
-      secure: isProd,
+      sameSite: COOKIE_SAME_SITE,
+      secure: COOKIE_SECURE,
       path: "/",
     });
   }
@@ -40,8 +42,8 @@ const issueCsrfToken = (req, res, next) => {
     const token = deriveToken(secret);
     res.cookie(TOKEN_COOKIE, token, {
       httpOnly: false,
-      sameSite: "strict",
-      secure: isProd,
+      sameSite: COOKIE_SAME_SITE,
+      secure: COOKIE_SECURE,
       path: "/",
     });
     res.locals.csrfToken = token;
@@ -66,13 +68,15 @@ const csrfProtection = (req, res, next) => {
 
   const secret = ensureSecret(req, res);
   const expected = deriveToken(secret);
+  const tokenCookie = req.cookies?.[TOKEN_COOKIE];
   const candidate =
     req.headers["x-csrf-token"] ||
     req.headers["x-xsrf-token"] ||
     req.body?._csrf ||
     req.query?._csrf;
 
-  if (!candidate || !safeEqual(candidate, expected)) {
+  // Double-submit cookie pattern: token in header/body must match cookie and server-derived expectation.
+  if (!candidate || !tokenCookie || !safeEqual(candidate, tokenCookie) || !safeEqual(candidate, expected)) {
     const err = new Error("Invalid CSRF token");
     err.code = "EBADCSRFTOKEN";
     return next(err);

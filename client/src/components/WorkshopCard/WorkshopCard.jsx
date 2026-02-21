@@ -116,13 +116,9 @@ export default function WorkshopCard({
     waitingListMax = 0,
     participantsCount: participantsCountRaw,
     waitingListCount = 0,
-    familyRegistrationsCount = 0,
     registrationStatus = "not_registered",
     isUserInWaitlist = false,
     maxParticipants: maxParticipantsRaw,
-    startDate,
-    endDate,
-    inactiveDates = [],
     userFamilyRegistrations = [],
   } = workshop;
 const [localHidden, setLocalHidden] = useState(!!adminHidden);
@@ -174,20 +170,6 @@ const [localHidden, setLocalHidden] = useState(!!adminHidden);
 
   const daysStr =
     days?.length ? days.map((d) => hebDaysLetters[d] || d).join(", ") : "—";
-
-  const startDateStr = startDate
-    ? new Date(startDate).toLocaleDateString("he-IL")
-    : "";
-  const endDateStr = endDate
-    ? new Date(endDate).toLocaleDateString("he-IL")
-    : "";
-
-  const inactiveStr =
-    inactiveDates?.length
-      ? inactiveDates
-          .map((d) => new Date(d).toLocaleDateString("he-IL"))
-          .join(", ")
-      : null;
 
   const participantIdSet = useMemo(() => {
     return new Set(

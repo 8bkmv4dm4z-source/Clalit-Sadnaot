@@ -500,6 +500,9 @@ Server tests are split into `tests/unit/` and `tests/integration/`. Load tests u
 |----------|-------------|
 | [`CLAUDE.md`](../CLAUDE.md) | Agent instructions and codebase context |
 | [`docs/project.md`](project.md) | This file — project overview |
+| [`docs/onboarding.md`](onboarding.md) | Onboarding flow, environment matrix, and working conventions |
+| [`docs/runbook.md`](runbook.md) | Operations runbook for deploy checks, rollback, and incident triage |
+| [`docs/ADR-index.md`](ADR-index.md) | Architecture/security ADR index and decision changelog |
 | [`docs/api-flow.md`](api-flow.md) | Complete API endpoint catalog with middleware chains and data flows |
 | [`docs/security.md`](security.md) | Security architecture — JWT, hashing, CSRF, rate limiting, audit, etc. |
 | [`docs/suggestions-to-fix.md`](suggestions-to-fix.md) | Security audit findings and fix recommendations |

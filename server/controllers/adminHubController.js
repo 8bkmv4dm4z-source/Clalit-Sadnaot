@@ -5,6 +5,7 @@ const {
   getStaleUsers: fetchStaleUsers,
 } = require("../services/AdminHubService");
 const { getLatestInsights } = require("../services/SecurityInsightService");
+const { renderPrometheusMetrics } = require("../services/ObservabilityMetricsService");
 
 const ALLOWED_SUBJECT_TYPES = ["user", "familyMember", "workshop", "system"];
 const VALID_SEVERITIES = new Set(Object.values(AuditSeverityLevels));
@@ -142,9 +143,21 @@ const getStats = async (_req, res) => {
   }
 };
 
+const getMetrics = async (_req, res) => {
+  try {
+    const body = renderPrometheusMetrics();
+    res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    return res.status(200).send(body);
+  } catch (err) {
+    console.error("[ADMIN HUB] Failed to export metrics", err);
+    return res.status(500).json({ message: "Failed to export metrics" });
+  }
+};
+
 module.exports = {
   getLogs,
   getMaxedWorkshopAlerts,
   getStaleUsers,
   getStats,
+  getMetrics,
 };

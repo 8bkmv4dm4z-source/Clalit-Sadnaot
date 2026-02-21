@@ -4,7 +4,7 @@
  * Deletes old test users before any scenario runs.
  * Uses /api/dev/cleanup-user (disabled in production).
  */
-export async function cleanupUsers(context, events) {
+export async function cleanupUsers() {
   const base = "http://localhost:5000";
   const emails = Array.from({ length: 20 }, (_, i) => `u${i + 1}@test.com`);
 

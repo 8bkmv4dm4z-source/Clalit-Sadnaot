@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { AdminHubProvider, useAdminHub } from "../../context/AdminHubContext";
 import { groupLogsByCategory } from "../../utils/adminHubClient";
 import SecurityInsightsPanel, { SeverityBadge } from "./SecurityInsightsPanel";
@@ -23,12 +23,6 @@ const TAB_CONFIG = {
 };
 
 const TAB_KEYS = Object.keys(TAB_CONFIG);
-
-const resolveTabForLog = (log) => {
-  if (!log?.category) return null;
-  const found = TAB_KEYS.find((key) => TAB_CONFIG[key].category === log.category);
-  return found || null;
-};
 
 const Section = ({ title, children }) => (
   <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">

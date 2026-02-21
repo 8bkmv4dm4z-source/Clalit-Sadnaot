@@ -104,7 +104,7 @@ export default function () {
         let postRes = { status: 0, headers: {} };
         try {
           postRes = http.post(`${BASE}${ep}`, JSON.stringify({ probe: true }), { headers: cookieHeaders });
-        } catch (e) {
+        } catch {
           // ignore network errors in the probe
         }
 

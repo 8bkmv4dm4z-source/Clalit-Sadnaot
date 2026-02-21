@@ -8,6 +8,7 @@ const {
   logTokenMalformed,
   logRoleIntegrityFailure,
 } = require("../services/SecurityEventLogger");
+const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME || "accessToken";
 
 /**
  * 🔒 Middleware: Authenticate user via JWT
@@ -15,7 +16,9 @@ const {
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+    const cookieToken = req.cookies?.[ACCESS_COOKIE_NAME] || null;
+    const token = bearerToken || cookieToken;
 
     if (!token) {
       // SECURITY FIX: avoid echoing raw headers back into the logs

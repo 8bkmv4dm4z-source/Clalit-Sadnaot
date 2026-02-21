@@ -14,7 +14,6 @@ require("dotenv").config();
 
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
@@ -33,6 +32,8 @@ const { migrateLegacyAdmins } = require("./services/legacyAdminMigration");
 const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
 const { enforceResponseContract } = require("./contracts/responseGuards");
 const { logCsrfFailure, logResponseGuardViolation, logMongoSanitized } = require("./services/SecurityEventLogger");
+const { csrfProtection, issueCsrfToken } = require("./middleware/csrf");
+const { apiMetricsMiddleware } = require("./middleware/observabilityMetrics");
 
 const app = express();
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS || 1);
@@ -80,15 +81,13 @@ function logToFile(level, msg) {
  * -------------------------- */
 /**
  * CORS strategy:
- * - In development (NODE_ENV !== "production") → allow all origins (easy dev).
- * - In production:
- *    - allow any origin listed in ALLOWED_ORIGINS (comma-separated)
- *    - also allow PUBLIC_URL (Render frontend) + localhost dev ports
+ * - Allow only explicit origins from allowlists (env + defaults).
  * - Non-browser requests (no Origin header) are always allowed.
  */
 const ENV_ALLOWED_ORIGINS = parseCSV(process.env.ALLOWED_ORIGINS || "");
 const DEV_DEFAULTS = parseCSV(
-  process.env.DEV_ALLOWED_ORIGINS || "http://localhost:5173,http://localhost:3000"
+  process.env.DEV_ALLOWED_ORIGINS ||
+    "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://0.0.0.0:5173,http://0.0.0.0:3000"
 );
 const DEPLOY_DEFAULTS = [
   process.env.PUBLIC_URL, // e.g. https://sandaot.onrender.com
@@ -120,9 +119,6 @@ const corsOptions = {
   origin(origin, cb) {
     // Allow non-browser / server-side requests with no Origin
     if (!origin) return cb(null, true);
-
-    // During development, allow everything for convenience
-    if (process.env.NODE_ENV !== "production") return cb(null, true);
 
     if (ALL_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
 
@@ -239,6 +235,7 @@ mongoose.connection.on("error", (err) => {
  * ========================================================== */
 const api = express.Router();
 
+api.use(apiMetricsMiddleware);
 api.use(hpp());
 api.use(sanitizeBody);
 api.use(
@@ -249,6 +246,8 @@ api.use(
   })
 );
 api.use(compression());
+api.use(csrfProtection);
+api.use(issueCsrfToken);
 
 // Rate limits (API only)
 const globalLimiter = rateLimit({
@@ -295,7 +294,7 @@ if (!isProd && devRoutesEnabled) {
   try {
     const devRouter = require("./routes/dev");
     api.use("/dev", devRouter);
-  } catch (e) {
+  } catch {
     console.warn("⚠️ Dev routes not found (ok).");
   }
 } else {
@@ -336,7 +335,8 @@ api.use((err, req, res, next) => {
   }
   return next(err);
 });
-api.use((err, req, res, _next) => {
+api.use((err, req, res, next) => {
+  void next;
   if (err instanceof CelebrateError) {
     return res.status(400).json({ success: false, message: "Validation error" });
   }
@@ -437,10 +437,7 @@ const HOST = process.env.HOST || "0.0.0.0";
       );
     }
 
-    const server = app.listen(PORT, HOST, () => {
-      const url = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
-      
-    });
+    const server = app.listen(PORT, HOST, () => {});
 
     const shutdown = (sig) => () => {
       console.warn(`\n${sig} received — shutting down...`);

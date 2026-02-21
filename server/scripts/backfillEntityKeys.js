@@ -3,7 +3,7 @@
  * Usage: MONGO_URI=mongodb://... node server/scripts/backfillEntityKeys.js
  */
 const mongoose = require("mongoose");
-const crypto = require("node:crypto");
+const nodeCrypto = require("node:crypto");
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 require("dotenv").config();
@@ -14,13 +14,13 @@ async function backfillUsers() {
   for (const user of users) {
     let changed = false;
     if (!user.entityKey) {
-      user.entityKey = crypto.randomUUID();
+      user.entityKey = nodeCrypto.randomUUID();
       changed = true;
     }
     if (Array.isArray(user.familyMembers)) {
       user.familyMembers.forEach((member) => {
         if (!member.entityKey) {
-          member.entityKey = crypto.randomUUID();
+          member.entityKey = nodeCrypto.randomUUID();
           changed = true;
         }
       });
@@ -38,7 +38,7 @@ async function backfillWorkshops() {
   let updated = 0;
   for (const ws of workshops) {
     if (!ws.workshopKey) {
-      ws.workshopKey = crypto.randomUUID();
+      ws.workshopKey = nodeCrypto.randomUUID();
       await ws.save();
       updated += 1;
     }

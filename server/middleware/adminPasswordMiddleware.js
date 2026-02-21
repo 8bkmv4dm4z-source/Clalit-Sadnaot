@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 const { logAdminPasswordFailure } = require("../services/SecurityEventLogger");
 
 /**
@@ -25,7 +25,7 @@ const requireAdminHubPassword = (req, res, next) => {
 
   if (
     providedBuffer.length !== configuredBuffer.length ||
-    !crypto.timingSafeEqual(providedBuffer, configuredBuffer)
+    !nodeCrypto.timingSafeEqual(providedBuffer, configuredBuffer)
   ) {
     logAdminPasswordFailure(req);
     return res.status(401).json({ message: "Invalid admin password" });

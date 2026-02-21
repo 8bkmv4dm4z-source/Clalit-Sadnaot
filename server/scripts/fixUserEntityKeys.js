@@ -7,7 +7,7 @@
 
 require("dotenv").config();
 const mongoose = require("mongoose");
-const crypto = require("node:crypto");
+const nodeCrypto = require("node:crypto");
 
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
@@ -37,7 +37,7 @@ const MONGODB_URI =
 
       // fix user entityKey
       if (!user.entityKey) {
-        user.entityKey = crypto.randomUUID();
+        user.entityKey = nodeCrypto.randomUUID();
         usersFixed++;
         changed = true;
       }
@@ -46,7 +46,7 @@ const MONGODB_URI =
       if (Array.isArray(user.familyMembers)) {
         user.familyMembers.forEach((m) => {
           if (!m.entityKey) {
-            m.entityKey = crypto.randomUUID();
+            m.entityKey = nodeCrypto.randomUUID();
             familyFixed++;
             changed = true;
           }

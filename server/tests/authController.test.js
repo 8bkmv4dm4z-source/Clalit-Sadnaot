@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const jwt = require('jsonwebtoken');
 const nodeCrypto = require('node:crypto');
 
 process.env.NODE_ENV = 'production';
@@ -15,6 +14,7 @@ fs.appendFileSync = () => {};
 const authController = require('../controllers/authController');
 const User = require('../models/User');
 const RegistrationRequest = require('../models/RegistrationRequest');
+const { hashPassword } = require('../utils/passwordHasher');
 
 const {
   sendEmail,
@@ -157,21 +157,24 @@ test('verifyOtp accepts OTP with trailing whitespace', async () => {
   }
 
   assert.equal(res.statusCode, 200);
-  assert.ok(res.jsonData?.accessToken);
+  assert.equal(res.jsonData?.accessToken, undefined);
+  assert.ok(res.cookies.accessToken?.value);
+  assert.equal(res.cookies.accessToken.options.httpOnly, true);
+  assert.ok(res.cookies.refreshToken?.value);
+  assert.equal(res.cookies.refreshToken.options.httpOnly, true);
   assert.equal(saveCalls.count, 2);
   assert.equal(userDoc.otpCode, null);
   assert.equal(userDoc.otpExpires, null);
   assert.equal(userDoc.refreshTokens.length, 1);
   assert.equal(userDoc.refreshTokens[0].userAgent, 'node-test');
-  assert.equal(typeof userDoc.refreshTokens[0].token, 'string');
-  assert.equal(userDoc.refreshTokens[0].token.length, 64);
+  assert.equal(typeof userDoc.refreshTokens[0].tokenHash, 'string');
+  assert.equal(userDoc.refreshTokens[0].tokenHash.length, 64);
   assert.notEqual(
-    userDoc.refreshTokens[0].token,
+    userDoc.refreshTokens[0].tokenHash,
     res.cookies.refreshToken?.value
   );
   assert.equal(res.jsonData.user._id, undefined);
-  assert.equal(res.jsonData.user.id, userDoc.entityKey || userDoc._id);
-  assert.equal(res.jsonData.user.legacyMongoId, userDoc._id);
+  assert.equal(typeof res.jsonData.user.entityKey, "string");
 });
 
 test('sendOtp returns generic success for unknown email', async () => {
@@ -272,7 +275,7 @@ test('verifyRegistrationOtp returns generic failure when request is missing', as
 });
 
 test('refreshAccessToken rotates token and sets new cookie', async () => {
-  const originalFindById = User.findById;
+  const originalFindOne = User.findOne;
 
   const refreshToken = authController.generateRefreshToken({ _id: 'user-1' });
   const hashedRefresh = nodeCrypto.createHash('sha256').update(refreshToken).digest('hex');
@@ -288,7 +291,9 @@ test('refreshAccessToken rotates token and sets new cookie', async () => {
     },
   };
 
-  User.findById = async () => userDoc;
+  User.findOne = () => ({
+    select: async () => userDoc,
+  });
 
   const req = { cookies: { refreshToken }, headers: { 'user-agent': 'new-agent' } };
   const res = createRes();
@@ -296,20 +301,23 @@ test('refreshAccessToken rotates token and sets new cookie', async () => {
   try {
     await authController.refreshAccessToken(req, res);
   } finally {
-    User.findById = originalFindById;
+    User.findOne = originalFindOne;
   }
 
   assert.equal(res.statusCode, 200);
-  assert.ok(res.jsonData?.accessToken);
+  assert.equal(res.jsonData?.accessToken, undefined);
+  assert.equal(res.jsonData?.success, true);
+  assert.ok(res.cookies.accessToken?.value);
+  assert.equal(res.cookies.accessToken.options.httpOnly, true);
   assert.ok(res.cookies.refreshToken?.value);
   assert.notEqual(res.cookies.refreshToken.value, refreshToken);
-  assert.equal(userDoc.refreshTokens.length, 1);
-  assert.notEqual(userDoc.refreshTokens[0].token, hashedRefresh);
+  assert.equal(userDoc.refreshTokens.length, 2);
+  assert.notEqual(userDoc.refreshTokens[0].tokenHash, hashedRefresh);
   assert.equal(saveCount >= 1, true);
 });
 
 test('refreshAccessToken detects reuse and clears family', async () => {
-  const originalFindById = User.findById;
+  const originalFindOne = User.findOne;
 
   const stolenToken = authController.generateRefreshToken({ _id: 'user-2' });
   let saveCount = 0;
@@ -324,7 +332,9 @@ test('refreshAccessToken detects reuse and clears family', async () => {
     },
   };
 
-  User.findById = async () => userDoc;
+  User.findOne = () => ({
+    select: async () => userDoc,
+  });
 
   const req = { cookies: { refreshToken: stolenToken }, headers: { 'user-agent': 'reuse-agent' } };
   const res = createRes();
@@ -332,13 +342,59 @@ test('refreshAccessToken detects reuse and clears family', async () => {
   try {
     await authController.refreshAccessToken(req, res);
   } finally {
-    User.findById = originalFindById;
+    User.findOne = originalFindOne;
   }
 
   assert.equal(res.statusCode, 403);
   assert.deepEqual(res.jsonData, { message: "Session invalidated. Please login again." });
   assert.equal(userDoc.refreshTokens.length, 0);
   assert.equal(saveCount >= 1, true);
+});
+
+test('loginUser sets secure cookie flags for auth cookies', async () => {
+  const originalFindOne = User.findOne;
+
+  const password = 'P@ssw0rd!123';
+  const passwordHash = await hashPassword(password);
+  const userDoc = {
+    _id: '507f191e810c19729de860ef',
+    entityKey: 'user_test_cookie',
+    email: 'cookie@example.com',
+    passwordHash,
+    role: 'user',
+    authorities: {},
+    refreshTokens: [],
+    save: async function () {
+      return this;
+    },
+  };
+
+  User.findOne = () => ({
+    select: async () => userDoc,
+  });
+
+  const req = {
+    body: { email: 'cookie@example.com', password },
+    headers: { 'user-agent': 'cookie-test-agent' },
+  };
+  const res = createRes();
+
+  try {
+    await authController.loginUser(req, res);
+  } finally {
+    User.findOne = originalFindOne;
+  }
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.jsonData?.accessToken, undefined);
+  assert.ok(res.cookies.accessToken);
+  assert.ok(res.cookies.refreshToken);
+  assert.equal(res.cookies.accessToken.options.httpOnly, true);
+  assert.equal(res.cookies.refreshToken.options.httpOnly, true);
+  assert.equal(typeof res.cookies.accessToken.options.sameSite, 'string');
+  assert.equal(typeof res.cookies.refreshToken.options.sameSite, 'string');
+  assert.equal(typeof res.cookies.accessToken.options.secure, 'boolean');
+  assert.equal(typeof res.cookies.refreshToken.options.secure, 'boolean');
 });
 
 test('pruneRefreshSessions removes expired and caps size', () => {
@@ -356,9 +412,9 @@ test('pruneRefreshSessions removes expired and caps size', () => {
 
   pruneRefreshSessions(userDoc);
 
-  assert.ok(userDoc.refreshTokens.every((rt) => rt.token !== 'expired'));
+  assert.ok(userDoc.refreshTokens.every((rt) => rt.tokenHash !== 'expired'));
   assert.equal(userDoc.refreshTokens.length <= 5, true);
-  const tokens = userDoc.refreshTokens.map((rt) => rt.token);
+  const tokens = userDoc.refreshTokens.map((rt) => rt.tokenHash);
   assert.equal(tokens.includes('keep-new'), true);
 });
 
@@ -367,6 +423,7 @@ test('recordRefreshToken prepends and prunes to cap', () => {
 
   recordRefreshToken(userDoc, 'new-token', 'ua');
 
-  assert.equal(userDoc.refreshTokens[0].token, 'new-token');
+  assert.equal(typeof userDoc.refreshTokens[0].tokenHash, 'string');
+  assert.equal(userDoc.refreshTokens[0].tokenHash.length, 64);
   assert.equal(userDoc.refreshTokens.length <= 5, true);
 });

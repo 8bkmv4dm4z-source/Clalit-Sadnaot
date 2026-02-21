@@ -4,7 +4,6 @@ let argon2 = null;
 try {
   // Optional dependency for environments that restrict native builds.
   // When present, Argon2id is used; otherwise bcrypt remains as a fallback.
-  // eslint-disable-next-line global-require
   argon2 = require("argon2");
 } catch (err) {
   if (process.env.NODE_ENV !== "production") {

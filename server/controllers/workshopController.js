@@ -1,19 +1,10 @@
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
 const Workshop = require("../models/Workshop");
 const User = require("../models/User");
 const ExcelJS = require('exceljs');
 const emailService = require('../services/emailService');
-const {
-  unregisterUserFromWorkshop,
-  unregisterFamilyFromWorkshop,
-  registerFamilyToWorkshop,
-  registerUserToWorkshop,
-} = require("../services/workshopRegistration");
 const mongoose = require("mongoose");
 const { Resend } = require("resend");
-const fs = require("fs");
-const path = require("path");
 const { safeFetch } = require("../utils/safeFetch");
 const { hashId } = require("../utils/hashId");
 const { hasAuthority } = require("../middleware/authMiddleware");
@@ -34,7 +25,6 @@ const {
   toAdminWorkshop,
   normalizeWorkshopParticipants,
   sanitizeWaitingListEntry,
-  deriveCounts,
   toEntityKey,
   normalizeEntityKey,
   matchesUserIdentity,
@@ -493,7 +483,8 @@ async function attachUserIfPresent(req) {
     const user = await User.findOne({ entityKey }).select("_id name email entityKey +authorities");
     if (user && !user.authorities) user.authorities = {};
     if (user) req.user = user;
-  } catch (err) {
+  } catch {
+    // Optional auth path: ignore invalid/expired token and continue as public.
   }
 }
 
@@ -955,7 +946,7 @@ exports.updateWorkshop = async (req, res) => {
             if (!Array.isArray(result) || result.length === 0) {
               console.warn(`⚠ Address warning: "${address}" in "${city}" not found on OSM.`);
             }
-          } catch (err) {
+          } catch {
             console.warn("⚠ Address validation service unavailable — skipping check");
           }
         };
@@ -2207,10 +2198,7 @@ exports.exportWorkshopExcel = async (req, res) => {
 
     // 2. Setup Excel Logic (Preserved from your code)
     const startDate = workshop.startDate ? new Date(workshop.startDate) : new Date(workshop.createdAt);
-    const periodDays = Number(workshop.timePeriod) || 30;
-    const endDate = new Date(startDate.getTime() + periodDays * 24 * 60 * 60 * 1000);
     const startDateStr = toHebDate(startDate);
-    const endDateStr = toHebDate(endDate);
 
     const exportType = String(req.query.type || "").toLowerCase();
     const includeParticipants = !exportType || exportType === "current";

@@ -21,6 +21,16 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const WORKSHOP_STYLE_KEY = "workshopsPreferredPageStyle";
 const WORKSHOP_STYLE_ACTIVE_KEY = "workshopsActivePageStyle";
@@ -39,6 +49,7 @@ export default function Workshops() {
   const [searchBy, setSearchBy] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [feedback, setFeedback] = useState(null);
+  const [pendingDeleteWorkshopId, setPendingDeleteWorkshopId] = useState(null);
   const [cities, setCities] = useState([]);
   const [viewport, setViewport] = useState("desktop");
   const [pageStyle, setPageStyle] = useState("classic");
@@ -175,8 +186,11 @@ export default function Workshops() {
   const loadMoreRef = useRef(null);
   useEffect(() => {
     if (!loadMoreRef.current || viewMode !== "all") return undefined;
+    if (typeof window === "undefined" || typeof window.IntersectionObserver !== "function") {
+      return undefined;
+    }
 
-    const observer = new IntersectionObserver(
+    const observer = new window.IntersectionObserver(
       (entries) => {
         const first = entries[0];
         if (
@@ -345,12 +359,19 @@ export default function Workshops() {
   ============================================================ */
   const handleSearch = (e) => setSearchQuery(e.target.value);
 
-  const handleDeleteWorkshop = async (id) => {
-    if (!window.confirm("למחוק את הסדנה לצמיתות?")) return;
-    const result = await deleteWorkshop(id);
+  const requestDeleteWorkshop = (id) => setPendingDeleteWorkshopId(id);
+
+  const handleConfirmDeleteWorkshop = async () => {
+    if (!pendingDeleteWorkshopId) return;
+    const result = await deleteWorkshop(pendingDeleteWorkshopId);
     setFeedback(result.success ? "✅ הסדנה נמחקה בהצלחה" : `❌ ${result.message}`);
+    setPendingDeleteWorkshopId(null);
     setTimeout(() => setFeedback(null), 2500);
   };
+
+  const pendingDeleteWorkshop = pendingDeleteWorkshopId
+    ? displayedWorkshops?.find((workshop) => workshop._id === pendingDeleteWorkshopId)
+    : null;
 
   const handleEditWorkshop = (id) =>
     navigate(`/editworkshop/${id}`, { state: { cities } });
@@ -443,7 +464,11 @@ export default function Workshops() {
           className="mx-auto mb-8 flex max-w-6xl flex-col items-stretch gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between md:p-5"
         >
           <div className="flex w-full flex-col gap-3 sm:flex-row md:w-auto">
+            <label htmlFor="workshops-search-scope" className="sr-only">
+              סינון חיפוש לפי
+            </label>
             <select
+              id="workshops-search-scope"
               value={searchBy}
               onChange={(e) => setSearchBy(e.target.value)}
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-slate-500 focus:bg-white focus:outline-none sm:w-auto"
@@ -460,7 +485,11 @@ export default function Workshops() {
             </select>
 
             <div className="relative w-full sm:min-w-80">
+              <label htmlFor="workshops-search-input" className="sr-only">
+                חיפוש סדנאות
+              </label>
               <input
+                id="workshops-search-input"
                 type="text"
                 placeholder={
                   searchBy === "days"
@@ -539,7 +568,7 @@ export default function Workshops() {
                     searchQuery={searchQuery}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
-                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+                    onDeleteWorkshop={() => requestDeleteWorkshop(w._id)}
                   />
                 ))}
               </div>
@@ -567,7 +596,7 @@ export default function Workshops() {
                     searchQuery={searchQuery}
                     onManageParticipants={() => handleManageParticipants(w._id)}
                     onEditWorkshop={() => handleEditWorkshop(w._id)}
-                    onDeleteWorkshop={() => handleDeleteWorkshop(w._id)}
+                    onDeleteWorkshop={() => requestDeleteWorkshop(w._id)}
                   />
                 </div>
               ))}
@@ -617,6 +646,36 @@ export default function Workshops() {
           accessScope={accessScope}
         />
       )}
+
+      <AlertDialog
+        open={Boolean(pendingDeleteWorkshopId)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingDeleteWorkshopId(null);
+        }}
+      >
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>מחיקת סדנה</AlertDialogTitle>
+            <AlertDialogDescription>
+              למחוק לצמיתות את הסדנה
+              {" "}
+              <span className="font-semibold text-slate-900">
+                {pendingDeleteWorkshop?.title || "שנבחרה"}
+              </span>
+              ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ביטול</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteWorkshop}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              מחק לצמיתות
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

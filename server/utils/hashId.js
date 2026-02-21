@@ -1,4 +1,4 @@
-const crypto = require("node:crypto");
+const nodeCrypto = require("node:crypto");
 
 function getSecret() {
   if (!process.env.PUBLIC_ID_SECRET) {
@@ -14,7 +14,7 @@ function hashId(type, id) {
 
   const SECRET = getSecret();
 
-  return crypto
+  return nodeCrypto
     .createHmac("sha256", SECRET)
     .update(`${type}:${id.toString()}`)
     .digest("base64url")

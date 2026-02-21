@@ -2,20 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CalendarClock,
-  CalendarDays,
   ChevronDown,
   ChevronUp,
   LayoutGrid,
   LogOut,
   Sparkles,
-  Settings,
-  Shield,
-  User,
-  Users,
 } from "lucide-react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
 import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
+import { getAuthenticatedNavItems, NAV_LINKS } from "../nav/navigationConfig";
 import { Button } from "@/components/ui/button";
 import { NavBar } from "@/components/ui/tubelight-navbar";
 
@@ -46,32 +42,32 @@ export default function Header() {
   const { canAccessAdmin, isChecking } = useAdminCapabilityStatus();
 
   const navItems = useMemo(() => {
-    const base = [
-      {
-        name: "כל הסדנאות",
-        url: "/workshops",
-        icon: LayoutGrid,
-        onClick: () => setViewMode("all"),
-        active: (pathname) => pathname === "/workshops" && viewMode === "all",
-      },
-      { name: "יומן הסדנאות", url: "/workshops-calendar", icon: CalendarClock },
-      { name: "הסדנאות שלי", url: "/myworkshops", icon: CalendarDays },
-      { name: "הפרופיל שלי", url: "/profile", icon: User },
-    ];
+    return getAuthenticatedNavItems({ canAccessAdmin, isChecking }).map((item) => {
+      if (item.key === NAV_LINKS.workshops.key) {
+        return {
+          name: item.label,
+          url: item.path,
+          icon: LayoutGrid,
+          onClick: () => setViewMode("all"),
+          active: (pathname) => pathname === item.path && viewMode === "all",
+        };
+      }
 
-    if (canAccessAdmin && !isChecking) {
-      base.push(
-        {
-          name: "סדנה חדשה",
-          url: "/editworkshop",
-          icon: Settings,
+      if (item.key === NAV_LINKS.workshopsCalendar.key) {
+        return { name: item.label, url: item.path, icon: CalendarClock };
+      }
+
+      if (item.key === NAV_LINKS.newWorkshop.key) {
+        return {
+          name: item.label,
+          url: item.path,
+          icon: item.icon,
           onClick: () => localStorage.removeItem("editingWorkshopId"),
-        },
-        { name: "Admin Hub", url: "/admin/hub", icon: Shield },
-        { name: "ניהול משתמשים", url: "/profiles", icon: Users }
-      );
-    }
-    return base;
+        };
+      }
+
+      return { name: item.label, url: item.path, icon: item.icon };
+    });
   }, [canAccessAdmin, isChecking, setViewMode, viewMode]);
 
   const handleLogout = async () => {

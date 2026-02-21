@@ -1,6 +1,7 @@
 const AdminAuditLog = require("../models/AdminAuditLog");
 const SecurityInsight = require("../models/SecurityInsight");
 const { AuditCategories } = require("./AuditEventRegistry");
+const { recordSecurityInsightSnapshot } = require("./ObservabilityMetricsService");
 
 const toNumber = (val, fallback) => {
   const num = Number(val);
@@ -150,6 +151,8 @@ const computeHourlyInsight = async () => {
     warnings,
   });
 
+  recordSecurityInsightSnapshot("hourly", insight);
+
   return insight;
 };
 
@@ -168,6 +171,8 @@ const computeDailyInsight = async () => {
     metrics,
     warnings,
   });
+
+  recordSecurityInsightSnapshot("daily", insight);
 
   return insight;
 };

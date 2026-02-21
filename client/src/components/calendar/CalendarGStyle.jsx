@@ -483,15 +483,6 @@ export default function CalendarGStyle({
     return out;
   }, [norm, rangeStart, rangeEnd]);
 
-  // Week label (used by parent when header hidden)
-  const weekLabel = useMemo(() => {
-    const { days } = getWeekRange(current, weekStartsOn);
-    const visDays = weekdaysOnly ? days.filter((d) => d.getDay() !== 6) : days;
-    return `${visDays[0].toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" })} — ${visDays[
-      visDays.length - 1
-    ].toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" })}`;
-  }, [current, weekStartsOn, weekdaysOnly]);
-
   // View switcher
   const Switch = showViewSwitch ? (
     <div className="inline-flex rounded-lg overflow-hidden border border-indigo-200 bg-white shadow-sm">

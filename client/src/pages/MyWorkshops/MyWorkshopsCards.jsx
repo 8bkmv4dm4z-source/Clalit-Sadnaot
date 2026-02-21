@@ -12,22 +12,6 @@ export default function MyWorkshopsCards() {
   const { mapsReady, displayedWorkshops, userWorkshopMap, familyWorkshopMap } =
     useWorkshops();
 
-  if (!isLoggedIn) {
-    return (
-      <div dir="rtl" className="min-h-screen flex items-center justify-center text-slate-600">
-        יש להתחבר כדי לצפות בסדנאות האישיות.
-      </div>
-    );
-  }
-
-  if (!mapsReady) {
-    return (
-      <div dir="rtl" className="min-h-screen flex items-center justify-center text-slate-500">
-        טוען נתונים…
-      </div>
-    );
-  }
-
   const { userEntity, familyMembers, allEntities } = flattenUserEntities(user || {});
   const workshopsByEntity = deriveWorkshopsByEntity({
     displayedWorkshops,
@@ -61,6 +45,22 @@ export default function MyWorkshopsCards() {
         .filter((s) => s.count > 0),
     [workshopsByEntity]
   );
+
+  if (!isLoggedIn) {
+    return (
+      <div dir="rtl" className="min-h-screen flex items-center justify-center text-slate-600">
+        יש להתחבר כדי לצפות בסדנאות האישיות.
+      </div>
+    );
+  }
+
+  if (!mapsReady) {
+    return (
+      <div dir="rtl" className="min-h-screen flex items-center justify-center text-slate-500">
+        טוען נתונים…
+      </div>
+    );
+  }
 
   return (
     <div dir="rtl" className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4 md:p-8">

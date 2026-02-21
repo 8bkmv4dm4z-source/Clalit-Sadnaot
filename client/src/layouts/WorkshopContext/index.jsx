@@ -24,4 +24,5 @@
 // index.jsx
 // קובץ זה מייצא את WorkshopProvider ואת hook השימוש בהקשר סדנאות.
 // מאפשר לייבא בקלות את הקונטקסט, ללא צורך בנתיב מדויק של קובץ המקור.
-export * from './WorkshopContext';
+// eslint-disable-next-line react-refresh/only-export-components
+export { WorkshopProvider, useWorkshops } from "./WorkshopContext";

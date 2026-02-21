@@ -115,7 +115,7 @@ export const AdminHubProvider = ({ children }) => {
       const { alerts: alertsPayload, stale } = await fetchAdminHubAlerts({ adminPassword });
       setAlerts(alertsPayload?.alerts || []);
       setStaleUsers(stale?.staleUsers || []);
-    } catch (err) {
+    } catch {
       // Non-fatal; keep UI functional
     }
   }, [adminPassword, canFetch]);
@@ -157,4 +157,5 @@ export const AdminHubProvider = ({ children }) => {
   return <AdminHubContext.Provider value={value}>{children}</AdminHubContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAdminHub = () => useContext(AdminHubContext);
