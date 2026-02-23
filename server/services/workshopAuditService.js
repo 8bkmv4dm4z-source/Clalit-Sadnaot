@@ -10,10 +10,6 @@ let lastRun = null;
 let lastResult = null;
 let auditRunning = false;
 
-function sid(x) {
-  return x ? String(x) : "";
-}
-
 // Resolve entityKey from user OR family member
 function resolveEntityKey(user, familyMemberId) {
   if (!user) return null;

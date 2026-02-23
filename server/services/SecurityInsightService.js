@@ -1,6 +1,7 @@
 const AdminAuditLog = require("../models/AdminAuditLog");
 const SecurityInsight = require("../models/SecurityInsight");
 const { AuditCategories } = require("./AuditEventRegistry");
+const { recordSecurityInsightSnapshot } = require("./ObservabilityMetricsService");
 
 const toNumber = (val, fallback) => {
   const num = Number(val);
@@ -13,6 +14,19 @@ const THRESHOLDS = {
   csrfPerHour: toNumber(process.env.SECURITY_THRESHOLD_CSRF_HOUR, 5),
   adminPwdPerDay: toNumber(process.env.SECURITY_THRESHOLD_ADMIN_PWD_DAY, 3),
   criticalPerDay: toNumber(process.env.SECURITY_THRESHOLD_CRITICAL_DAY, 1),
+};
+
+const sanitizeWarning = (warning) => {
+  if (!warning || typeof warning !== "object") return warning;
+  const copy = { ...warning };
+  delete copy._id;
+  delete copy.__v;
+  return copy;
+};
+
+const sanitizeWarnings = (warnings) => {
+  if (!Array.isArray(warnings)) return [];
+  return warnings.map((warning) => sanitizeWarning(warning));
 };
 
 const buildWarnings = (metrics, thresholds, periodType) => {
@@ -150,6 +164,8 @@ const computeHourlyInsight = async () => {
     warnings,
   });
 
+  recordSecurityInsightSnapshot("hourly", insight);
+
   return insight;
 };
 
@@ -169,6 +185,8 @@ const computeDailyInsight = async () => {
     warnings,
   });
 
+  recordSecurityInsightSnapshot("daily", insight);
+
   return insight;
 };
 
@@ -182,22 +200,25 @@ const getLatestInsights = async () => {
       .lean(),
   ]);
 
-  const allWarnings = [
-    ...(hourly?.warnings || []),
-    ...(daily?.warnings || []),
-  ];
-
   const sanitize = (doc) => {
     if (!doc) return null;
     const copy = { ...doc };
     delete copy._id;
     delete copy.__v;
+    copy.warnings = sanitizeWarnings(copy.warnings);
     return copy;
   };
 
+  const sanitizedHourly = sanitize(hourly);
+  const sanitizedDaily = sanitize(daily);
+  const allWarnings = [
+    ...(sanitizedHourly?.warnings || []),
+    ...(sanitizedDaily?.warnings || []),
+  ];
+
   return {
-    hourly: sanitize(hourly),
-    daily: sanitize(daily),
+    hourly: sanitizedHourly,
+    daily: sanitizedDaily,
     warnings: allWarnings,
   };
 };

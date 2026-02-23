@@ -14,7 +14,7 @@ const CSV_PATH = path.join(__dirname, CSV_FILENAME);
 let Workshop;
 try {
   Workshop = require("../models/Workshop");
-} catch (e) {
+} catch {
   console.error("❌ Error: Could not find '../models/Workshop.js'.");
   process.exit(1);
 }
@@ -80,7 +80,7 @@ function parseScheduleAndDetails(description, startDate) {
 
   // --- Hour ---
   let hour = "18:00"; 
-  const timeMatch = normalizedText.match(/(\d{1,2})[:\.](\d{2})/);
+  const timeMatch = normalizedText.match(/(\d{1,2})[:.](\d{2})/);
   if (timeMatch) {
     hour = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
   }
@@ -103,7 +103,7 @@ function parseScheduleAndDetails(description, startDate) {
 function parseSmartDate(dateStr) {
   if (!dateStr) return null;
   const clean = dateStr.toString().replace(/['"]/g, '').trim();
-  const parts = clean.split(/[/\.-]/);
+  const parts = clean.split(/[/.-]/);
   if (parts.length !== 3) return null;
 
   let day, month, year;

@@ -4,15 +4,15 @@
  * ------------------------------------
  * • Source: Credentials originate from login/register/OTP forms in pages/Login and pages/Register
  *   and are passed into AuthContext callbacks (loginWithPassword, completeLogin, registerUser,
- *   verifyOtp). The context stores access tokens in localStorage and keeps user metadata in React
+ *   verifyOtp). The context keeps user metadata in React state while auth cookies are browser-managed.
  *   state.
  * • Path: Each auth action delegates to apiFetch -> backend /api/auth/* endpoints. Successful
  *   responses are normalized via normalizeMePayload (whitelisted fields only) and stored via
  *   setUser/setIsLoggedIn before bubbling updates through context consumers (AppRoutes uses useAuth
  *   to gate routes).
  * • Transformations: normalizeMePayload unwraps { success, data } and strips role/authority fields;
- *   refreshAccessToken rewrites Authorization headers; authFetch retries once on 401. Logout clears
- *   state and localStorage and navigates to /workshops.
+ *   authFetch delegates retries to apiFetch (cookie + refresh flow). Logout clears local auth state
+ *   and navigates to /workshops.
  * • Downstream: Context values propagate to any component calling useAuth (e.g., AppShell,
  *   Profile page). Callbacks bubble events upward through window events and an EventBus so other
  *   parts (WorkshopContext) can refetch when auth changes.
@@ -24,9 +24,9 @@
  *   /api/users/getme (returns { success, data } with minimal identity fields + access envelope).
  * • Methods/Bodies: login/register send JSON credentials; verifyOtp posts { email, otp };
  *   refresh uses POST with cookies for refresh token; logout POST clears server session.
- * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL and includes credentials;
- *   authFetch injects Authorization: Bearer <token> and retries after hitting refresh endpoint.
- * • Responses: Expected JSON containing accessToken, user payload, and message; /getme is
+ * • Middleware: Uses apiFetch which automatically prefixes VITE_API_URL, includes credentials,
+ *   and performs refresh-retry when the access cookie expires.
+ * • Responses: /getme is
  *   normalized to a whitelisted shape (entityKey + contact details) to avoid rehydrating privileged
  *   fields; errors are translated via translateAuthError/translateNetworkError for user-friendly
  *   UI.
@@ -36,7 +36,7 @@
  * • Purpose: Provide AuthContext with stateful login/logout helpers and mount children under
  *   <AuthProvider> so routing can check authentication. It also emits browser events signalling
  *   auth-ready/login/logout for other modules.
- * • State: isLoggedIn, user, filters/searchQuery (used by Workshops filter), loading, accessToken.
+ * • State: isLoggedIn, user, filters/searchQuery (used by Workshops filter), loading.
  *   These states coordinate API requests, control which routes display, and persist tokens between
  *   reloads.
  * • Effects: useEffect on mount to verify existing access token and fetch /api/auth/me; also uses
@@ -142,13 +142,8 @@ export const AuthProvider = ({ children }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [logoutInProgress, setLogoutInProgress] = useState(false);
-  const [accessToken, setAccessToken] = useState(
-    localStorage.getItem("accessToken") || null
-  );
-
   const didVerifyRef = useRef(false);
   const logoutInProgressRef = useRef(false);
-  const refreshInFlightRef = useRef(null);
   const fetchMeRequestIdRef = useRef(0);
   const capabilityProbePendingRef = useRef(false);
 
@@ -179,8 +174,6 @@ export const AuthProvider = ({ children }) => {
         /* ignore */
       }
 
-      localStorage.removeItem("accessToken");
-      setAccessToken(null);
       setUser(null);
       setIsLoggedIn(false);
 
@@ -209,56 +202,6 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   /* ============================================================
-     🔁 Refresh Access Token
-     ============================================================ */
-  const refreshAccessToken = useCallback(async () => {
-    if (refreshInFlightRef.current) {
-      return refreshInFlightRef.current;
-    }
-    const refreshPromise = (async () => {
-    try {
-      if (logoutInProgressRef.current) {
-        log("⚠️ refreshAccessToken skipped during logout");
-        return null;
-      }
-      const res = await apiFetch("/api/auth/refresh", {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        const normalized = normalizeResponseError(res, data, "Refresh token invalid");
-        throw new Error(normalized.message);
-      }
-      if (data?.accessToken) {
-        if (logoutInProgressRef.current) {
-          log("⚠️ refreshAccessToken ignored: logout in progress");
-          return null;
-        }
-        localStorage.setItem("accessToken", data.accessToken);
-        setAccessToken(data.accessToken);
-        log("🔄 Token refreshed successfully");
-        return data.accessToken;
-      }
-      throw new Error(
-        normalizeError(null, { fallbackMessage: "No access token in refresh response" }).message
-      );
-    } catch (err) {
-      log("⚠️ refreshAccessToken failed:", err.message);
-      await logout(true);
-      return null;
-    }
-    })();
-
-    refreshInFlightRef.current = refreshPromise;
-    try {
-      return await refreshPromise;
-    } finally {
-      refreshInFlightRef.current = null;
-    }
-  }, [logout, normalizeResponseError]);
-
-  /* ============================================================
      🔐 authFetch helper — auto refresh on 401 once
      ============================================================ */
   const authFetch = useCallback(
@@ -266,54 +209,27 @@ export const AuthProvider = ({ children }) => {
     if (logoutInProgressRef.current) {
       throw new Error("Logout in progress");
     }
-    const { skipRefresh = false, ...fetchOptions } = options;
-    const token = accessToken || localStorage.getItem("accessToken");
-    const headers = {
-      ...(fetchOptions.headers || {}),
-      Authorization: token ? `Bearer ${token}` : undefined,
-      "Content-Type": "application/json",
-    };
+    const fetchOptions = options;
 
     try {
-      // ✅ Always include credentials so refresh cookies work
-      let res = await apiFetch(url, { 
-        ...fetchOptions, 
-        headers, 
-        credentials: "include" 
+      const res = await apiFetch(url, {
+        ...fetchOptions,
+        credentials: "include",
       });
-
-      // ⚠️ If unauthorized, try refresh once
-      if (res.status === 401 && !skipRefresh) {
-        log("⚠️ 401 detected — attempting refresh...");
-        const newToken = await refreshAccessToken();
-        if (!newToken) {
-          throw new Error(
-            normalizeError(null, { fallbackMessage: "Session expired" }).message
-          );
-        }
-
-        const headers2 = { ...headers, Authorization: `Bearer ${newToken}` };
-        res = await apiFetch(url, { 
-          ...fetchOptions, 
-          headers: headers2, 
-          credentials: "include" // 🔁 include again on retry
-        });
-      }
-
       return res;
     } catch (e) {
       log("❌ authFetch error:", e.message);
       throw e;
     }
   },
-  [accessToken, refreshAccessToken]
+  []
   );
 
   /* ============================================================
    👤 fetchMe — load current user (MINIMAL, SERVER-AUTHORITATIVE)
    ============================================================ */
   const fetchMe = useCallback(
-    async (tokenOverride = null, { allowDuringLoading = false } = {}) => {
+    async ({ allowDuringLoading = false } = {}) => {
       if (logoutInProgressRef.current) {
         log("⚠️ fetchMe skipped: logout in progress");
         return null;
@@ -322,28 +238,15 @@ export const AuthProvider = ({ children }) => {
         log("⚠️ fetchMe skipped: auth loading");
         return null;
       }
-      if (refreshInFlightRef.current) {
-        log("⚠️ fetchMe waiting: refresh in progress");
-        await refreshInFlightRef.current;
-      }
       if (capabilityProbePendingRef.current) {
         log("⚠️ fetchMe skipped: capability probe pending");
         return null;
       }
 
       const requestId = ++fetchMeRequestIdRef.current;
-      const token =
-        tokenOverride || accessToken || localStorage.getItem("accessToken");
-
-      log("fetchMe called | token:", token ? "✅ found" : "❌ none");
-
-      if (!token) {
-        log("⚠️ fetchMe skipped: no token yet");
-        return null;
-      }
 
       try {
-        const res = await authFetch("/api/users/getMe", { skipRefresh: true });
+        const res = await authFetch("/api/users/getMe");
 
         const raw = await safeJson(res);
 
@@ -380,7 +283,7 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
     },
-    [accessToken, authFetch, loading, logout, normalizeResponseError]
+    [authFetch, loading, logout, normalizeResponseError]
   );
 
   /* ============================================================
@@ -392,7 +295,7 @@ export const AuthProvider = ({ children }) => {
     log("🔹 Mounted AuthProvider");
 
     (async () => {
-      const me = await fetchMe(null, { allowDuringLoading: true });
+      const me = await fetchMe({ allowDuringLoading: true });
       setLoading(false);
       fireAuthReady(!!me);
     })();
@@ -583,11 +486,8 @@ export const AuthProvider = ({ children }) => {
         const normalized = normalizeResponseError(res, data, "OTP verification failed");
         throw new Error(normalized.message);
       }
-      if (data?.accessToken) {
-        await completeLogin(data.accessToken);
-        return { success: true, data };
-      }
-      return { success: false, message: data?.message || "Missing access token" };
+      await completeLogin();
+      return { success: true, data };
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -649,14 +549,8 @@ export const AuthProvider = ({ children }) => {
      ✅ Complete Login
      ============================================================ */
   const completeLogin = useCallback(
-    async (newToken) => {
-      if (!newToken) return;
-
-      localStorage.setItem("accessToken", newToken);
-      setAccessToken(newToken);
-      log("💾 Access token stored, loading user directly...");
-
-      const data = await fetchMe(newToken, { allowDuringLoading: true });
+    async () => {
+      const data = await fetchMe({ allowDuringLoading: true });
       if (!data) {
         return;
       }
@@ -703,19 +597,7 @@ export const AuthProvider = ({ children }) => {
           };
         }
 
-        const token = data?.accessToken || data?.token;
-        if (!token) {
-          const friendly =
-            "תגובת ההתחברות חסרה אסימון גישה. פנו לתמיכה במערכת.";
-          publishEvent({
-            type: "error",
-            title: "התחברות נכשלה",
-            message: friendly,
-          });
-          return { success: false, status: res.status, message: friendly };
-        }
-
-        const me = await completeLogin(token);
+        const me = await completeLogin();
         if (!me) {
           return {
             success: false,
@@ -869,4 +751,5 @@ detail: { at: Date.now(), entityKey: user?.entityKey }
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

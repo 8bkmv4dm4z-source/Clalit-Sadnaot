@@ -106,7 +106,7 @@ const requireCaptcha = async (req, res, next) => {
     }
 
     return next();
-  } catch (err) {
+  } catch {
     return res.status(503).json({ message: "Captcha service unavailable" });
   }
 };

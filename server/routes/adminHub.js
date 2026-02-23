@@ -10,7 +10,7 @@ const adminHubController = require("../controllers/adminHubController");
 // is mitigated by the admin authority gate + timing-safe password comparison.
 const adminHubLimiter = perUserRateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 40,
+  limit: 120,
 });
 
 const router = express.Router();
@@ -64,6 +64,66 @@ router.get(
   adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.getStats
+);
+
+// GET /api/admin/hub/metrics
+router.get(
+  "/metrics",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getMetrics
+);
+
+// GET /api/admin/hub/risk-assessments
+router.get(
+  "/risk-assessments",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getRiskAssessments
+);
+
+// GET /api/admin/hub/risk-assessments/failures
+router.get(
+  "/risk-assessments/failures",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.getRiskAssessmentFailures
+);
+
+// POST /api/admin/hub/risk-assessments/:assessmentId/feedback
+router.post(
+  "/risk-assessments/:assessmentId/feedback",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.submitRiskFeedback
+);
+
+// POST /api/admin/hub/risk-assessments/reset-failed
+router.post(
+  "/risk-assessments/reset-failed",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.resetFailedAssessments
+);
+
+// POST /api/admin/hub/risk-assessments/:assessmentId/retry
+router.post(
+  "/risk-assessments/:assessmentId/retry",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.retryAssessment
 );
 
 module.exports = router;

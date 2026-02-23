@@ -33,11 +33,19 @@ export const options = {
 /* -------------------------------------------------------------------------- */
 export function setup() {
   console.log("🧹 Cleaning up old test users...");
+  const csrfRes = http.get(`${BASE}/api/auth/csrf`);
+  let csrfToken = null;
+  try {
+    csrfToken = csrfRes.json("csrfToken");
+  } catch {}
 
   USERS.forEach((email) => {
     const payload = JSON.stringify({ email });
     const res = http.del(`${BASE}/api/dev/cleanup-user`, payload, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+      },
     });
 
     if (res.status === 200) {
@@ -61,25 +69,27 @@ export default function () {
   const email = USERS[(vu - 1) % USERS.length];
   const ip = `10.0.${vu}.1`;
 
+  const csrfRes = http.get(`${BASE}/api/auth/csrf`);
+  let csrfToken = null;
+  try {
+    csrfToken = csrfRes.json("csrfToken");
+  } catch {}
+
   const headers = {
     "Content-Type": "application/json",
     "X-Forwarded-For": ip,
+    ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
   };
 
   // --- LOGIN ---
   const payload = JSON.stringify({ email, password: PASSWORD });
   const loginRes = http.post(`${BASE}/api/auth/login`, payload, { headers });
 
-  let token = null;
-  try {
-    token = loginRes.json("accessToken");
-  } catch (_) {}
-
   console.log(
-    `[LOGIN] ${email} -> status=${loginRes.status} token=${token ? "yes" : "no"}`
+    `[LOGIN] ${email} -> status=${loginRes.status}`
   );
 
-  if (!token && [400, 401, 404].includes(loginRes.status)) {
+  if ([400, 401, 404].includes(loginRes.status)) {
     // --- REGISTER ---
     const regData = makeRegistrationData(email, vu);
     const regRes = http.post(`${BASE}/api/auth/register`, JSON.stringify(regData), { headers });
@@ -87,29 +97,25 @@ export default function () {
 
     // --- LOGIN RETRY ---
     const retry = http.post(`${BASE}/api/auth/login`, payload, { headers });
-    let retryToken = null;
-    try {
-      retryToken = retry.json("accessToken");
-    } catch (_) {}
     console.log(
-      `[LOGIN_RETRY] ${email} -> status=${retry.status} token=${retryToken ? "yes" : "no"}`
+      `[LOGIN_RETRY] ${email} -> status=${retry.status}`
     );
 
-    if (!retryToken) {
+    if (retry.status !== 200) {
       console.error(`[FAILED_AFTER_REGISTER] ${email}`);
       return;
     }
 
-    runAuthenticatedFlow(email, retryToken, headers);
+    runAuthenticatedFlow(email, headers);
     return;
   }
 
-  if (!token) {
+  if (loginRes.status !== 200) {
     console.error(`[FAILED_LOGIN] ${email}`);
     return;
   }
 
-  runAuthenticatedFlow(email, token, headers);
+  runAuthenticatedFlow(email, headers);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -137,9 +143,8 @@ function makeRegistrationData(email, vu) {
   };
 }
 
-function runAuthenticatedFlow(email, token, baseHeaders) {
-  const headers = { ...baseHeaders, Authorization: `Bearer ${token}` };
-  const res = http.get(`${BASE}/api/workshops`, { headers });
+function runAuthenticatedFlow(email, baseHeaders) {
+  const res = http.get(`${BASE}/api/workshops`, { headers: baseHeaders });
 
   console.log(`[WORKSHOPS] ${email} -> ${res.status}`);
 

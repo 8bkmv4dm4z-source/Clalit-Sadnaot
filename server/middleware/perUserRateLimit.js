@@ -23,7 +23,7 @@ const perUserRateLimit = (options = {}) =>
     standardHeaders: "draft-7",
     legacyHeaders: false,
     keyGenerator: buildPerUserKey,
-    skip: (req) => process.env.NODE_ENV === "loadtest",
+    skip: () => process.env.NODE_ENV === "loadtest",
     handler: (req, res) => {
       logRateLimit(req, { limiter: "perUser" });
       res.status(429).json({ message: "Too many requests. Please try again later." });

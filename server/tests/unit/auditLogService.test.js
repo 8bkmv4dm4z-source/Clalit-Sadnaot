@@ -184,6 +184,28 @@ test("recordEvent rejects unknown audit event types", async () => {
   );
 });
 
+test("recordEvent normalizes severity case before validation", async () => {
+  process.env.AUDIT_HMAC_SECRET = "unit-hmac-secret";
+  const { recordEvent, useAuditLogModel } = reloadAuditLogService();
+  const created = [];
+  useAuditLogModel({
+    async create(payload) {
+      created.push(payload);
+      return payload;
+    },
+  });
+
+  await recordEvent({
+    eventType: AuditEventTypes.SECURITY_AUTH_FAILURE,
+    subjectType: "system",
+    subjectKey: "sys-1",
+    severity: "WARN",
+    metadata: {},
+  });
+
+  assert.equal(created[0].severity, "warn");
+});
+
 test("registry exposes categories for every event type", () => {
   const registryCategories = allowedEventTypes.map((type) => {
     const { category } = require("../../services/AuditEventRegistry").getAuditEventDefinition(type);

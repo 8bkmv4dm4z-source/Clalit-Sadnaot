@@ -14,8 +14,8 @@
  * - existingIds (from WorkshopParticipantsModal) are treated as entityKey strings
  */
 
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useMemo, useState, useEffect } from "react";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import { MoreVertical } from "lucide-react";
 import { useProfiles } from "../../layouts/ProfileContext";
 import { useWorkshops } from "../../layouts/WorkshopContext";
@@ -653,7 +653,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       : null;
 
                   return (
-                    <motion.tr
+                    <Motion.tr
                       key={rowKey}
                       layout
                       initial={{ opacity: 0 }}
@@ -803,7 +803,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                           </div>
                         )}
                       </td>
-                    </motion.tr>
+                    </Motion.tr>
                   );
                 })
               )}
@@ -847,7 +847,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   : null;
 
               return (
-                <motion.div
+                <Motion.div
                   key={rowKey}
                   layout
                   initial={{ opacity: 0, y: 6 }}
@@ -1002,7 +1002,7 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                       )}
                     </div>
                   )}
-                </motion.div>
+                </Motion.div>
               );
             })
           )}
@@ -1012,14 +1012,14 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
       {/* Workshops modal */}
       <AnimatePresence>
         {showModal && (
-          <motion.div
+          <Motion.div
             className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setShowModal(false)}
           >
-            <motion.div
+            <Motion.div
               className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6"
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
@@ -1072,8 +1072,8 @@ export default function AllProfiles({ mode = "manage", onSelectUser, existingIds
                   סגור
                 </button>
               </div>
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
     </div>

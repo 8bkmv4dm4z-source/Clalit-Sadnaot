@@ -29,6 +29,7 @@ config:
     email: "u{{ $randomInt(1,20) }}@test.com"
     ROUTE_LOGIN: "/api/auth/login"
     ROUTE_REGISTER: "/api/auth/register"
+    ROUTE_CSRF: "/api/auth/csrf"
     ROUTE_WORKSHOPS: "/api/workshops"
     ROUTE_PROFILE: "/api/profile/me"
 
@@ -36,11 +37,20 @@ scenarios:
   - name: "Auto Register → Login → Protected (resilient, contract-first)"
     flow:
       - function: "ensureEmail"
+      - get:
+          name: "CSRF bootstrap"
+          url: "{{ ROUTE_CSRF }}"
+          capture:
+            - json: "$.csrfToken"
+              as: "csrfToken"
+              strict: false
 
       # 1) Try login
       - post:
           name: "Login"
           url: "{{ ROUTE_LOGIN }}"
+          headers:
+            X-CSRF-Token: "{{ csrfToken }}"
           json:
             email: "{{ email }}"
             password: "{{ password }}"
@@ -54,6 +64,9 @@ scenarios:
             - json: "$.data.accessToken"
               as: "token_data"
               strict: false
+            - header: "set-cookie"
+              as: "set_cookie_login"
+              strict: false
           continueOnError: true
 
       - function: "foldLoginTokens"
@@ -64,6 +77,8 @@ scenarios:
       - post:
           name: "Register (if needed)"
           url: "{{ ROUTE_REGISTER }}"
+          headers:
+            X-CSRF-Token: "{{ csrfToken }}"
           json: "{{ _regPayload }}"
           ifTrue: "_regPayload"
           continueOnError: true
@@ -73,6 +88,8 @@ scenarios:
       - post:
           name: "Login"
           url: "{{ ROUTE_LOGIN }}"
+          headers:
+            X-CSRF-Token: "{{ csrfToken }}"
           json:
             email: "{{ email }}"
             password: "{{ password }}"

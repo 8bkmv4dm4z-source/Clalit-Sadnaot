@@ -6,7 +6,7 @@
  */
 
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { Resend } = require("resend");
@@ -29,7 +29,6 @@ const {
   buildRefreshSession,
   normalizeRefreshSessions,
   rotateRefreshToken,
-  findSession,
 } = require("../services/refreshTokenService");
 // SECURITY FIX: centralize sanitized logging for auth flows
 const DEV_AUTH_LOG = process.env.NODE_ENV !== "production";
@@ -66,6 +65,11 @@ const REFRESH_COOKIE_SAMESITE =
   process.env.REFRESH_COOKIE_SAMESITE || "Strict"; // prefer Strict, allow override to None/Lax if needed
 const REFRESH_COOKIE_SECURE =
   process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME || "accessToken";
+const ACCESS_COOKIE_SAMESITE =
+  process.env.ACCESS_COOKIE_SAMESITE || REFRESH_COOKIE_SAMESITE;
+const ACCESS_COOKIE_SECURE =
+  process.env.ACCESS_COOKIE_SECURE === "true" || REFRESH_COOKIE_SECURE;
 const REFRESH_TOKEN_CAP = Number(process.env.REFRESH_TOKEN_CAP || 5);
 const OTP_SEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
@@ -149,8 +153,8 @@ function generateAccessToken(user) {
 }
 
 function createJti() {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return crypto.randomBytes(16).toString("hex");
+  if (typeof nodeCrypto.randomUUID === "function") return nodeCrypto.randomUUID();
+  return nodeCrypto.randomBytes(16).toString("hex");
 }
 
 function generateRefreshToken(user) {
@@ -188,11 +192,34 @@ function setRefreshCookie(res, refreshToken) {
   safeAuthLog(`refreshToken cookie set | secure=${cookieOptions.secure} | sameSite=${cookieOptions.sameSite}`);
 }
 
+function setAccessCookie(res, accessToken) {
+  const accessExpiry = ensureJwtExpiry("JWT_EXPIRY");
+  const cookieOptions = {
+    httpOnly: true,
+    secure: ACCESS_COOKIE_SECURE,
+    sameSite: ACCESS_COOKIE_SAMESITE,
+    path: "/",
+    maxAge: parseJwtExpToMs(accessExpiry),
+  };
+
+  res.cookie(ACCESS_COOKIE_NAME, accessToken, cookieOptions);
+  safeAuthLog(`accessToken cookie set | secure=${cookieOptions.secure} | sameSite=${cookieOptions.sameSite}`);
+}
+
 function clearRefreshCookie(res) {
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
     secure: REFRESH_COOKIE_SECURE,
     sameSite: REFRESH_COOKIE_SAMESITE,
+    path: "/",
+  });
+}
+
+function clearAccessCookie(res) {
+  res.clearCookie(ACCESS_COOKIE_NAME, {
+    httpOnly: true,
+    secure: ACCESS_COOKIE_SECURE,
+    sameSite: ACCESS_COOKIE_SAMESITE,
     path: "/",
   });
 }
@@ -228,7 +255,6 @@ function recordRefreshToken(user, rawToken, userAgent = "", { now = new Date() }
 /* ============================================================
    📤 Email Configuration (Resend Only)
    ============================================================ */
-const isProd = process.env.NODE_ENV === "production";
 const logFile = path.join(__dirname, "../../otp_log.csv");
 
 let resend = null;
@@ -253,7 +279,7 @@ const PASSWORD_RESET_TOKEN_MINUTES = Math.max(
 const PASSWORD_RESET_TOKEN_TTL_MS = PASSWORD_RESET_TOKEN_MINUTES * 60 * 1000;
 
 function hashResetToken(rawToken) {
-  return crypto.createHash("sha256").update(String(rawToken)).digest("hex");
+  return nodeCrypto.createHash("sha256").update(String(rawToken)).digest("hex");
 }
 
 function resolveClientBaseUrl(req) {
@@ -295,9 +321,9 @@ function buildPasswordResetPayload({ baseUrl, email, token, minutes }) {
 }
 
 function generateResetToken() {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (typeof nodeCrypto.randomUUID === "function") return nodeCrypto.randomUUID();
 
-  const buf = crypto.randomBytes(16);
+  const buf = nodeCrypto.randomBytes(16);
   buf[6] = (buf[6] & 0x0f) | 0x40;
   buf[8] = (buf[8] & 0x3f) | 0x80;
 
@@ -338,7 +364,8 @@ function normalizeFamilyMembers(familyMembers = [], defaults = {}) {
 }
 
 function normalizeRegistrationPayload(body = {}) {
-  const { role, ...safeBody } = body; // Explicitly discard any client-supplied role
+  const safeBody = { ...body };
+  delete safeBody.role; // Explicitly discard any client-supplied role
 
   const normalizedEmail = String(safeBody.email || "").trim().toLowerCase();
   const normalizedPhone = String(safeBody.phone || "").trim();
@@ -501,6 +528,7 @@ async function sendOtpEmailMessage({
 exports.generateAccessToken = generateAccessToken;
 exports.generateRefreshToken = generateRefreshToken;
 exports.setRefreshCookie = setRefreshCookie;
+exports.setAccessCookie = setAccessCookie;
 exports.pruneRefreshSessions = pruneRefreshSessions;
 exports.recordRefreshToken = recordRefreshToken;
 exports.sendEmail = sendEmail;
@@ -837,11 +865,11 @@ exports.loginUser = async (req, res) => {
     const refreshToken = generateRefreshToken(user);
     recordRefreshToken(user, refreshToken, req.headers["user-agent"] || "");
     await user.save();
+    setAccessCookie(res, accessToken);
     setRefreshCookie(res, refreshToken);
 
     safeAuthLog("loginUser succeeded");
     return res.json({
-      accessToken,
       user: toOwnerUser(user),
     });
   } catch (e) {
@@ -1009,10 +1037,10 @@ exports.verifyOtp = async (req, res) => {
     recordRefreshToken(user, refreshToken, req.headers["user-agent"] || "");
     await user.save();
 
+    setAccessCookie(res, accessToken);
     setRefreshCookie(res, refreshToken);
 
   return res.json({
-    accessToken,
     user: toOwnerUser(user),
   });
   } catch (e) {
@@ -1153,6 +1181,8 @@ exports.resetPassword = async (req, res) => {
     user.passwordResetTokenExpires = 0;
     user.passwordResetTokenIssuedAt = null;
     await user.save();
+    clearAccessCookie(res);
+    clearRefreshCookie(res);
 
     return res.json({ success: true, message: "Password reset successfully" });
   } catch (e) {
@@ -1178,7 +1208,7 @@ exports.getUserProfile = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found." });
     // Self-profile endpoint must use the owner-facing contract to avoid admin-shaped payloads.
     res.json(toOwnerUser(user));
-  } catch (e) {
+  } catch {
     res.status(500).json({ message: "Server error retrieving profile." });
   }
 };
@@ -1206,8 +1236,10 @@ exports.updatePassword = async (req, res) => {
     user.passwordChangedAt = new Date();
     user.refreshTokens = [];
     await user.save();
+    clearAccessCookie(res);
+    clearRefreshCookie(res);
     res.json({ success: true, message: "Password updated successfully." });
-  } catch (e) {
+  } catch {
     res.status(500).json({ message: "Server error updating password." });
   }
 };
@@ -1226,11 +1258,15 @@ exports.updatePassword = async (req, res) => {
 exports.refreshAccessToken = async (req, res) => {
   try {
     const token = req.cookies?.[REFRESH_COOKIE_NAME];
-    if (!token) return res.status(401).json({ message: "No refresh token" });
+    if (!token) {
+      clearAccessCookie(res);
+      return res.status(401).json({ message: "No refresh token" });
+    }
 
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const entityKey = payload.sub || payload.entityKey; // entityKey fallback supports legacy tokens only
     if (!entityKey) {
+      clearAccessCookie(res);
       clearRefreshCookie(res);
       return res.status(401).json({ message: "Invalid refresh token" });
     }
@@ -1244,6 +1280,7 @@ exports.refreshAccessToken = async (req, res) => {
       if (issuedAtMs && issuedAtMs < lastPasswordChange) {
         user.refreshTokens = [];
         await user.save();
+        clearAccessCookie(res);
         clearRefreshCookie(res);
         return res.status(403).json({ message: "Session invalidated. Please login again." });
       }
@@ -1262,6 +1299,7 @@ exports.refreshAccessToken = async (req, res) => {
       safeAuthLog(`🔴 refresh reuse detected | user=${user.entityKey || "unknown"}`);
       user.refreshTokens = [];
       await user.save();
+      clearAccessCookie(res);
       clearRefreshCookie(res);
       return res.status(403).json({
         message: "Session invalidated. Please login again.",
@@ -1271,6 +1309,7 @@ exports.refreshAccessToken = async (req, res) => {
     if (!rotated.sessions || rotated.sessions.length === 0) {
       user.refreshTokens = [];
       await user.save();
+      clearAccessCookie(res);
       clearRefreshCookie(res);
       return res.status(401).json({ message: "Refresh session expired. Please login again." });
     }
@@ -1278,6 +1317,7 @@ exports.refreshAccessToken = async (req, res) => {
     user.refreshTokens = rotated.sessions;
     const accessToken = generateAccessToken(user);
     await user.save();
+    setAccessCookie(res, accessToken);
     if (rotated.newSession?.rawToken) {
       setRefreshCookie(res, rotated.newSession.rawToken);
     } else {
@@ -1288,8 +1328,8 @@ exports.refreshAccessToken = async (req, res) => {
       `🔄 refresh rotated | user=${user.entityKey || "unknown"} capped=${rotated.prunedCap || 0} expired=${rotated.prunedExpired || 0}`
     );
 
-    return res.json({ accessToken });
-  } catch (e) {
+    return res.json({ success: true });
+  } catch {
     res.status(500).json({ message: "Server error refreshing token" });
   }
 };
@@ -1306,6 +1346,7 @@ exports.logout = async (req, res) => {
   try {
     const token = req.cookies?.[REFRESH_COOKIE_NAME];
     
+    clearAccessCookie(res);
     clearRefreshCookie(res);
 
     if (token) {
@@ -1322,12 +1363,12 @@ exports.logout = async (req, res) => {
           pruneRefreshSessions(user);
           await user.save();
         }
-      } catch (err) {
+      } catch {
         // Token might be expired, just ignore
       }
     }
     return res.json({ success: true });
-  } catch (e) {
+  } catch {
     res.status(500).json({ message: "Server error during logout" });
   }
 };

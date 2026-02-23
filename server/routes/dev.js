@@ -1,6 +1,6 @@
 // routes/dev.js
 const express = require("express");
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 const router = express.Router();
 const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
@@ -11,7 +11,7 @@ const safeEqual = (a, b) => {
   const bBuf = Buffer.from(String(b));
   if (aBuf.length !== bBuf.length) return false;
   try {
-    return crypto.timingSafeEqual(aBuf, bBuf);
+    return nodeCrypto.timingSafeEqual(aBuf, bBuf);
   } catch {
     return false;
   }

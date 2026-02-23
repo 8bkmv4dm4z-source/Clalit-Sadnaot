@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const Workshop = require("../models/Workshop");
 const {
-  toPublicUser,
   toOwnerUser,
   toAdminUser,
   toListEntity,
@@ -24,12 +23,9 @@ const pickFields = (obj = {}, allowed = []) =>
 const { runUserIntegrityAudit, getAuditSnapshot } = require("../services/auditService");
 const { safeAuditLog } = require("../services/SafeAuditLog");
 const { AuditEventTypes } = require("../services/AuditEventRegistry");
-
+const { deleteUserEntity } = require("../services/userDeletionService");
 
 // Routes: /api/users/by-entity/:entityKey (legacy /:id proxies entityKey)
-
-const { unregisterUserFromWorkshop, unregisterFamilyFromWorkshop} =
-  require("../services/workshopRegistration");
 
 const FORBIDDEN_IDENTITY_FIELDS = [
   "entityType",
@@ -84,26 +80,6 @@ const assertOwnershipOrAdmin = ({ ownerKey, requester }) => {
   }
 };
 
-const normalizeBirthDate = (value) => {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  const asString = String(value).trim();
-  if (!asString) return null;
-
-  const [datePart] = asString.split("T");
-  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
-
-  const parsed = new Date(asString);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-
-  return null;
-};
-
 const collectListEntitiesFromUserDoc = (
   userDoc,
   target = [],
@@ -149,42 +125,10 @@ exports.deleteUser = async (req, res) => {
     }
 
     assertOwnershipOrAdmin({ ownerKey: user.entityKey, requester: req.user });
-
-    const unregisterOps = [];
-
-    const userWorkshops = Array.from(new Set(user.userWorkshopMap || []));
-    for (const workshopId of userWorkshops) {
-      unregisterOps.push(unregisterUserFromWorkshop({ workshopId, userId: user._id }));
-    }
-
-    const familyEntries = Array.isArray(user.familyWorkshopMap) ? user.familyWorkshopMap : [];
-    for (const familyEntry of familyEntries) {
-      const familyWorkshops = Array.from(new Set(familyEntry.workshops || []));
-      for (const workshopId of familyWorkshops) {
-        unregisterOps.push(
-          unregisterFamilyFromWorkshop({
-            workshopId,
-            parentUserId: user._id,
-            familyId: familyEntry.familyMemberId,
-          })
-        );
-      }
-    }
-
-    await Promise.all(unregisterOps);
-
-    await User.deleteOne({ _id: user._id });
-    await safeAuditLog({
-      eventType: AuditEventTypes.ADMIN_USER_DELETE,
-      subjectType: "user",
-      subjectKey: user.entityKey || resolved.userDoc.entityKey || null,
+    await deleteUserEntity({
+      userEntityKey: user.entityKey,
       actorKey: req.user?.entityKey,
-      metadata: {
-        action: "user_delete",
-        adminId: req.user?.entityKey || null,
-        entityId: user.entityKey || resolved.userDoc.entityKey || null,
-        ip: req.ip,
-      },
+      ip: req.ip,
     });
     return res.json({
       success: true,
@@ -279,7 +223,7 @@ exports.searchUsers = async (req, res) => {
             }
           }
         ]).exec();
-      } catch (err) {
+      } catch {
         // fallback
         const rx = new RegExp(escaped, "i");
         docs = await User.find({
@@ -499,7 +443,7 @@ exports.getUserById = async (req, res) => {
     assertOwnershipOrAdmin({ ownerKey: resolved.userDoc.entityKey, requester });
     const entity = toSelfProfileEntity(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Server error fetching user" });
   }
 };
@@ -547,7 +491,7 @@ exports.getEntityById = async (req, res) => {
 
     const entity = toSelfProfileEntity(resolved.memberDoc, resolved.userDoc);
     return res.json(entity);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Server error fetching entity" });
   }
 };
@@ -589,7 +533,7 @@ exports.createUser = async (req, res) => {
       message: "User created successfully",
       user: toAdminUser(user),
     });
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Server error creating user" });
   }
 };

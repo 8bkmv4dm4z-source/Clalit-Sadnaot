@@ -24,4 +24,5 @@
 // index.jsx
 // קובץ עזר לייבוא ה־AuthProvider וחברי ההקשר מ־AuthLayout בצורה נוחה.
 // במקום לייבא מתוך 'AuthLayout.jsx', ניתן פשוט לייבא מ־'layouts/AuthLayout'.
-export * from './AuthLayout';
+// eslint-disable-next-line react-refresh/only-export-components
+export { AuthContext, AuthProvider, useAuth } from "./AuthLayout";

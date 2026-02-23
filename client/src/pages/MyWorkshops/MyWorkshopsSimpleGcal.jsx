@@ -19,7 +19,7 @@
  *   makes it easier to trace “which UI triggers which backend”.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { CalendarDays, Sparkles } from "lucide-react";
 import { useAuth } from "../../layouts/AuthLayout";
 import { useWorkshops } from "../../layouts/WorkshopContext";
@@ -40,11 +40,6 @@ const toHhmm = (h) => {
 const addDays = (base, days) => {
   const d = new Date(base);
   d.setDate(d.getDate() + days);
-  return d;
-};
-const addMonths = (base, months) => {
-  const d = new Date(base);
-  d.setMonth(d.getMonth() + months);
   return d;
 };
 const atStartOfDay = (d) => {
@@ -173,7 +168,9 @@ function MyWorkshopsScreen() {
   try {
     const qs = new URLSearchParams(window.location.search || "");
     selectedEntityKey = qs.get("entity");
-  } catch {}
+  } catch {
+    selectedEntityKey = null;
+  }
 
   const { userEntity, familyMembers, allEntities } = useMemo(
     () => flattenUserEntities(user || {}),

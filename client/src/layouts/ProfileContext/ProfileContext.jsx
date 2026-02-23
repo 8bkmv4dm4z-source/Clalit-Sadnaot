@@ -21,6 +21,7 @@ import { useAdminCapabilityStatus } from "../../context/AdminCapabilityContext";
 import { normalizeError } from "../../utils/normalizeError";
 
 const ProfileCtx = createContext(null);
+// eslint-disable-next-line react-refresh/only-export-components
 export const useProfiles = () => useContext(ProfileCtx);
 
 const DEFAULT_CACHE_KEY = "__NOSEARCH__";

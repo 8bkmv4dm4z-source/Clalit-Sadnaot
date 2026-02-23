@@ -49,6 +49,9 @@ my-react-app-public/
 │   └── package.json
 ├── docs/
 │   ├── project.md
+│   ├── onboarding.md
+│   ├── runbook.md
+│   ├── ADR-index.md
 │   ├── api-flow.md
 │   ├── security.md
 │   ├── error-normalization.md
@@ -195,6 +198,17 @@ cd server && npm run dev
 # Terminal 2
 cd client && npm run dev
 ```
+
+---
+
+## Documentation
+
+- [`docs/project.md`](docs/project.md) — overall architecture and module map.
+- [`docs/onboarding.md`](docs/onboarding.md) — setup flow, env matrix, and team conventions.
+- [`docs/runbook.md`](docs/runbook.md) — deploy checks, rollback basics, incident triage skeleton.
+- [`docs/ADR-index.md`](docs/ADR-index.md) — architecture/security decision index and change log.
+- [`docs/security.md`](docs/security.md) — security controls and implementation notes.
+- [`docs/api-flow.md`](docs/api-flow.md) — endpoint catalog and request flow.
 
 ---
 

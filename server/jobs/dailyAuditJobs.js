@@ -3,6 +3,7 @@ const { queryLogs, recordEvent } = require("../services/AuditLogService");
 const { AuditEventTypes, getAuditEventDefinition } = require("../services/AuditEventRegistry");
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_STALE_USER_DEDUP_DAYS = 7;
 
 const withDependencies = (overrides = {}) => ({
   detectMaxedWorkshops,
@@ -59,7 +60,7 @@ const auditMaxedWorkshops = async (overrides = {}) => {
 const auditStaleUsers = async (overrides = {}) => {
   const deps = withDependencies(overrides);
   const candidates = await deps.detectStaleUsers({});
-  const windowMs = Number(process.env.AUDIT_RETENTION_DAYS || 3) * ONE_DAY_MS;
+  const windowMs = Number(process.env.AUDIT_RETENTION_DAYS || DEFAULT_STALE_USER_DEDUP_DAYS) * ONE_DAY_MS;
   const results = [];
 
   for (const candidate of candidates) {

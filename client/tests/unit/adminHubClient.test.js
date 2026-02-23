@@ -6,6 +6,10 @@ import {
   buildLogsQuery,
   normalizeLogEntry,
   groupLogsByCategory,
+  fetchRiskAssessments,
+  submitRiskFeedback,
+  fetchRiskFailures,
+  retryRiskAssessment,
 } from "../../src/utils/adminHubClient.js";
 
 test("buildAdminHeaders includes x-admin-password", () => {
@@ -57,7 +61,7 @@ test("groupLogsByCategory groups by server-provided categories only", () => {
 });
 
 test("helpers do not persist admin password in storage", () => {
-  global.localStorage = {
+  globalThis.localStorage = {
     data: {},
     getItem(key) {
       return this.data[key] || null;
@@ -70,5 +74,98 @@ test("helpers do not persist admin password in storage", () => {
     },
   };
   buildAdminHeaders("temp-secret");
-  assert.equal(global.localStorage.getItem("adminPassword"), null);
+  assert.equal(globalThis.localStorage.getItem("adminPassword"), null);
+});
+
+test("fetchRiskAssessments sends request to risk endpoint", async () => {
+  let capturedUrl = "";
+  let capturedHeaders = null;
+  globalThis.fetch = async (url, init = {}) => {
+    capturedUrl = String(url);
+    capturedHeaders = init.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ assessments: [], page: 1, limit: 20 }),
+      url,
+    };
+  };
+  const result = await fetchRiskAssessments({
+    adminPassword: "secret",
+    filters: { status: "failed", category: "SECURITY", page: 2, limit: 10 },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { assessments: [], page: 1, limit: 20 });
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\?/);
+  assert.match(capturedUrl, /status=failed/);
+  assert.match(capturedUrl, /category=SECURITY/);
+  assert.match(capturedUrl, /page=2/);
+  assert.match(capturedUrl, /limit=10/);
+  assert.equal(capturedHeaders["x-admin-password"], "secret");
+});
+
+test("submitRiskFeedback posts feedback payload", async () => {
+  let captured = null;
+  globalThis.fetch = async (_url, init = {}) => {
+    captured = init;
+    return {
+      ok: true,
+      status: 201,
+      json: async () => ({ feedbackId: "f1", profileVersion: 2, organizationId: "global" }),
+    };
+  };
+
+  const result = await submitRiskFeedback({
+    adminPassword: "secret",
+    assessmentId: "ra-1",
+    payload: { feedbackType: "false_positive", notes: "ok" },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(captured.method, "POST");
+  assert.match(String(captured.body), /false_positive/);
+});
+
+test("fetchRiskFailures requests failures endpoint", async () => {
+  let capturedUrl = "";
+  globalThis.fetch = async (url) => {
+    capturedUrl = String(url);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ failures: [], page: 1, limit: 20 }),
+    };
+  };
+
+  const result = await fetchRiskFailures({
+    adminPassword: "secret",
+    filters: { eventType: "security.auth.failure", category: "SECURITY", page: 3, limit: 5 },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.body, { failures: [], page: 1, limit: 20 });
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\/failures\?/);
+  assert.match(capturedUrl, /eventType=security.auth.failure/);
+  assert.match(capturedUrl, /category=SECURITY/);
+  assert.match(capturedUrl, /page=3/);
+  assert.match(capturedUrl, /limit=5/);
+});
+
+test("retryRiskAssessment sends POST with no body", async () => {
+  let captured = null;
+  let capturedUrl = "";
+  globalThis.fetch = async (url, init = {}) => {
+    capturedUrl = String(url);
+    captured = init;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ assessment: { processing: { status: "pending" } } }),
+    };
+  };
+  const result = await retryRiskAssessment({ adminPassword: "secret", assessmentId: "ra-1" });
+  assert.equal(result.status, 200);
+  assert.equal(captured.method, "POST");
+  assert.equal(captured.body, undefined);
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\/ra-1\/retry/);
 });

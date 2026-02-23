@@ -94,6 +94,7 @@ export const AdminCapabilityProvider = ({ children }) => {
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAdminCapability = () => {
   const ctx = useContext(AdminCapabilityContext);
   if (!ctx) {
@@ -102,6 +103,7 @@ export const useAdminCapability = () => {
   return ctx.canAccessAdmin;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAdminCapabilityStatus = () => {
   const ctx = useContext(AdminCapabilityContext);
   if (!ctx) {
