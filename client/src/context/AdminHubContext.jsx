@@ -5,9 +5,18 @@ import {
   fetchAdminHubAlerts,
   fetchAdminHubLogs,
   fetchAdminHubStats,
+  fetchRiskAssessments,
   normalizeLogEntry,
 } from "../utils/adminHubClient";
 import { normalizeError } from "../utils/normalizeError";
+
+const RISK_QUEUE_STATUSES = ["pending", "processing", "failed", "dead_letter", "completed"];
+
+const buildEmptyQueueSummary = () =>
+  RISK_QUEUE_STATUSES.reduce((acc, status) => {
+    acc[status] = 0;
+    return acc;
+  }, {});
 
 const AdminHubContext = createContext({
   adminPassword: "",
@@ -24,6 +33,14 @@ const AdminHubContext = createContext({
   statsLoading: false,
   statsError: "",
   refreshStats: async () => {},
+  riskAssessments: [],
+  riskFailures: [],
+  riskQueueSummary: buildEmptyQueueSummary(),
+  riskQueueLoading: false,
+  riskQueueError: "",
+  riskQueueSyncing: false,
+  riskQueueLastUpdatedAt: "",
+  refreshRiskQueue: async () => {},
 });
 
 const DEFAULT_FILTERS = {
@@ -47,6 +64,13 @@ export const AdminHubProvider = ({ children }) => {
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState("");
+  const [riskAssessments, setRiskAssessments] = useState([]);
+  const [riskFailures, setRiskFailures] = useState([]);
+  const [riskQueueSummary, setRiskQueueSummary] = useState(buildEmptyQueueSummary());
+  const [riskQueueLoading, setRiskQueueLoading] = useState(false);
+  const [riskQueueError, setRiskQueueError] = useState("");
+  const [riskQueueSyncing, setRiskQueueSyncing] = useState(false);
+  const [riskQueueLastUpdatedAt, setRiskQueueLastUpdatedAt] = useState("");
 
   const canFetch = useMemo(() => !!adminPassword, [adminPassword]);
   const filtersRef = useRef(filters);
@@ -120,6 +144,62 @@ export const AdminHubProvider = ({ children }) => {
     }
   }, [adminPassword, canFetch]);
 
+  const refreshRiskQueue = useCallback(
+    async ({ page = 1, limit = 10 } = {}) => {
+      if (!canFetch) return;
+      setRiskQueueLoading(true);
+      setRiskQueueError("");
+      try {
+        const assessmentResult = await fetchRiskAssessments({
+          adminPassword,
+          filters: { page, limit, includeFailures: true },
+        });
+
+        if (!assessmentResult.ok) {
+          const normalized = normalizeError(null, {
+            status: assessmentResult.status,
+            payload: assessmentResult.body,
+            fallbackMessage: `Risk queue request failed (${assessmentResult.status})`,
+          });
+          setRiskQueueError(normalized.message);
+          setRiskAssessments([]);
+          setRiskFailures([]);
+          setRiskQueueSummary(buildEmptyQueueSummary());
+          setRiskQueueSyncing(false);
+          return;
+        }
+
+        const nextSummary = buildEmptyQueueSummary();
+        RISK_QUEUE_STATUSES.forEach((status) => {
+          nextSummary[status] = Number(assessmentResult.body?.queueSummary?.[status] || 0);
+        });
+
+        const nextAssessments = assessmentResult.body?.assessments || [];
+        const hasQueueData =
+          nextAssessments.length > 0 ||
+          Object.values(nextSummary).some((count) => Number(count || 0) > 0);
+        const backfillTriggered = Boolean(assessmentResult.body?.backfillTriggered);
+        const backfillInFlight = Boolean(assessmentResult.body?.backfillInFlight);
+
+        setRiskAssessments(nextAssessments);
+        setRiskQueueSummary(nextSummary);
+        setRiskQueueSyncing((prev) => {
+          if (hasQueueData) return false;
+          return backfillTriggered || backfillInFlight || prev;
+        });
+        setRiskQueueLastUpdatedAt(new Date().toISOString());
+
+        setRiskFailures(assessmentResult.body?.failures || []);
+      } catch (err) {
+        const normalized = normalizeError(err, { fallbackMessage: "Failed to load risk queue" });
+        setRiskQueueError(normalized.message);
+      } finally {
+        setRiskQueueLoading(false);
+      }
+    },
+    [adminPassword, canFetch]
+  );
+
   useEffect(() => {
     refreshLogs({ page: filters.page, limit: filters.limit });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,6 +230,14 @@ export const AdminHubProvider = ({ children }) => {
     statsLoading,
     statsError,
     refreshStats,
+    riskAssessments,
+    riskFailures,
+      riskQueueSummary,
+      riskQueueLoading,
+      riskQueueError,
+      riskQueueSyncing,
+      riskQueueLastUpdatedAt,
+      refreshRiskQueue,
     buildAdminHeaders,
     buildLogsQuery,
   };

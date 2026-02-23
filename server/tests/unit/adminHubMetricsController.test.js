@@ -97,6 +97,7 @@ const loadController = ({ renderPrometheusMetrics }) => {
     loaded: true,
     exports: {
       retryRiskAssessment: async () => ({}),
+      scheduleRiskBackfillFromAuditLogs: () => false,
     },
   };
 

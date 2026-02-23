@@ -16,8 +16,14 @@ const loadController = ({
   queueSummaryRows = [],
   recordRiskFeedbackImpl,
   retryRiskAssessmentImpl,
+  resetFailedAssessmentsImpl,
+  scheduleRiskBackfillImpl,
+  isBackfillInFlightImpl,
   onFind,
   onAggregate,
+  onSort,
+  onSkip,
+  onLimit,
 } = {}) => {
   delete require.cache[controllerPath];
   delete require.cache[observabilityPath];
@@ -79,13 +85,16 @@ const loadController = ({
       find: (filters) => {
         if (typeof onFind === "function") onFind(filters);
         return {
-        sort() {
+        sort(value) {
+          if (typeof onSort === "function") onSort(value);
           return this;
         },
-        skip() {
+        skip(value) {
+          if (typeof onSkip === "function") onSkip(value);
           return this;
         },
-        limit() {
+        limit(value) {
+          if (typeof onLimit === "function") onLimit(value);
           return this;
         },
         lean: async () => rows,
@@ -120,6 +129,11 @@ const loadController = ({
           category: "SECURITY",
           processing: { status: "pending" },
         })),
+      resetFailedAssessments:
+        resetFailedAssessmentsImpl ||
+        (async () => ({ resetCount: 0 })),
+      scheduleRiskBackfillFromAuditLogs: scheduleRiskBackfillImpl || (() => false),
+      isBackfillInFlight: isBackfillInFlightImpl || (() => false),
     },
   };
 
@@ -169,6 +183,7 @@ test("getRiskAssessments returns sanitized rows with pagination and queue summar
   assert.equal(res.body.page, 2);
   assert.equal(res.body.limit, 10);
   assert.equal(res.body.assessments.length, 1);
+  assert.equal(res.body.assessments[0].assessmentId, "mongo-id");
   assert.equal(res.body.assessments[0]._id, undefined);
   assert.equal(res.body.assessments[0].__v, undefined);
   assert.equal(res.body.assessments[0].subjectKeyHash, undefined);
@@ -311,6 +326,7 @@ test("getRiskAssessmentFailures returns only failures list", async () => {
   assert.equal(res.body.page, 1);
   assert.equal(res.body.limit, 5);
   assert.equal(res.body.failures.length, 1);
+  assert.equal(res.body.failures[0].assessmentId, "mongo-1");
   assert.equal(res.body.failures[0]._id, undefined);
   assert.equal(res.body.failures[0].subjectKeyHash, undefined);
 });
@@ -330,6 +346,7 @@ test("retryAssessment returns retried assessment", async () => {
   await controller.retryAssessment(req, res);
 
   assert.equal(res.statusCode, 200);
+  assert.equal(res.body.assessment.assessmentId, "ra-1");
   assert.equal(res.body.assessment._id, undefined);
   assert.equal(res.body.assessment.subjectKeyHash, undefined);
   assert.equal(res.body.assessment.processing.status, "pending");
@@ -348,4 +365,169 @@ test("retryAssessment returns 409 for non-retryable status", async () => {
 
   assert.equal(res.statusCode, 409);
   assert.deepEqual(res.body, { message: "Assessment is not in retryable status" });
+});
+
+test("getRiskAssessments clamps pagination inputs and applies normalized skip/limit", async () => {
+  const findFilters = [];
+  const sortValues = [];
+  const skipValues = [];
+  const limitValues = [];
+  const controller = loadController({
+    onFind: (filters) => findFilters.push(filters),
+    onSort: (value) => sortValues.push(value),
+    onSkip: (value) => skipValues.push(value),
+    onLimit: (value) => limitValues.push(value),
+  });
+  const req = { query: { page: "0", limit: "999" } };
+  const res = createRes();
+
+  await controller.getRiskAssessments(req, res);
+
+  assert.deepEqual(findFilters[0], {});
+  assert.deepEqual(sortValues[0], { createdAt: -1 });
+  assert.equal(skipValues[0], 0);
+  assert.equal(limitValues[0], 100);
+  assert.equal(res.body.page, 1);
+  assert.equal(res.body.limit, 100);
+});
+
+test("getRiskAssessments queue summary keeps known statuses and ignores unknown entries", async () => {
+  const controller = loadController({
+    queueSummaryRows: [
+      { _id: "pending", count: "3" },
+      { _id: "dead_letter", count: 2 },
+      { _id: "mystery_status", count: 99 },
+    ],
+  });
+  const req = { query: {} };
+  const res = createRes();
+
+  await controller.getRiskAssessments(req, res);
+
+  assert.deepEqual(res.body.queueSummary, {
+    pending: 3,
+    processing: 0,
+    failed: 0,
+    dead_letter: 2,
+    completed: 0,
+  });
+});
+
+test("getRiskAssessments attempts backfill scheduling on poll even when queue has data", async () => {
+  const reasons = [];
+  const controller = loadController({
+    rows: [
+      {
+        _id: "mongo-id",
+        eventType: "security.auth.failure",
+        category: "SECURITY",
+      },
+    ],
+    scheduleRiskBackfillImpl: ({ reason }) => {
+      reasons.push(reason);
+      return true;
+    },
+  });
+  const req = { query: { page: "1", limit: "10" } };
+  const res = createRes();
+
+  await controller.getRiskAssessments(req, res);
+
+  assert.deepEqual(reasons, ["admin_hub_poll"]);
+  assert.equal(res.body.backfillTriggered, true);
+});
+
+test("getRiskAssessments includes backfillInFlight from service accessor", async () => {
+  const controller = loadController({
+    isBackfillInFlightImpl: () => true,
+  });
+  const req = { query: {} };
+  const res = createRes();
+
+  await controller.getRiskAssessments(req, res);
+
+  assert.equal(res.body.backfillInFlight, true);
+});
+
+test("getRiskAssessments returns backfillInFlight false when no backfill running", async () => {
+  const controller = loadController({
+    isBackfillInFlightImpl: () => false,
+  });
+  const req = { query: {} };
+  const res = createRes();
+
+  await controller.getRiskAssessments(req, res);
+
+  assert.equal(res.body.backfillInFlight, false);
+});
+
+test("retryAssessment forwards trimmed assessmentId and actorKey to service", async () => {
+  let captured = null;
+  const controller = loadController({
+    retryRiskAssessmentImpl: async (payload) => {
+      captured = payload;
+      return { _id: "ra-1", processing: { status: "pending" } };
+    },
+  });
+  const req = { params: { assessmentId: "  ra-1  " }, user: { entityKey: "admin-actor-1" } };
+  const res = createRes();
+
+  await controller.retryAssessment(req, res);
+
+  assert.deepEqual(captured, { assessmentId: "ra-1", actorKey: "admin-actor-1" });
+  assert.equal(res.statusCode, 200);
+});
+
+test("retryAssessment returns 400 when assessmentId is blank after trim", async () => {
+  const controller = loadController();
+  const req = { params: { assessmentId: "   " }, user: { entityKey: "actor-1" } };
+  const res = createRes();
+
+  await controller.retryAssessment(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { message: "assessmentId is required" });
+});
+
+test("retryAssessment returns 404 when assessment does not exist", async () => {
+  const controller = loadController({
+    retryRiskAssessmentImpl: async () => {
+      throw new Error("Risk assessment not found");
+    },
+  });
+  const req = { params: { assessmentId: "ra-missing" }, user: { entityKey: "actor-1" } };
+  const res = createRes();
+
+  await controller.retryAssessment(req, res);
+
+  assert.equal(res.statusCode, 404);
+  assert.deepEqual(res.body, { message: "Risk assessment not found" });
+});
+
+test("resetFailedAssessments returns reset count from service", async () => {
+  const controller = loadController({
+    resetFailedAssessmentsImpl: async () => ({ resetCount: 42 }),
+  });
+  const req = {};
+  const res = createRes();
+
+  await controller.resetFailedAssessments(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { resetCount: 42 });
+});
+
+test("resetFailedAssessments returns 500 on service error", async () => {
+  const controller = loadController({
+    resetFailedAssessmentsImpl: async () => {
+      throw new Error("db_error");
+    },
+  });
+  const req = {};
+  const res = createRes();
+
+  await controller.resetFailedAssessments(req, res);
+
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(res.body, { message: "Failed to reset failed assessments" });
 });

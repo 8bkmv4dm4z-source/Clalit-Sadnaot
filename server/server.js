@@ -27,6 +27,7 @@ const mongoose = require("mongoose");
 const { errors: celebrateErrors, CelebrateError } = require("celebrate");
 const jwt = require("jsonwebtoken");
 const { startAuditScheduler } = require("./services/auditService");
+const { scheduleRiskBackfillFromAuditLogs, startRiskReviewerScheduler } = require("./services/risk/RiskReviewerService");
 const { runAllHashAudits } = require("./audit/hashAudit");
 const { migrateLegacyAdmins } = require("./services/legacyAdminMigration");
 const { ACCESS_SCOPE_HEADER, ACCESS_PROOF_HEADER } = require("./utils/accessScope");
@@ -206,7 +207,23 @@ app.use((req, res, next) => {
           isAdminScope: !!(req.user?.authorities?.admin),
         });
       } catch (err) {
-        logResponseGuardViolation(req, { context: `${req.method} ${req.originalUrl || req.url}` });
+        const guardViolation = String(err?.message || "response_contract_violation").slice(0, 500);
+        const strippedFields = guardViolation.includes(":")
+          ? guardViolation
+              .split(":")
+              .slice(1)
+              .join(":")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean)
+              .slice(0, 50)
+          : [];
+
+        logResponseGuardViolation(req, {
+          context: `${req.method} ${req.originalUrl || req.url}`,
+          guardViolation,
+          strippedFields,
+        });
         return next(err);
       }
     }
@@ -430,6 +447,8 @@ const HOST = process.env.HOST || "0.0.0.0";
     }
 
     startAuditScheduler();
+    startRiskReviewerScheduler();
+    scheduleRiskBackfillFromAuditLogs({ reason: "startup" });
 
     if (process.env.HASH_AUDIT === "true") {
       runAllHashAudits().catch((err) =>

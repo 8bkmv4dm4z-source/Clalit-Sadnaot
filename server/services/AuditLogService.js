@@ -16,6 +16,7 @@ const DefaultAuditLogModel = require("../models/AdminAuditLog");
 const { scheduleAuditLogRiskProcessing } = require("./risk/RiskReviewerService");
 
 let AuditLogModel = DefaultAuditLogModel;
+const isRiskTraceEnabled = () => process.env.RISK_REVIEWER_TRACE === "true";
 
 const SENSITIVE_KEYS = new Set([
   "password",
@@ -113,6 +114,20 @@ const recordEvent = async ({ eventType, subjectType, subjectKey, actorKey, sever
   };
 
   const saved = await AuditLogModel.create(payload);
+  if (isRiskTraceEnabled()) {
+    console.info(
+      "[RISK REVIEWER][TRACE]",
+      JSON.stringify({
+        at: new Date().toISOString(),
+        stage: "audit_event_recorded",
+        auditLogId: saved?._id ? String(saved._id) : "",
+        eventType: payload.eventType,
+        category: payload.category,
+        severity: payload.severity,
+        subjectType: payload.subjectType,
+      })
+    );
+  }
   scheduleAuditLogRiskProcessing(saved);
   return publicView(saved);
 };

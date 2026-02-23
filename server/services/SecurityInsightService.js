@@ -16,6 +16,19 @@ const THRESHOLDS = {
   criticalPerDay: toNumber(process.env.SECURITY_THRESHOLD_CRITICAL_DAY, 1),
 };
 
+const sanitizeWarning = (warning) => {
+  if (!warning || typeof warning !== "object") return warning;
+  const copy = { ...warning };
+  delete copy._id;
+  delete copy.__v;
+  return copy;
+};
+
+const sanitizeWarnings = (warnings) => {
+  if (!Array.isArray(warnings)) return [];
+  return warnings.map((warning) => sanitizeWarning(warning));
+};
+
 const buildWarnings = (metrics, thresholds, periodType) => {
   const warnings = [];
   const byType = metrics.byEventType || {};
@@ -187,22 +200,25 @@ const getLatestInsights = async () => {
       .lean(),
   ]);
 
-  const allWarnings = [
-    ...(hourly?.warnings || []),
-    ...(daily?.warnings || []),
-  ];
-
   const sanitize = (doc) => {
     if (!doc) return null;
     const copy = { ...doc };
     delete copy._id;
     delete copy.__v;
+    copy.warnings = sanitizeWarnings(copy.warnings);
     return copy;
   };
 
+  const sanitizedHourly = sanitize(hourly);
+  const sanitizedDaily = sanitize(daily);
+  const allWarnings = [
+    ...(sanitizedHourly?.warnings || []),
+    ...(sanitizedDaily?.warnings || []),
+  ];
+
   return {
-    hourly: sanitize(hourly),
-    daily: sanitize(daily),
+    hourly: sanitizedHourly,
+    daily: sanitizedDaily,
     warnings: allWarnings,
   };
 };

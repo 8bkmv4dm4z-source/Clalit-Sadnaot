@@ -8,12 +8,13 @@ const { getLatestInsights } = require("../services/SecurityInsightService");
 const { renderPrometheusMetrics } = require("../services/ObservabilityMetricsService");
 const RiskAssessment = require("../models/RiskAssessment");
 const { recordRiskFeedback } = require("../services/risk/RiskCalibrationService");
-const { retryRiskAssessment } = require("../services/risk/RiskReviewerService");
+const { retryRiskAssessment, resetFailedAssessments: resetFailedAssessmentsService, scheduleRiskBackfillFromAuditLogs, isBackfillInFlight } = require("../services/risk/RiskReviewerService");
 
 const ALLOWED_SUBJECT_TYPES = ["user", "familyMember", "workshop", "system"];
 const VALID_SEVERITIES = new Set(Object.values(AuditSeverityLevels));
 const RISK_QUEUE_STATUSES = ["pending", "processing", "failed", "dead_letter", "completed"];
 const RISK_FAILURE_STATUSES = ["failed", "dead_letter"];
+const isAdminHubRiskTraceEnabled = () => process.env.ADMIN_HUB_RISK_TRACE === "true";
 
 const parsePositiveInt = (value, { min, max, fallback }) => {
   const num = Number(value);
@@ -161,10 +162,11 @@ const getMetrics = async (_req, res) => {
 
 const getRiskAssessments = async (req, res) => {
   try {
-    const { status, eventType, category, page, limit } = req.query;
+    const { status, eventType, category, page, limit, includeFailures } = req.query;
     if (status && !RISK_QUEUE_STATUSES.includes(String(status))) {
       return res.status(400).json({ message: "Invalid status" });
     }
+    const includeFailuresInResponse = ["1", "true", "yes"].includes(String(includeFailures || "").toLowerCase());
     const safeLimit = parsePositiveInt(limit, { min: 1, max: 100, fallback: 20 });
     const safePage = parsePositiveInt(page, { min: 1, max: 1000, fallback: 1 });
     const skip = (safePage - 1) * safeLimit;
@@ -186,10 +188,22 @@ const getRiskAssessments = async (req, res) => {
       { $group: { _id: "$processing.status", count: { $sum: 1 } } },
     ]);
 
-    const [rows, queueSummaryRows] = await Promise.all([rowsPromise, queueSummaryPromise]);
+    const failuresPromise = includeFailuresInResponse
+      ? RiskAssessment.find({
+          ...summaryFilters,
+          "processing.status": { $in: RISK_FAILURE_STATUSES },
+        })
+          .sort({ updatedAt: -1, createdAt: -1 })
+          .skip(skip)
+          .limit(safeLimit)
+          .lean()
+      : Promise.resolve([]);
+
+    const [rows, queueSummaryRows, failureRows] = await Promise.all([rowsPromise, queueSummaryPromise, failuresPromise]);
 
     const assessments = (rows || []).map((row) => {
       const copy = { ...row };
+      copy.assessmentId = String(row?._id || "");
       delete copy._id;
       delete copy.__v;
       delete copy.subjectKeyHash;
@@ -207,7 +221,56 @@ const getRiskAssessments = async (req, res) => {
       queueSummary[queueStatus] = Number(entry?.count || 0);
     });
 
-    return res.json({ assessments, page: safePage, limit: safeLimit, queueSummary });
+    const hasAnyQueueData =
+      assessments.length > 0 || Object.values(queueSummary).some((count) => Number(count || 0) > 0);
+    const backfillTriggered = !!scheduleRiskBackfillFromAuditLogs({
+      reason: hasAnyQueueData ? "admin_hub_poll" : "admin_hub_empty_queue",
+    });
+    if (isAdminHubRiskTraceEnabled()) {
+      console.info(
+        "[ADMIN HUB][RISK TRACE]",
+        JSON.stringify({
+          at: new Date().toISOString(),
+          route: "GET /api/admin/hub/risk-assessments",
+          request: {
+            status: status || "",
+            eventType: eventType || "",
+            category: category || "",
+            includeFailuresInResponse,
+            page: safePage,
+            limit: safeLimit,
+          },
+          response: {
+            assessmentsCount: assessments.length,
+            failuresCount: includeFailuresInResponse ? (failureRows || []).length : undefined,
+            queueSummary,
+            hasAnyQueueData,
+            backfillTriggered,
+          },
+        })
+      );
+    }
+
+    const failures = includeFailuresInResponse
+      ? (failureRows || []).map((row) => {
+          const copy = { ...row };
+          copy.assessmentId = String(row?._id || "");
+          delete copy._id;
+          delete copy.__v;
+          delete copy.subjectKeyHash;
+          return copy;
+        })
+      : undefined;
+
+    return res.json({
+      assessments,
+      page: safePage,
+      limit: safeLimit,
+      queueSummary,
+      backfillTriggered,
+      backfillInFlight: isBackfillInFlight(),
+      ...(includeFailuresInResponse ? { failures } : {}),
+    });
   } catch (err) {
     console.error("[ADMIN HUB] Failed to fetch risk assessments", err);
     return res.status(500).json({ message: "Failed to fetch risk assessments" });
@@ -235,6 +298,7 @@ const getRiskAssessmentFailures = async (req, res) => {
 
     const failures = (rows || []).map((row) => {
       const copy = { ...row };
+      copy.assessmentId = String(row?._id || "");
       delete copy._id;
       delete copy.__v;
       delete copy.subjectKeyHash;
@@ -296,6 +360,7 @@ const retryAssessment = async (req, res) => {
     const actorKey = req.user?.entityKey || "";
     const updated = await retryRiskAssessment({ assessmentId, actorKey });
     const response = { ...updated };
+    response.assessmentId = String(updated?._id || "");
     delete response._id;
     delete response.__v;
     delete response.subjectKeyHash;
@@ -313,6 +378,16 @@ const retryAssessment = async (req, res) => {
   }
 };
 
+const resetFailedAssessments = async (_req, res) => {
+  try {
+    const result = await resetFailedAssessmentsService();
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[ADMIN HUB] Failed to reset failed assessments", err);
+    return res.status(500).json({ message: "Failed to reset failed assessments" });
+  }
+};
+
 module.exports = {
   getLogs,
   getMaxedWorkshopAlerts,
@@ -323,4 +398,5 @@ module.exports = {
   getRiskAssessmentFailures,
   submitRiskFeedback,
   retryAssessment,
+  resetFailedAssessments,
 };

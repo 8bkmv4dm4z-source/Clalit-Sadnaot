@@ -58,6 +58,7 @@ export const fetchRiskAssessments = async ({ adminPassword, filters = {} }) => {
     status: filters.status,
     eventType: filters.eventType,
     category: filters.category,
+    includeFailures: filters.includeFailures ? "true" : "",
     page: filters.page || 1,
     limit: filters.limit || 20,
   };

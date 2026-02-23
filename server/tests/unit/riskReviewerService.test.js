@@ -212,6 +212,13 @@ const loadService = ({ scoreErrorMessage, duplicateClaimErrorOnce = false } = {}
     filename: adminAuditLogPath,
     loaded: true,
     exports: {
+      find: () => ({
+        sort: () => ({
+          limit: () => ({
+            lean: async () => [],
+          }),
+        }),
+      }),
       findById: (id) => ({
         lean: async () =>
           String(id) === String(state.saved?.auditLogId)
@@ -266,14 +273,15 @@ test("processAuditLogRisk persists deterministic source-of-truth assessment", as
     metadata: { organizationId: "org-1" },
   });
 
-  assert.equal(result.organizationId, "org-1");
-  assert.equal(result.final.sourceOfTruth, "deterministic");
-  assert.equal(result.final.requiresManualReview, true);
-  assert.equal(result.processing.status, "completed");
-  assert.equal(result.processing.attempts, 1);
-  assert.equal(result.processing.maxAttempts, 3);
-  assert.equal(result.calibration.profileVersion, 3);
-  assert.equal(result.processing.leaseOwner, undefined);
+  assert.equal(result.outcome, "scored");
+  assert.equal(result.assessment.organizationId, "org-1");
+  assert.equal(result.assessment.final.sourceOfTruth, "deterministic");
+  assert.equal(result.assessment.final.requiresManualReview, true);
+  assert.equal(result.assessment.processing.status, "completed");
+  assert.equal(result.assessment.processing.attempts, 1);
+  assert.equal(result.assessment.processing.maxAttempts, 3);
+  assert.equal(result.assessment.calibration.profileVersion, 3);
+  assert.equal(result.assessment.processing.leaseOwner, undefined);
 });
 
 test("processAuditLogRisk skips processing when an unexpired lease already exists", async () => {
@@ -289,7 +297,8 @@ test("processAuditLogRisk skips processing when an unexpired lease already exist
 
   const result = await service.processAuditLogRisk({ _id: "audit-lease" });
 
-  assert.equal(result.processing.status, "processing");
+  assert.equal(result.outcome, "skipped_lease");
+  assert.equal(result.assessment.processing.status, "processing");
   assert.equal(state.updates.length, 0);
 });
 
@@ -304,18 +313,20 @@ test("processAuditLogRisk retries failures and moves to dead-letter at max attem
       const { service, state } = loadService({ scoreErrorMessage: "engine_down" });
 
       const first = await service.processAuditLogRisk({ _id: "audit-fail" });
-      assert.equal(first.processing.status, "failed");
-      assert.equal(first.processing.attempts, 1);
-      assert.ok(first.processing.nextRetryAt instanceof Date);
-      assert.equal(first.processing.deadLetteredAt, null);
+      assert.equal(first.outcome, "failed");
+      assert.equal(first.assessment.processing.status, "failed");
+      assert.equal(first.assessment.processing.attempts, 1);
+      assert.ok(first.assessment.processing.nextRetryAt instanceof Date);
+      assert.equal(first.assessment.processing.deadLetteredAt, null);
 
       state.saved.processing.nextRetryAt = new Date(Date.now() - 1000);
       const second = await service.processAuditLogRisk({ _id: "audit-fail" });
-      assert.equal(second.processing.status, "dead_letter");
-      assert.equal(second.processing.attempts, 2);
-      assert.equal(second.processing.deadLetterReason, "engine_down");
-      assert.ok(second.processing.deadLetteredAt instanceof Date);
-      assert.equal(second.processing.nextRetryAt, undefined);
+      assert.equal(second.outcome, "failed");
+      assert.equal(second.assessment.processing.status, "dead_letter");
+      assert.equal(second.assessment.processing.attempts, 2);
+      assert.equal(second.assessment.processing.deadLetterReason, "engine_down");
+      assert.ok(second.assessment.processing.deadLetteredAt instanceof Date);
+      assert.equal(second.assessment.processing.nextRetryAt, undefined);
     }
   );
 });
@@ -332,7 +343,8 @@ test("processAuditLogRisk skips dead-lettered records", async () => {
   };
 
   const result = await service.processAuditLogRisk({ _id: "audit-dead-letter" });
-  assert.equal(result.processing.status, "dead_letter");
+  assert.equal(result.outcome, "skipped_terminal");
+  assert.equal(result.assessment.processing.status, "dead_letter");
   assert.equal(state.updates.length, 0);
 });
 
@@ -340,8 +352,119 @@ test("processAuditLogRisk treats duplicate-key lease races as contention and ski
   const { service, state } = loadService({ duplicateClaimErrorOnce: true });
   const result = await service.processAuditLogRisk({ _id: "audit-race" });
 
-  assert.equal(result.processing.status, "processing");
+  assert.equal(result.outcome, "skipped_contention");
+  assert.equal(result.assessment.processing.status, "processing");
   assert.equal(state.saved.processing.lastError, undefined);
+});
+
+test("getOrCreateCalibrationProfile recovers from E11000 via findOne fallback", async () => {
+  const calibrationModelPath = require.resolve("../../models/RiskCalibrationProfile");
+  const riskFeedbackPath = require.resolve("../../models/RiskFeedback");
+  delete require.cache[calibrationPath];
+  delete require.cache[calibrationModelPath];
+
+  const expectedProfile = {
+    organizationId: "global",
+    active: true,
+    version: 1,
+    ruleWeights: {},
+    driftScore: 0,
+    history: [],
+  };
+
+  require.cache[calibrationModelPath] = {
+    id: calibrationModelPath,
+    filename: calibrationModelPath,
+    loaded: true,
+    exports: {
+      findOneAndUpdate: () => ({
+        lean: async () => {
+          const err = new Error("duplicate key");
+          err.code = 11000;
+          throw err;
+        },
+      }),
+      findOne: () => ({
+        lean: async () => expectedProfile,
+      }),
+    },
+  };
+  require.cache[riskFeedbackPath] = {
+    id: riskFeedbackPath,
+    filename: riskFeedbackPath,
+    loaded: true,
+    exports: {},
+  };
+  require.cache[modelPath] = require.cache[modelPath] || {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {},
+  };
+  require.cache[hmacPath] = require.cache[hmacPath] || {
+    id: hmacPath,
+    filename: hmacPath,
+    loaded: true,
+    exports: { hmacEntityKey: (v) => `hash:${v}` },
+  };
+
+  delete require.cache[calibrationPath];
+  const { getOrCreateCalibrationProfile } = require("../../services/risk/RiskCalibrationService");
+  const result = await getOrCreateCalibrationProfile("global");
+  assert.deepStrictEqual(result, expectedProfile);
+
+  delete require.cache[calibrationPath];
+  delete require.cache[calibrationModelPath];
+  delete require.cache[riskFeedbackPath];
+});
+
+test("getOrCreateCalibrationProfile re-throws non-E11000 errors", async () => {
+  const calibrationModelPath = require.resolve("../../models/RiskCalibrationProfile");
+  const riskFeedbackPath = require.resolve("../../models/RiskFeedback");
+  delete require.cache[calibrationPath];
+  delete require.cache[calibrationModelPath];
+
+  require.cache[calibrationModelPath] = {
+    id: calibrationModelPath,
+    filename: calibrationModelPath,
+    loaded: true,
+    exports: {
+      findOneAndUpdate: () => ({
+        lean: async () => {
+          throw new Error("connection_timeout");
+        },
+      }),
+      findOne: () => ({
+        lean: async () => null,
+      }),
+    },
+  };
+  require.cache[riskFeedbackPath] = {
+    id: riskFeedbackPath,
+    filename: riskFeedbackPath,
+    loaded: true,
+    exports: {},
+  };
+  require.cache[modelPath] = require.cache[modelPath] || {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {},
+  };
+  require.cache[hmacPath] = require.cache[hmacPath] || {
+    id: hmacPath,
+    filename: hmacPath,
+    loaded: true,
+    exports: { hmacEntityKey: (v) => `hash:${v}` },
+  };
+
+  delete require.cache[calibrationPath];
+  const { getOrCreateCalibrationProfile } = require("../../services/risk/RiskCalibrationService");
+  await assert.rejects(() => getOrCreateCalibrationProfile("global"), { message: "connection_timeout" });
+
+  delete require.cache[calibrationPath];
+  delete require.cache[calibrationModelPath];
+  delete require.cache[riskFeedbackPath];
 });
 
 test("retryRiskAssessment resets failed assessment to pending", async () => {

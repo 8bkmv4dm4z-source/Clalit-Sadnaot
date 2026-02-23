@@ -53,17 +53,29 @@ const computeCalibrationUpdate = ({ currentWeights = {}, targetRuleId, feedbackT
 };
 
 const getOrCreateCalibrationProfile = async (organizationId = "global") => {
-  const existing = await RiskCalibrationProfile.findOne({ organizationId }).lean();
-  if (existing) return existing;
-  const created = await RiskCalibrationProfile.create({
-    organizationId,
-    active: true,
-    version: 1,
-    ruleWeights: {},
-    driftScore: 0,
-    history: [],
-  });
-  return created.toObject();
+  try {
+    const profile = await RiskCalibrationProfile.findOneAndUpdate(
+      { organizationId },
+      {
+        $setOnInsert: {
+          organizationId,
+          active: true,
+          version: 1,
+          ruleWeights: {},
+          driftScore: 0,
+          history: [],
+        },
+      },
+      { new: true, upsert: true }
+    ).lean();
+    return profile;
+  } catch (err) {
+    if (Number(err?.code) === 11000) {
+      const existing = await RiskCalibrationProfile.findOne({ organizationId }).lean();
+      if (existing) return existing;
+    }
+    throw err;
+  }
 };
 
 const selectTargetRule = (assessment) => {

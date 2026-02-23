@@ -1,0 +1,200 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+process.env.PUBLIC_ID_SECRET = process.env.PUBLIC_ID_SECRET || "test-public-id-secret";
+process.env.AUDIT_HMAC_SECRET = process.env.AUDIT_HMAC_SECRET || "audit-secret";
+
+const controllerPath = require.resolve("../../controllers/workshopController");
+const workshopModelPath = require.resolve("../../models/Workshop");
+const userModelPath = require.resolve("../../models/User");
+const resolveEntityPath = require.resolve("../../services/entities/resolveEntity");
+const auditServicePath = require.resolve("../../services/AuditLogService");
+const authControllerPath = require.resolve("../../controllers/authController");
+const bcryptPath = require.resolve("bcryptjs");
+const safeAuditPath = require.resolve("../../services/SafeAuditLog");
+
+const resetModules = () => {
+  [
+    controllerPath,
+    workshopModelPath,
+    userModelPath,
+    resolveEntityPath,
+    auditServicePath,
+    authControllerPath,
+    bcryptPath,
+    safeAuditPath,
+  ].forEach(
+    (p) => delete require.cache[p]
+  );
+};
+
+const createRes = () => {
+  const res = {
+    statusCode: 200,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
+  return res;
+};
+
+test("registerEntityToWorkshop emits audit event on success", async () => {
+  resetModules();
+  const recorded = [];
+
+  const workshopDoc = {
+    _id: "workshop-1",
+    workshopKey: "11111111-1111-4111-8111-111111111111",
+    hashedId: "hashed-1",
+    maxParticipants: 10,
+    participantsCount: 0,
+    participants: [],
+    familyRegistrations: [],
+    waitingList: [],
+    save: async () => {},
+  };
+
+  require.cache[workshopModelPath] = {
+    id: workshopModelPath,
+    filename: workshopModelPath,
+    loaded: true,
+    exports: {
+      findOne: async () => workshopDoc,
+      findOneAndUpdate: async () => {
+        workshopDoc.participants.push("user-1");
+        workshopDoc.participantsCount = workshopDoc.participants.length;
+        return workshopDoc;
+      },
+      findById: () => ({
+        populate() {
+          return this;
+        },
+        toObject: () => ({
+          ...workshopDoc,
+          participants: [],
+          familyRegistrations: [],
+          waitingList: [],
+        }),
+      }),
+      updateOne: async () => {},
+    },
+  };
+
+  require.cache[userModelPath] = {
+    id: userModelPath,
+    filename: userModelPath,
+    loaded: true,
+    exports: {
+      updateOne: async () => {},
+    },
+  };
+
+  require.cache[resolveEntityPath] = {
+    id: resolveEntityPath,
+    filename: resolveEntityPath,
+    loaded: true,
+    exports: {
+      resolveEntityByKey: async () => ({
+        type: "user",
+        userDoc: {
+          _id: "user-1",
+          entityKey: "entity-123",
+          userWorkshopMap: [],
+          familyWorkshopMap: [],
+          save: async () => {},
+        },
+        memberDoc: null,
+      }),
+    },
+  };
+
+  require.cache[auditServicePath] = {
+    id: auditServicePath,
+    filename: auditServicePath,
+    loaded: true,
+    exports: {
+      recordEvent: async (payload) => recorded.push(payload),
+      hmacEntityKey: () => "hash",
+    },
+  };
+
+  const controller = require(controllerPath);
+
+  const req = {
+    params: { id: "11111111-1111-4111-8111-111111111111" },
+    body: {},
+    user: { _id: "user-1", role: "user", entityKey: "actor-1" },
+  };
+  const res = createRes();
+
+  await controller.registerEntityToWorkshop(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].eventType, "workshop.registration");
+  assert.equal(recorded[0].subjectType, "workshop");
+  assert.equal(recorded[0].subjectKey, "11111111-1111-4111-8111-111111111111");
+  assert.equal(recorded[0].actorKey, "actor-1");
+  assert.deepEqual(recorded[0].metadata, {
+    participantType: "user",
+    participantKey: "entity-123",
+    action: "join",
+  });
+  assert.equal(recorded[0]._id, undefined);
+});
+
+test("addEntityToWaitlist emits audit event on success", async () => {
+  resetModules();
+  const recorded = [];
+
+  const workshopDoc = {
+    _id: "workshop-2",
+    workshopKey: "22222222-2222-4222-8222-222222222222",
+    hashedId: "hashed-2",
+    waitingList: [],
+    waitingListMax: 0,
+    save: async () => {},
+  };
+
+  require.cache[workshopModelPath] = {
+    id: workshopModelPath,
+    filename: workshopModelPath,
+    loaded: true,
+    exports: {
+      findOne: async () => workshopDoc,
+      findOneAndUpdate: async () => {
+        workshopDoc.waitingList.push({ parentUser: "user-2" });
+        return { ...workshopDoc, waitingList: workshopDoc.waitingList.slice() };
+      },
+      findById: () => ({
+        populate() {
+          return this;
+        },
+        toObject: () => ({
+          ...workshopDoc,
+          participants: [],
+          familyRegistrations: [],
+          waitingList: [],
+        }),
+      }),
+    },
+  };
+
+  require.cache[userModelPath] = {
+    id: userModelPath,
+    filename: userModelPath,
+    loaded: true,
+    exports: {},
+  };
+
+  require.cache[resolveEntityPath] = {
+    id: resolveEntityPath,
+    filename: resolveEntityPath,
+    loaded: true,
+    exports: {

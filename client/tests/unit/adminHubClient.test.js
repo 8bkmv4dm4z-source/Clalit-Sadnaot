@@ -78,19 +78,31 @@ test("helpers do not persist admin password in storage", () => {
 });
 
 test("fetchRiskAssessments sends request to risk endpoint", async () => {
-  globalThis.fetch = async (url) => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ assessments: [], page: 1, limit: 20 }),
-    url,
-  });
+  let capturedUrl = "";
+  let capturedHeaders = null;
+  globalThis.fetch = async (url, init = {}) => {
+    capturedUrl = String(url);
+    capturedHeaders = init.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ assessments: [], page: 1, limit: 20 }),
+      url,
+    };
+  };
   const result = await fetchRiskAssessments({
     adminPassword: "secret",
-    filters: { status: "failed", page: 1, limit: 20 },
+    filters: { status: "failed", category: "SECURITY", page: 2, limit: 10 },
   });
   assert.equal(result.ok, true);
   assert.equal(result.status, 200);
   assert.deepEqual(result.body, { assessments: [], page: 1, limit: 20 });
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\?/);
+  assert.match(capturedUrl, /status=failed/);
+  assert.match(capturedUrl, /category=SECURITY/);
+  assert.match(capturedUrl, /page=2/);
+  assert.match(capturedUrl, /limit=10/);
+  assert.equal(capturedHeaders["x-admin-password"], "secret");
 });
 
 test("submitRiskFeedback posts feedback payload", async () => {
@@ -116,23 +128,34 @@ test("submitRiskFeedback posts feedback payload", async () => {
 });
 
 test("fetchRiskFailures requests failures endpoint", async () => {
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ failures: [], page: 1, limit: 20 }),
-  });
+  let capturedUrl = "";
+  globalThis.fetch = async (url) => {
+    capturedUrl = String(url);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ failures: [], page: 1, limit: 20 }),
+    };
+  };
 
   const result = await fetchRiskFailures({
     adminPassword: "secret",
-    filters: { eventType: "security.auth.failure", page: 1 },
+    filters: { eventType: "security.auth.failure", category: "SECURITY", page: 3, limit: 5 },
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.body, { failures: [], page: 1, limit: 20 });
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\/failures\?/);
+  assert.match(capturedUrl, /eventType=security.auth.failure/);
+  assert.match(capturedUrl, /category=SECURITY/);
+  assert.match(capturedUrl, /page=3/);
+  assert.match(capturedUrl, /limit=5/);
 });
 
 test("retryRiskAssessment sends POST with no body", async () => {
   let captured = null;
-  globalThis.fetch = async (_url, init = {}) => {
+  let capturedUrl = "";
+  globalThis.fetch = async (url, init = {}) => {
+    capturedUrl = String(url);
     captured = init;
     return {
       ok: true,
@@ -144,4 +167,5 @@ test("retryRiskAssessment sends POST with no body", async () => {
   assert.equal(result.status, 200);
   assert.equal(captured.method, "POST");
   assert.equal(captured.body, undefined);
+  assert.match(capturedUrl, /\/api\/admin\/hub\/risk-assessments\/ra-1\/retry/);
 });

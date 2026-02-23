@@ -17,9 +17,21 @@ const SuggestedActionSchema = new mongoose.Schema(
   {
     actionId: { type: String, required: true },
     reason: { type: String, required: true },
+    implication: { type: String, default: "" },
+    fix: { type: String, default: "" },
     confidence: { type: Number, required: true },
     blocked: { type: Boolean, default: false },
     blockedReason: { type: String },
+  },
+  { _id: false }
+);
+
+const ProcessingLogSchema = new mongoose.Schema(
+  {
+    at: { type: Date, default: Date.now },
+    stage: { type: String, required: true },
+    level: { type: String, enum: ["info", "warn", "error"], default: "info" },
+    message: { type: String, required: true },
   },
   { _id: false }
 );
@@ -35,6 +47,7 @@ const RiskAssessmentSchema = new mongoose.Schema(
     subjectType: { type: String, required: true },
     subjectKey: { type: String, required: true },
     subjectKeyHash: { type: String, required: true },
+    sourceMetadata: { type: Object, default: {} },
 
     deterministic: {
       score: { type: Number, required: true, min: 0, max: 100 },
@@ -88,6 +101,7 @@ const RiskAssessmentSchema = new mongoose.Schema(
       nextRetryAt: { type: Date },
       deadLetteredAt: { type: Date },
       deadLetterReason: { type: String, default: "" },
+      logs: { type: [ProcessingLogSchema], default: [] },
     },
   },
   { timestamps: true }

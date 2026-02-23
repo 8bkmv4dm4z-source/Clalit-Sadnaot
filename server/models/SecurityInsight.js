@@ -26,6 +26,7 @@ const SecurityInsightSchema = new mongoose.Schema({
   warnings: {
     type: [
       {
+        _id: false,
         code: { type: String, required: true },
         message: { type: String, required: true },
         severity: { type: String, required: true },

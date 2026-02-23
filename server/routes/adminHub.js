@@ -10,7 +10,7 @@ const adminHubController = require("../controllers/adminHubController");
 // is mitigated by the admin authority gate + timing-safe password comparison.
 const adminHubLimiter = perUserRateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 40,
+  limit: 120,
 });
 
 const router = express.Router();
@@ -104,6 +104,16 @@ router.post(
   adminHubLimiter,
   requireAdminHubPassword,
   adminHubController.submitRiskFeedback
+);
+
+// POST /api/admin/hub/risk-assessments/reset-failed
+router.post(
+  "/risk-assessments/reset-failed",
+  authenticate,
+  authorizeAdmin,
+  adminHubLimiter,
+  requireAdminHubPassword,
+  adminHubController.resetFailedAssessments
 );
 
 // POST /api/admin/hub/risk-assessments/:assessmentId/retry
