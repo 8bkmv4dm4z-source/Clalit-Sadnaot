@@ -119,9 +119,13 @@ xac
 xad
 fix-security-issues.txt
 LastProgress.md
-.claude/settings.local.json
-.claude/**/MEMORY.md
+AdminHubRefactor.md
+run-app.cmd
+mnt/
+.claude/
 client/.claude/
+AGENTS.md
+CLAUDE.md
 API security review.pdf
 docs/lint-error-index-report.md
 docs/suggestions-to-fix.md
