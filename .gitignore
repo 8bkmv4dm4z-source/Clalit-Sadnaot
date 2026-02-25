@@ -25,6 +25,8 @@ client/dist*
 # ----------------------
 .env
 .env.*
+!.env.example
+!**/.env.example
 */.env
 client/.env
 server/.env
@@ -107,3 +109,19 @@ otp_log.csv
 *.seed
 *.tgz
 *.zip
+
+# ----------------------
+# Internal / dev-only files
+# ----------------------
+xaa
+xab
+xac
+xad
+fix-security-issues.txt
+LastProgress.md
+.claude/settings.local.json
+.claude/**/MEMORY.md
+client/.claude/
+API security review.pdf
+docs/lint-error-index-report.md
+docs/suggestions-to-fix.md
