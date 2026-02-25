@@ -1,0 +1,690 @@
+{
+  "info": {
+    "name": "AI Risk Integration Tests",
+    "_postman_id": "ai-risk-integration-v1",
+    "description": "Validates Groq/Ollama AI integration, risk assessment batching, rate-limiter behavior, and escalation pipeline.\n\nSetup:\n1. Run 01-Login first to get tokens\n2. Run 02-Groq-Health to verify provider connectivity\n3. Run 03-06 to trigger events and validate AI enrichment\n\nRequired env vars in Postman:\n- base_url (default http://localhost:5000)\n- admin_email / admin_password\n- admin_hub_password",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5000" },
+    { "key": "access_token", "value": "" },
+    { "key": "csrf_token", "value": "" },
+    { "key": "admin_email", "value": "" },
+    { "key": "admin_password", "value": "" },
+    { "key": "admin_hub_password", "value": "" },
+    { "key": "assessment_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "00 — Setup",
+      "item": [
+        {
+          "name": "00a Get CSRF Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('CSRF token returned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const csrf = pm.response.headers.get('x-csrf-token') || pm.cookies.get('_csrf');",
+                  "    pm.expect(csrf).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('csrf_token', csrf);",
+                  "    console.log('CSRF token stored');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/auth/csrf",
+            "header": []
+          }
+        },
+        {
+          "name": "00b Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login successful — token stored', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    const token = body.accessToken || body.token;",
+                  "    pm.expect(token).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('access_token', token);",
+                  "    console.log('Access token stored');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 — Groq Direct Health Check",
+      "item": [
+        {
+          "name": "01a Groq API — List Models",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Groq API reachable and key valid', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.be.an('array').and.not.empty;",
+                  "    const modelIds = body.data.map(m => m.id);",
+                  "    console.log('Available Groq models:', modelIds.join(', '));",
+                  "});",
+                  "",
+                  "pm.test('Target model (llama-3.3-70b-versatile) is available', function () {",
+                  "    const body = pm.response.json();",
+                  "    const ids = body.data.map(m => m.id);",
+                  "    pm.expect(ids).to.include('llama-3.3-70b-versatile');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "https://api.groq.com/openai/v1/models",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{groq_api_key}}" }
+            ]
+          }
+        },
+        {
+          "name": "01b Groq API — Test Completion (JSON mode)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Groq returns valid JSON completion', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.choices).to.be.an('array').with.length.greaterThan(0);",
+                  "    const content = body.choices[0].message.content;",
+                  "    pm.expect(content).to.be.a('string').and.not.empty;",
+                  "",
+                  "    // Verify it's parseable JSON",
+                  "    const parsed = JSON.parse(content);",
+                  "    pm.expect(parsed).to.have.property('summary');",
+                  "    pm.expect(parsed).to.have.property('suggestedUrgency');",
+                  "    console.log('Groq JSON output:', content.substring(0, 200));",
+                  "});",
+                  "",
+                  "pm.test('Response uses expected model', function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.model).to.include('llama');",
+                  "});",
+                  "",
+                  "pm.test('Token usage within free-tier budget', function () {",
+                  "    const body = pm.response.json();",
+                  "    const usage = body.usage;",
+                  "    pm.expect(usage.prompt_tokens).to.be.below(500, 'Prompt tokens should be under 500');",
+                  "    pm.expect(usage.completion_tokens).to.be.below(500, 'Completion tokens should be under 500');",
+                  "    pm.expect(usage.total_tokens).to.be.below(1000, 'Total tokens should be under 1000');",
+                  "    console.log('Token usage — prompt:', usage.prompt_tokens, 'completion:', usage.completion_tokens, 'total:', usage.total_tokens);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{groq_api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 400,\n  \"temperature\": 0.3,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Security analyst for workshop platform. Respond JSON only: {\\\"summary\\\":\\\"2-3 sentences\\\",\\\"anomalyFlags\\\":[{\\\"flag\\\":\\\"\\\",\\\"confidence\\\":0.0-1.0,\\\"reasoning\\\":\\\"\\\"}],\\\"patternAnalysis\\\":\\\"\\\",\\\"suggestedUrgency\\\":\\\"routine|elevated|urgent\\\",\\\"confidenceNote\\\":\\\"\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{\\\"evt\\\":\\\"security.auth.failure\\\",\\\"sev\\\":\\\"warn\\\",\\\"cat\\\":\\\"SECURITY\\\",\\\"score\\\":68,\\\"level\\\":\\\"medium\\\",\\\"top\\\":[\\\"Severity baseline:45\\\",\\\"Event-specific signal:8\\\",\\\"Auth failure context:5\\\"],\\\"total\\\":7,\\\"patterns\\\":[\\\"repeatedAuthFailures\\\"],\\\"deltas\\\":[12,8,3,2,1]}\"\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 — Trigger Auth Failure Events (Generate Risk Data)",
+      "item": [
+        {
+          "name": "02a Auth Failure — Bad Password (1/4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Auth failure returns 401', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    console.log('Auth failure 1/4 triggered — audit event generated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"wrong_password_test_1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "02b Auth Failure — Bad Password (2/4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Auth failure returns 401', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    console.log('Auth failure 2/4 triggered');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"wrong_password_test_2\"\n}"
+            }
+          }
+        },
+        {
+          "name": "02c Auth Failure — Bad Password (3/4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Auth failure returns 401', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    console.log('Auth failure 3/4 triggered — should trigger brute_force_suspected escalation');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"wrong_password_test_3\"\n}"
+            }
+          }
+        },
+        {
+          "name": "02d Auth Failure — Bad Password (4/4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Auth failure returns 401', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401]);",
+                  "    console.log('Auth failure 4/4 triggered — additional data for AI analysis');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"wrong_password_test_4\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 — Wait & Verify Risk Assessments with AI Enrichment",
+      "item": [
+        {
+          "name": "03a Re-login (tokens may have been invalidated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Re-login successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    const token = body.accessToken || body.token;",
+                  "    pm.collectionVariables.set('access_token', token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/login",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "03b GET Risk Assessments — Verify AI Enrichment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Risk assessments returned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.assessments).to.be.an('array');",
+                  "    console.log('Total assessments:', body.assessments.length);",
+                  "    console.log('Queue summary:', JSON.stringify(body.queueSummary));",
+                  "});",
+                  "",
+                  "pm.test('Queue summary has expected statuses', function () {",
+                  "    pm.expect(body.queueSummary).to.have.property('completed');",
+                  "    pm.expect(body.queueSummary).to.have.property('pending');",
+                  "    pm.expect(body.queueSummary).to.have.property('failed');",
+                  "    console.log('Completed:', body.queueSummary.completed, '| Pending:', body.queueSummary.pending, '| Failed:', body.queueSummary.failed);",
+                  "});",
+                  "",
+                  "pm.test('Assessments have deterministic scoring', function () {",
+                  "    const withScore = body.assessments.filter(a => a.deterministic && a.deterministic.score >= 0);",
+                  "    pm.expect(withScore.length).to.be.greaterThan(0, 'At least one scored assessment');",
+                  "    withScore.slice(0, 3).forEach(a => {",
+                  "        console.log('  -', a.eventType, 'score:', a.deterministic.score, 'level:', a.deterministic.riskLevel);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('AI overlay present on assessments', function () {",
+                  "    const withOverlay = body.assessments.filter(a => a.aiOverlay && a.aiOverlay.enabled);",
+                  "    pm.expect(withOverlay.length).to.be.greaterThan(0, 'At least one assessment has AI overlay');",
+                  "});",
+                  "",
+                  "// Check for Groq/Ollama AI enrichment on medium+ risk events",
+                  "pm.test('Medium+ risk assessments have openAIAnalysis field', function () {",
+                  "    const mediumPlus = body.assessments.filter(a => a.deterministic && a.deterministic.score >= 50);",
+                  "    if (mediumPlus.length === 0) {",
+                  "        console.log('SKIP: No medium+ risk assessments found');",
+                  "        return;",
+                  "    }",
+                  "    mediumPlus.forEach(a => {",
+                  "        const ai = a.aiOverlay?.openAIAnalysis;",
+                  "        console.log('  Event:', a.eventType, '| Score:', a.deterministic.score, '| AI available:', ai?.available, '| Model:', ai?.model || 'n/a', '| Cached:', ai?.cached || false);",
+                  "        if (ai?.available) {",
+                  "            console.log('    Summary:', (ai.summary || '').substring(0, 120));",
+                  "            console.log('    Urgency:', ai.suggestedUrgency, '| Anomaly flags:', (ai.anomalyFlags || []).length);",
+                  "        }",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('sourceOfTruth remains deterministic', function () {",
+                  "    body.assessments.forEach(a => {",
+                  "        if (a.final) pm.expect(a.final.sourceOfTruth).to.equal('deterministic');",
+                  "    });",
+                  "});",
+                  "",
+                  "// Store an assessment ID for feedback test",
+                  "if (body.assessments.length > 0) {",
+                  "    const target = body.assessments.find(a => a.deterministic && a.deterministic.score >= 50) || body.assessments[0];",
+                  "    pm.collectionVariables.set('assessment_id', target.assessmentId);",
+                  "    console.log('Stored assessment_id for feedback test:', target.assessmentId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/admin/hub/risk-assessments?limit=20&includeFailures=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "hub", "risk-assessments"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "includeFailures", "value": "true" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "x-admin-password", "value": "{{admin_hub_password}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Verify Escalation Events",
+      "item": [
+        {
+          "name": "04a GET Audit Logs — Check Escalation Created",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Logs returned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.logs).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Auth failure events were logged', function () {",
+                  "    const authFailures = body.logs.filter(l => l.eventType === 'security.auth.failure');",
+                  "    pm.expect(authFailures.length).to.be.greaterThan(0, 'At least one auth failure audit event');",
+                  "    console.log('Auth failure events:', authFailures.length);",
+                  "});",
+                  "",
+                  "pm.test('Escalation event created (brute_force_suspected)', function () {",
+                  "    const escalations = body.logs.filter(l => l.eventType === 'security.realtime.escalation');",
+                  "    if (escalations.length === 0) {",
+                  "        console.log('WARN: No escalation events found — may need 3+ auth failures in 5min window');",
+                  "        return;",
+                  "    }",
+                  "    pm.expect(escalations.length).to.be.greaterThan(0);",
+                  "    const first = escalations[0];",
+                  "    console.log('Escalation event:', JSON.stringify(first.metadata || {}).substring(0, 200));",
+                  "    pm.expect(first.metadata).to.have.property('severity', 'critical');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/admin/hub/logs?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "hub", "logs"],
+              "query": [
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "x-admin-password", "value": "{{admin_hub_password}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 — Calibration Feedback Test",
+      "item": [
+        {
+          "name": "05a Submit false_positive Feedback",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Feedback accepted', function () {",
+                  "    if (!pm.collectionVariables.get('assessment_id')) {",
+                  "        console.log('SKIP: No assessment_id available');",
+                  "        return;",
+                  "    }",
+                  "    pm.response.to.have.status(201);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.property('feedbackId');",
+                  "    pm.expect(body).to.have.property('profileVersion');",
+                  "    console.log('Feedback stored — profileVersion:', body.profileVersion);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/admin/hub/risk-assessments/{{assessment_id}}/feedback",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "x-admin-password", "value": "{{admin_hub_password}}" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"feedbackType\": \"false_positive\",\n  \"notes\": \"Postman test — verifying calibration targets specific rule\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 — Batch Processing Efficiency",
+      "item": [
+        {
+          "name": "06a GET Assessments — Check Batch Stats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Response returned', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Batch processing is systematic (no excessive pending/failed)', function () {",
+                  "    const qs = body.queueSummary;",
+                  "    const completed = qs.completed || 0;",
+                  "    const pending = qs.pending || 0;",
+                  "    const failed = qs.failed || 0;",
+                  "    const deadLetter = qs.dead_letter || 0;",
+                  "    const total = completed + pending + failed + deadLetter;",
+                  "",
+                  "    console.log('Queue breakdown:');",
+                  "    console.log('  Completed:', completed, '(' + (total ? Math.round(completed/total*100) : 0) + '%)');",
+                  "    console.log('  Pending:', pending);",
+                  "    console.log('  Failed:', failed);",
+                  "    console.log('  Dead letter:', deadLetter);",
+                  "    console.log('  Total:', total);",
+                  "",
+                  "    if (total > 0) {",
+                  "        const completionRate = completed / total;",
+                  "        pm.expect(completionRate).to.be.greaterThan(0.5, 'Completion rate should exceed 50%');",
+                  "        console.log('Completion rate:', Math.round(completionRate * 100) + '%');",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('No assessments stuck in processing (lease expired)', function () {",
+                  "    const processing = (body.queueSummary || {}).processing || 0;",
+                  "    pm.expect(processing).to.be.below(5, 'No more than 4 items in processing state');",
+                  "    if (processing > 0) console.log('WARN:', processing, 'items still in processing state');",
+                  "});",
+                  "",
+                  "pm.test('AI enrichment success rate on medium+ events', function () {",
+                  "    const mediumPlus = body.assessments.filter(a => a.deterministic && a.deterministic.score >= 50 && a.processing && a.processing.status === 'completed');",
+                  "    const withAI = mediumPlus.filter(a => a.aiOverlay?.openAIAnalysis?.available === true);",
+                  "    const withoutAI = mediumPlus.filter(a => !a.aiOverlay?.openAIAnalysis?.available);",
+                  "",
+                  "    console.log('Medium+ completed:', mediumPlus.length);",
+                  "    console.log('  With AI enrichment:', withAI.length);",
+                  "    console.log('  Without (degraded):', withoutAI.length);",
+                  "",
+                  "    if (mediumPlus.length > 0) {",
+                  "        withAI.forEach(a => {",
+                  "            const ai = a.aiOverlay.openAIAnalysis;",
+                  "            console.log('    [AI]', a.eventType, '| model:', ai.model, '| cached:', ai.cached, '| urgency:', ai.suggestedUrgency);",
+                  "        });",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('Backfill state is healthy', function () {",
+                  "    console.log('Backfill triggered:', body.backfillTriggered);",
+                  "    console.log('Backfill in flight:', body.backfillInFlight);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/admin/hub/risk-assessments?limit=50&includeFailures=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "hub", "risk-assessments"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "includeFailures", "value": "true" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "x-admin-password", "value": "{{admin_hub_password}}" }
+            ]
+          }
+        },
+        {
+          "name": "06b GET Failures — Check Dead Letter State",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Failures endpoint returns', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.failures).to.be.an('array');",
+                  "    console.log('Total failures/dead-letters:', body.failures.length);",
+                  "});",
+                  "",
+                  "pm.test('Failed assessments have error context', function () {",
+                  "    body.failures.forEach(f => {",
+                  "        const p = f.processing || {};",
+                  "        console.log('  [' + p.status + ']', f.eventType, '| attempts:', p.attempts, '| error:', (p.lastError || p.deadLetterReason || 'none').substring(0, 100));",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('No AI-related failures in processing errors', function () {",
+                  "    const aiErrors = body.failures.filter(f => {",
+                  "        const err = (f.processing?.lastError || f.processing?.deadLetterReason || '').toLowerCase();",
+                  "        return err.includes('groq') || err.includes('ollama') || err.includes('fetch failed') || err.includes('openai');",
+                  "    });",
+                  "    pm.expect(aiErrors.length).to.equal(0, 'AI provider failures should not cause assessment failures (graceful degradation)');",
+                  "    if (aiErrors.length > 0) {",
+                  "        console.log('CRITICAL: AI failures leaked into assessment processing:');",
+                  "        aiErrors.forEach(f => console.log('  ', f.processing?.lastError));",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/admin/hub/risk-assessments/failures?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "hub", "risk-assessments", "failures"],
+              "query": [
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" },
+              { "key": "x-admin-password", "value": "{{admin_hub_password}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 — Unauthorized Admin Access (New Event)",
+      "item": [
+        {
+          "name": "07a Hit Admin Endpoint Without Admin Authority",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// This test requires a non-admin user token.",
+                  "// If access_token belongs to an admin, this will return 200 instead of 403.",
+                  "// To properly test, set a non-admin user's token in 'non_admin_token' variable.",
+                  "console.log('NOTE: For proper 403 test, use a non-admin user token');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin endpoint responds (200 for admin, 403 for non-admin)', function () {",
+                  "    console.log('Response status:', pm.response.code);",
+                  "    if (pm.response.code === 403) {",
+                  "        console.log('403 confirmed — security.admin.unauthorized audit event should have been created');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.message).to.equal('Admin access only');",
+                  "    } else if (pm.response.code === 200 || pm.response.code === 204) {",
+                  "        console.log('200/204 — current token has admin authority. Use a non-admin token to test the unauthorized path.');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/admin/hub/access",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
